@@ -1,6 +1,8 @@
-import { MapPin, Calendar, Building2, Stethoscope, DollarSign, ArrowRight } from "lucide-react";
+import { 
+  MapPin, Calendar, Building2, Stethoscope, DollarSign, 
+  Clock, FileCheck, Pencil, CheckCircle2 
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 
 export interface ParsedJob {
   id?: string;
@@ -10,40 +12,56 @@ export interface ParsedJob {
   dates: string;
   billRate: number;
   payRate: number;
+  schedule?: string;
+  requirements?: string;
 }
 
 interface ParsedJobCardProps {
   job: ParsedJob;
-  onFindCandidates: () => void;
+  onEdit: () => void;
 }
 
-const ParsedJobCard = ({ job, onFindCandidates }: ParsedJobCardProps) => {
+const ParsedJobCard = ({ job, onEdit }: ParsedJobCardProps) => {
   return (
-    <div className="w-full rounded-2xl bg-card gradient-card shadow-card hover:shadow-card-hover transition-all duration-300 overflow-hidden animate-scale-in">
+    <div className="w-full rounded-2xl bg-card shadow-card overflow-hidden animate-scale-in">
       {/* Header */}
       <div className="gradient-primary px-6 py-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary-foreground/20 backdrop-blur-sm">
-            <Stethoscope className="h-6 w-6 text-primary-foreground" />
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary-foreground/20 backdrop-blur-sm">
+              <Stethoscope className="h-6 w-6 text-primary-foreground" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="h-4 w-4 text-primary-foreground/80" />
+                <span className="text-xs font-medium text-primary-foreground/80 uppercase tracking-wide">
+                  Parsed Job
+                </span>
+              </div>
+              <h3 className="font-display text-xl font-bold text-primary-foreground">
+                {job.specialty}
+              </h3>
+            </div>
           </div>
-          <div>
-            <h3 className="font-display text-xl font-bold text-primary-foreground">
-              {job.specialty}
-            </h3>
-            <p className="text-sm text-primary-foreground/80">
-              Parsed Job Opportunity
-            </p>
-          </div>
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            onClick={onEdit}
+            className="text-primary-foreground/80 hover:text-primary-foreground hover:bg-primary-foreground/10"
+          >
+            <Pencil className="h-4 w-4 mr-1" />
+            Edit
+          </Button>
         </div>
       </div>
 
-      {/* Content */}
-      <div className="p-6 space-y-4">
+      {/* Content - 2 Column Grid */}
+      <div className="p-6">
         <div className="grid gap-4 sm:grid-cols-2">
           <DetailItem
-            icon={<Building2 className="h-4 w-4" />}
-            label="Facility"
-            value={job.facility}
+            icon={<Stethoscope className="h-4 w-4" />}
+            label="Specialty"
+            value={job.specialty}
           />
           <DetailItem
             icon={<MapPin className="h-4 w-4" />}
@@ -51,45 +69,61 @@ const ParsedJobCard = ({ job, onFindCandidates }: ParsedJobCardProps) => {
             value={job.location}
           />
           <DetailItem
+            icon={<Building2 className="h-4 w-4" />}
+            label="Facility"
+            value={job.facility}
+          />
+          <DetailItem
             icon={<Calendar className="h-4 w-4" />}
             label="Dates"
             value={job.dates}
           />
-        </div>
-
-        {/* Rates */}
-        <div className="flex flex-wrap gap-4 pt-2">
-          <div className="flex-1 min-w-[140px] rounded-xl bg-secondary p-4">
-            <div className="flex items-center gap-2 text-muted-foreground mb-1">
+          
+          {/* Bill Rate */}
+          <div className="flex items-start gap-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-secondary text-muted-foreground">
               <DollarSign className="h-4 w-4" />
-              <span className="text-xs font-medium uppercase tracking-wide">Bill Rate</span>
             </div>
-            <p className="text-2xl font-bold text-foreground">
-              ${job.billRate.toLocaleString()}<span className="text-sm font-normal text-muted-foreground">/hr</span>
-            </p>
-          </div>
-          <div className="flex-1 min-w-[140px] rounded-xl bg-success/10 border border-success/20 p-4">
-            <div className="flex items-center gap-2 text-success mb-1">
-              <DollarSign className="h-4 w-4" />
-              <span className="text-xs font-medium uppercase tracking-wide">Pay Rate</span>
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Bill Rate
+              </p>
+              <p className="font-semibold text-foreground">
+                ${job.billRate.toLocaleString()}/hr
+              </p>
             </div>
-            <p className="text-2xl font-bold text-success">
-              ${job.payRate.toLocaleString()}<span className="text-sm font-normal text-success/70">/hr</span>
-            </p>
           </div>
-        </div>
 
-        {/* Action */}
-        <div className="pt-4">
-          <Button 
-            variant="gradient" 
-            size="lg" 
-            className="w-full"
-            onClick={onFindCandidates}
-          >
-            Find Matching Candidates
-            <ArrowRight className="h-5 w-5" />
-          </Button>
+          {/* Pay Rate - Green */}
+          <div className="flex items-start gap-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-success/10 text-success">
+              <DollarSign className="h-4 w-4" />
+            </div>
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-success">
+                Pay Rate
+              </p>
+              <p className="font-semibold text-success">
+                ${job.payRate.toLocaleString()}/hr
+              </p>
+            </div>
+          </div>
+
+          {job.schedule && (
+            <DetailItem
+              icon={<Clock className="h-4 w-4" />}
+              label="Schedule"
+              value={job.schedule}
+            />
+          )}
+
+          {job.requirements && (
+            <DetailItem
+              icon={<FileCheck className="h-4 w-4" />}
+              label="Requirements"
+              value={job.requirements}
+            />
+          )}
         </div>
       </div>
     </div>

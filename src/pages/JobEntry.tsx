@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { FileText, Sparkles, Loader2 } from "lucide-react";
+import { FileText, Sparkles, Loader2, ArrowRight } from "lucide-react";
 import Layout from "@/components/layout/Layout";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -26,66 +26,20 @@ const JobEntry = () => {
 
     setIsParsing(true);
 
-    // Simulate AI parsing (in production, this would call an API)
-    await new Promise((resolve) => setTimeout(resolve, 1500));
+    // Simulate AI parsing with 2 second delay
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
-    // Extract information from the job posting text
-    const text = jobText.toLowerCase();
-    
-    // Parse specialty
-    const specialties = [
-      "Cardiology", "Emergency Medicine", "Family Medicine", "Internal Medicine",
-      "Neurology", "Orthopedics", "Pediatrics", "Psychiatry", "Radiology",
-      "Anesthesiology", "Surgery", "Oncology", "Dermatology", "Hospitalist"
-    ];
-    const foundSpecialty = specialties.find(s => text.includes(s.toLowerCase())) || "General Practice";
-
-    // Parse location - look for city, state patterns
-    const locationMatch = text.match(/([a-z\s]+),\s*([a-z]{2})/i);
-    const location = locationMatch ? `${locationMatch[1].trim()}, ${locationMatch[2].toUpperCase()}` : "Remote / Various Locations";
-
-    // Parse facility
-    const facilityPatterns = ["hospital", "medical center", "clinic", "health system"];
-    let facility = "Healthcare Facility";
-    for (const pattern of facilityPatterns) {
-      const idx = text.indexOf(pattern);
-      if (idx !== -1) {
-        const start = Math.max(0, idx - 30);
-        const snippet = jobText.slice(start, idx + pattern.length);
-        const words = snippet.split(/\s+/).slice(-4).join(" ");
-        facility = words.charAt(0).toUpperCase() + words.slice(1);
-        break;
-      }
-    }
-
-    // Parse dates
-    const datePatterns = [
-      /(\d{1,2}\/\d{1,2}\/\d{2,4})\s*[-–to]+\s*(\d{1,2}\/\d{1,2}\/\d{2,4})/i,
-      /(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2}/gi,
-      /starting\s+(immediately|asap)/i,
-    ];
-    let dates = "Flexible Start Date";
-    for (const pattern of datePatterns) {
-      const match = text.match(pattern);
-      if (match) {
-        dates = match[0];
-        break;
-      }
-    }
-
-    // Parse bill rate
-    const rateMatch = text.match(/\$?\s*(\d{2,4})\s*(?:\/\s*hr|per\s*hour|hourly)?/);
-    const billRate = rateMatch ? parseInt(rateMatch[1]) : 175;
-    const payRate = Math.round(billRate * 0.73);
-
+    // Mock parsed data matching the example
     const parsed: ParsedJob = {
       id: crypto.randomUUID(),
-      specialty: foundSpecialty,
-      location,
-      facility,
-      dates,
-      billRate,
-      payRate,
+      specialty: "Interventional Radiology",
+      location: "Eau Claire, WI",
+      facility: "Chippewa Valley Vein Center",
+      dates: "March 2026",
+      billRate: 725,
+      payRate: Math.round(725 * 0.73), // $529
+      schedule: "Every other week",
+      requirements: "BC/BE, WI license",
     };
 
     setParsedJob(parsed);
@@ -93,13 +47,16 @@ const JobEntry = () => {
 
     toast({
       title: "Job parsed successfully! ✨",
-      description: `Found ${foundSpecialty} position at ${facility}`,
+      description: `Found ${parsed.specialty} position at ${parsed.facility}`,
     });
   };
 
-  const handleFindCandidates = () => {
+  const handleEdit = () => {
+    setParsedJob(null);
+  };
+
+  const handleNext = () => {
     if (parsedJob) {
-      // Store job in sessionStorage for the next page
       sessionStorage.setItem("currentJob", JSON.stringify(parsedJob));
       navigate("/candidates");
     }
@@ -118,55 +75,82 @@ const JobEntry = () => {
           </p>
         </div>
 
-        {/* Job Input Card */}
-        <div className="rounded-2xl bg-card shadow-card p-6 space-y-4">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-secondary text-primary">
-              <FileText className="h-5 w-5" />
-            </div>
-            <div>
-              <h2 className="font-semibold text-foreground">Job Posting</h2>
-              <p className="text-sm text-muted-foreground">
-                Paste the full job description below
-              </p>
+        {/* Loading State */}
+        {isParsing && (
+          <div className="rounded-2xl bg-card shadow-card p-12 animate-fade-in">
+            <div className="flex flex-col items-center justify-center gap-4">
+              <div className="relative">
+                <div className="h-16 w-16 rounded-full gradient-primary animate-pulse-glow flex items-center justify-center">
+                  <Sparkles className="h-8 w-8 text-primary-foreground" />
+                </div>
+              </div>
+              <div className="text-center space-y-1">
+                <h3 className="font-semibold text-foreground">Parsing with AI...</h3>
+                <p className="text-sm text-muted-foreground">
+                  Extracting job details from your posting
+                </p>
+              </div>
+              <Loader2 className="h-6 w-6 text-primary animate-spin" />
             </div>
           </div>
+        )}
 
-          <Textarea
-            placeholder="Paste your job posting here...
+        {/* Job Input Card - Hidden when parsed or parsing */}
+        {!parsedJob && !isParsing && (
+          <div className="rounded-2xl bg-card shadow-card p-6 space-y-4 animate-fade-in">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-secondary text-primary">
+                <FileText className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 className="font-semibold text-foreground">Job Posting</h2>
+                <p className="text-sm text-muted-foreground">
+                  Paste the full job description below
+                </p>
+              </div>
+            </div>
+
+            <Textarea
+              placeholder="Paste your job posting here...
 
 Example:
-Seeking a Board-Certified Cardiologist for a locum tenens position at Memorial Hospital in Austin, TX. Coverage needed from January 15 - March 30, 2025. Must have active Texas license. Bill rate: $200/hour. Contact us for more details."
-            className="min-h-[200px] resize-y text-base leading-relaxed bg-secondary/50 border-border focus:border-primary focus:ring-primary"
-            value={jobText}
-            onChange={(e) => setJobText(e.target.value)}
-          />
+Seeking a Board-Certified Interventional Radiologist for a locum tenens position at Chippewa Valley Vein Center in Eau Claire, WI. Coverage needed March 2026, every other week. Must have WI license. Bill rate: $725/hour."
+              className="min-h-[200px] resize-y text-base leading-relaxed bg-secondary/50 border-border focus:border-primary focus:ring-primary"
+              value={jobText}
+              onChange={(e) => setJobText(e.target.value)}
+            />
 
+            <Button
+              variant="gradient"
+              size="lg"
+              className="w-full"
+              onClick={parseJobPosting}
+              disabled={!jobText.trim()}
+            >
+              <Sparkles className="h-5 w-5" />
+              Parse Job Posting
+            </Button>
+          </div>
+        )}
+
+        {/* Parsed Job Result */}
+        {parsedJob && !isParsing && (
+          <ParsedJobCard job={parsedJob} onEdit={handleEdit} />
+        )}
+
+        {/* Footer with Next Button */}
+        <div className="flex justify-end pt-4">
           <Button
             variant="gradient"
             size="lg"
-            className="w-full"
-            onClick={parseJobPosting}
-            disabled={isParsing || !jobText.trim()}
+            onClick={handleNext}
+            disabled={!parsedJob}
+            className="min-w-[160px]"
           >
-            {isParsing ? (
-              <>
-                <Loader2 className="h-5 w-5 animate-spin" />
-                Parsing with AI...
-              </>
-            ) : (
-              <>
-                <Sparkles className="h-5 w-5" />
-                Parse Job Posting
-              </>
-            )}
+            Next
+            <ArrowRight className="h-5 w-5" />
           </Button>
         </div>
-
-        {/* Parsed Job Result */}
-        {parsedJob && (
-          <ParsedJobCard job={parsedJob} onFindCandidates={handleFindCandidates} />
-        )}
       </div>
     </Layout>
   );
