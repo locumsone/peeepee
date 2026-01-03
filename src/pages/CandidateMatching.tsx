@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { 
-  Users, Loader2, ArrowRight, ChevronDown, ChevronUp,
-  Phone, Mail, AlertCircle, CheckCircle2, Star
+  Users, Loader2, ArrowRight, ArrowLeft, ChevronDown, ChevronUp,
+  AlertCircle, CheckCircle2, Star, Phone, X
 } from "lucide-react";
 import Layout from "@/components/layout/Layout";
 import { Button } from "@/components/ui/button";
@@ -17,28 +17,102 @@ interface Candidate {
   last_name: string;
   specialty: string;
   unified_score: string;
-  licenses: string[];
+  licenses_count: number;
   icebreaker: string;
+  talking_points: string[];
   has_personal_contact: boolean;
   needs_enrichment: boolean;
-  email?: string;
-  phone?: string;
 }
 
 // Mock data for demonstration
 const mockCandidates: Candidate[] = [
-  { id: "1", first_name: "Sarah", last_name: "Johnson", specialty: "Cardiology", unified_score: "A+", licenses: ["TX", "CA", "NY"], icebreaker: "Sarah recently spoke at the American Heart Association conference about innovative cardiac care techniques.", has_personal_contact: true, needs_enrichment: false, email: "sarah.j@email.com", phone: "+1 (555) 123-4567" },
-  { id: "2", first_name: "Michael", last_name: "Chen", specialty: "Cardiology", unified_score: "A", licenses: ["TX", "FL"], icebreaker: "Michael has 15 years of experience in interventional cardiology and leads a research team at Stanford.", has_personal_contact: true, needs_enrichment: false, email: "m.chen@email.com" },
-  { id: "3", first_name: "Emily", last_name: "Rodriguez", specialty: "Cardiology", unified_score: "A", licenses: ["TX"], icebreaker: "Emily completed her fellowship at Mayo Clinic and specializes in heart failure management.", has_personal_contact: false, needs_enrichment: true },
-  { id: "4", first_name: "David", last_name: "Thompson", specialty: "Internal Medicine", unified_score: "B+", licenses: ["TX", "AZ"], icebreaker: "David has extensive locum tenens experience with flexible scheduling preferences.", has_personal_contact: true, needs_enrichment: false, phone: "+1 (555) 987-6543" },
-  { id: "5", first_name: "Lisa", last_name: "Park", specialty: "Cardiology", unified_score: "B+", licenses: ["TX", "CA", "WA", "OR"], icebreaker: "Lisa is actively seeking new locum opportunities and has excellent patient satisfaction scores.", has_personal_contact: true, needs_enrichment: false, email: "lisa.park@email.com", phone: "+1 (555) 456-7890" },
-  { id: "6", first_name: "James", last_name: "Wilson", specialty: "Cardiology", unified_score: "B", licenses: ["TX"], icebreaker: "James recently relocated and is looking for long-term assignments in the Austin area.", has_personal_contact: false, needs_enrichment: true },
-  { id: "7", first_name: "Amanda", last_name: "Foster", specialty: "Cardiology", unified_score: "C", licenses: ["CA", "NV"], icebreaker: "Amanda has expressed interest in obtaining Texas licensure.", has_personal_contact: true, needs_enrichment: false },
+  { 
+    id: "1", 
+    first_name: "Sarah", 
+    last_name: "Johnson", 
+    specialty: "Interventional Radiology", 
+    unified_score: "A+", 
+    licenses_count: 37,
+    icebreaker: "Sarah recently spoke at the RSNA conference about innovative IR techniques and has published 12 papers on vascular interventions.", 
+    talking_points: [
+      "Presented at RSNA 2025 on micro-catheter innovations",
+      "Fellowship-trained at Johns Hopkins",
+      "Prefers Midwest assignments due to family proximity"
+    ],
+    has_personal_contact: true, 
+    needs_enrichment: false 
+  },
+  { 
+    id: "2", 
+    first_name: "Michael", 
+    last_name: "Chen", 
+    specialty: "Interventional Radiology", 
+    unified_score: "A", 
+    licenses_count: 24,
+    icebreaker: "Michael has 15 years of experience in IR and leads a research team at Stanford focusing on minimally invasive procedures.", 
+    talking_points: [
+      "Stanford faculty member with research focus",
+      "Experience with complex embolization cases",
+      "Available for long-term assignments"
+    ],
+    has_personal_contact: true, 
+    needs_enrichment: false 
+  },
+  { 
+    id: "3", 
+    first_name: "Emily", 
+    last_name: "Rodriguez", 
+    specialty: "Interventional Radiology", 
+    unified_score: "B+", 
+    licenses_count: 12,
+    icebreaker: "Emily completed her fellowship at Mayo Clinic and specializes in hepatobiliary interventions.", 
+    talking_points: [
+      "Mayo Clinic fellowship graduate",
+      "Specializes in liver/biliary procedures",
+      "Seeking work-life balance opportunities"
+    ],
+    has_personal_contact: false, 
+    needs_enrichment: true 
+  },
+  { 
+    id: "4", 
+    first_name: "David", 
+    last_name: "Thompson", 
+    specialty: "Interventional Radiology", 
+    unified_score: "B", 
+    licenses_count: 8,
+    icebreaker: "David has extensive locum tenens experience with flexible scheduling preferences and excellent patient reviews.", 
+    talking_points: [
+      "5+ years locum tenens experience",
+      "Flexible on scheduling",
+      "Strong patient satisfaction scores"
+    ],
+    has_personal_contact: true, 
+    needs_enrichment: false 
+  },
+  { 
+    id: "5", 
+    first_name: "Lisa", 
+    last_name: "Park", 
+    specialty: "Interventional Radiology", 
+    unified_score: "C", 
+    licenses_count: 4,
+    icebreaker: "Lisa is actively seeking new locum opportunities and is willing to obtain additional state licenses.", 
+    talking_points: [
+      "Early career with strong training",
+      "Willing to obtain new licenses",
+      "Interested in mentorship opportunities"
+    ],
+    has_personal_contact: false, 
+    needs_enrichment: true 
+  },
 ];
 
 const getScoreColor = (score: string) => {
-  if (score.startsWith("A")) return "bg-success text-success-foreground";
-  if (score.startsWith("B")) return "bg-accent text-accent-foreground";
+  if (score === "A+") return "bg-success text-success-foreground";
+  if (score === "A") return "bg-success/80 text-success-foreground";
+  if (score === "B+") return "bg-accent text-accent-foreground";
+  if (score === "B") return "bg-accent/80 text-accent-foreground";
   return "bg-muted text-muted-foreground";
 };
 
@@ -98,6 +172,10 @@ const CandidateMatching = () => {
     setSelectedIds(new Set(withContact));
   };
 
+  const clearSelection = () => {
+    setSelectedIds(new Set());
+  };
+
   const handleContinue = () => {
     const selected = candidates.filter(c => selectedIds.has(c.id));
     sessionStorage.setItem("selectedCandidates", JSON.stringify(selected));
@@ -135,25 +213,11 @@ const CandidateMatching = () => {
   return (
     <Layout currentStep={2}>
       <div className="mx-auto max-w-6xl space-y-6">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <h1 className="font-display text-2xl font-bold text-foreground sm:text-3xl">
-              Matched Candidates
-            </h1>
-            <p className="text-muted-foreground">
-              {job?.specialty} • {job?.location}
-            </p>
-          </div>
-          <Button
-            variant="gradient"
-            size="lg"
-            onClick={handleContinue}
-            disabled={selectedIds.size === 0}
-          >
-            Continue to Campaign
-            <ArrowRight className="h-5 w-5" />
-          </Button>
+        {/* Job Summary Bar */}
+        <div className="rounded-xl bg-secondary/50 border border-border px-6 py-4">
+          <p className="text-lg font-semibold text-foreground">
+            IR at {job?.facility || "Chippewa Valley"} | {job?.location || "Eau Claire, WI"} | <span className="text-success">{job?.payRate || "$529/hr"}</span>
+          </p>
         </div>
 
         {/* Stats Cards */}
@@ -174,13 +238,17 @@ const CandidateMatching = () => {
             <Phone className="h-4 w-4 mr-1" />
             Select All with Contact
           </Button>
+          <Button variant="outline" size="sm" onClick={clearSelection}>
+            <X className="h-4 w-4 mr-1" />
+            Clear Selection
+          </Button>
           <span className="flex items-center text-sm text-muted-foreground ml-auto">
             {selectedIds.size} selected
           </span>
         </div>
 
         {/* Candidates Table */}
-        <div className="rounded-2xl bg-card shadow-card overflow-hidden">
+        <div className="rounded-2xl bg-card shadow-card overflow-hidden border border-border">
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
@@ -201,88 +269,113 @@ const CandidateMatching = () => {
                   <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Score</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Specialty</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Licenses</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Contact</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Icebreaker</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Contact Status</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground w-20"></th>
                 </tr>
               </thead>
               <tbody>
                 {candidates.map((candidate, index) => (
-                  <tr 
-                    key={candidate.id}
-                    className={cn(
-                      "border-b border-border/50 transition-colors hover:bg-secondary/30",
-                      selectedIds.has(candidate.id) && "bg-primary/5"
-                    )}
-                    style={{ animationDelay: `${index * 50}ms` }}
-                  >
-                    <td className="px-4 py-4">
-                      <Checkbox
-                        checked={selectedIds.has(candidate.id)}
-                        onCheckedChange={() => toggleSelect(candidate.id)}
-                      />
-                    </td>
-                    <td className="px-4 py-4">
-                      <span className="font-medium text-foreground">
-                        {candidate.first_name} {candidate.last_name}
-                      </span>
-                    </td>
-                    <td className="px-4 py-4">
-                      <Badge className={cn("font-bold", getScoreColor(candidate.unified_score))}>
-                        {candidate.unified_score}
-                      </Badge>
-                    </td>
-                    <td className="px-4 py-4 text-muted-foreground">
-                      {candidate.specialty}
-                    </td>
-                    <td className="px-4 py-4">
-                      <div className="flex gap-1 flex-wrap">
-                        {candidate.licenses.slice(0, 3).map((license) => (
-                          <Badge key={license} variant="secondary" className="text-xs">
-                            {license}
-                          </Badge>
-                        ))}
-                        {candidate.licenses.length > 3 && (
-                          <Badge variant="secondary" className="text-xs">
-                            +{candidate.licenses.length - 3}
-                          </Badge>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-4 py-4">
-                      {candidate.has_personal_contact ? (
-                        <div className="flex items-center gap-1 text-success">
-                          <CheckCircle2 className="h-4 w-4" />
-                          <span className="text-xs font-medium">Available</span>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-1 text-warning">
-                          <AlertCircle className="h-4 w-4" />
-                          <span className="text-xs font-medium">Needs Enrichment</span>
-                        </div>
+                  <>
+                    <tr 
+                      key={candidate.id}
+                      className={cn(
+                        "border-b border-border/50 transition-colors hover:bg-secondary/30",
+                        selectedIds.has(candidate.id) && "bg-primary/5"
                       )}
-                    </td>
-                    <td className="px-4 py-4">
-                      <button
-                        onClick={() => toggleExpand(candidate.id)}
-                        className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
-                      >
-                        {expandedIds.has(candidate.id) ? (
-                          <>Hide <ChevronUp className="h-4 w-4" /></>
+                      style={{ animationDelay: `${index * 50}ms` }}
+                    >
+                      <td className="px-4 py-4">
+                        <Checkbox
+                          checked={selectedIds.has(candidate.id)}
+                          onCheckedChange={() => toggleSelect(candidate.id)}
+                        />
+                      </td>
+                      <td className="px-4 py-4">
+                        <span className="font-medium text-foreground">
+                          {candidate.first_name} {candidate.last_name}
+                        </span>
+                      </td>
+                      <td className="px-4 py-4">
+                        <Badge className={cn("font-bold", getScoreColor(candidate.unified_score))}>
+                          {candidate.unified_score}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-4 text-muted-foreground">
+                        {candidate.specialty}
+                      </td>
+                      <td className="px-4 py-4">
+                        <Badge variant="secondary" className="text-xs">
+                          {candidate.licenses_count} states
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-4">
+                        {candidate.has_personal_contact ? (
+                          <div className="flex items-center gap-1.5 text-success">
+                            <CheckCircle2 className="h-4 w-4" />
+                            <span className="text-xs font-medium">Available</span>
+                          </div>
                         ) : (
-                          <>Show <ChevronDown className="h-4 w-4" /></>
+                          <div className="flex items-center gap-1.5 text-warning">
+                            <AlertCircle className="h-4 w-4" />
+                            <span className="text-xs font-medium">Needs Enrichment</span>
+                          </div>
                         )}
-                      </button>
-                      {expandedIds.has(candidate.id) && (
-                        <p className="mt-2 text-sm text-muted-foreground max-w-xs animate-fade-in">
-                          {candidate.icebreaker}
-                        </p>
-                      )}
-                    </td>
-                  </tr>
+                      </td>
+                      <td className="px-4 py-4">
+                        <button
+                          onClick={() => toggleExpand(candidate.id)}
+                          className="flex items-center gap-1 text-sm text-primary hover:text-primary/80 transition-colors font-medium"
+                        >
+                          {expandedIds.has(candidate.id) ? (
+                            <ChevronUp className="h-5 w-5" />
+                          ) : (
+                            <ChevronDown className="h-5 w-5" />
+                          )}
+                        </button>
+                      </td>
+                    </tr>
+                    {expandedIds.has(candidate.id) && (
+                      <tr key={`${candidate.id}-expanded`} className="bg-secondary/20">
+                        <td colSpan={7} className="px-6 py-4">
+                          <div className="space-y-3 animate-fade-in">
+                            <div>
+                              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Icebreaker</p>
+                              <p className="text-sm text-foreground">{candidate.icebreaker}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Talking Points</p>
+                              <ul className="list-disc list-inside text-sm text-foreground space-y-1">
+                                {candidate.talking_points.map((point, i) => (
+                                  <li key={i}>{point}</li>
+                                ))}
+                              </ul>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </>
                 ))}
               </tbody>
             </table>
           </div>
+        </div>
+
+        {/* Footer Navigation */}
+        <div className="flex items-center justify-between pt-4 border-t border-border">
+          <Button variant="outline" onClick={() => navigate("/job-entry")}>
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back
+          </Button>
+          <Button
+            variant="gradient"
+            size="lg"
+            onClick={handleContinue}
+            disabled={selectedIds.size === 0}
+          >
+            Continue to Campaign
+            <ArrowRight className="h-5 w-5 ml-2" />
+          </Button>
         </div>
       </div>
     </Layout>
