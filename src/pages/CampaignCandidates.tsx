@@ -57,10 +57,14 @@ const CampaignCandidates = () => {
   const [candidates, setCandidates] = useState<MatchedCandidate[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   
-  // Collapsible states
+  // Collapsible states - C-tier collapsed by default
   const [aTierOpen, setATierOpen] = useState(true);
   const [bTierOpen, setBTierOpen] = useState(true);
-  const [cTierOpen, setCTierOpen] = useState(true);
+  const [cTierOpen, setCTierOpen] = useState(false);
+  const [showAllTiers, setShowAllTiers] = useState(false);
+  
+  // Enrichment loading state
+  const [enrichingIds, setEnrichingIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const jobId = sessionStorage.getItem("campaign_job_id");
@@ -101,7 +105,7 @@ const CampaignCandidates = () => {
       setCandidates(matchedCandidates);
       setHasSearched(true);
       
-      // Auto-select A-tier and B-tier candidates
+      // Auto-select A-tier and B-tier candidates only (C-tier unchecked by default)
       const autoSelected = new Set<string>();
       matchedCandidates.forEach(c => {
         if (c.tier === 1 || c.tier === 2) {
@@ -109,6 +113,9 @@ const CampaignCandidates = () => {
         }
       });
       setSelectedIds(autoSelected);
+      
+      // Ensure C-tier is collapsed by default
+      setCTierOpen(false);
       
       toast.success(`Found ${matchedCandidates.length} matching candidates!`);
     } catch (error) {
@@ -140,6 +147,79 @@ const CampaignCandidates = () => {
 
   const deselectAll = () => {
     setSelectedIds(new Set());
+  };
+
+  // Toggle show all tiers
+  const handleShowAllTiers = (checked: boolean) => {
+    setShowAllTiers(checked);
+    if (checked) {
+      setCTierOpen(true);
+    } else {
+      setCTierOpen(false);
+    }
+  };
+
+  // Enrich a candidate
+  const enrichCandidate = async (candidate: MatchedCandidate) => {
+    setEnrichingIds(prev => new Set(prev).add(candidate.id));
+    
+    try {
+      const response = await fetch(
+        "https://qpvyzyspwxwtwjhfcuhh.supabase.co/functions/v1/enrich-contact",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFwdnl6eXNwd3h3dHdqaGZjdWhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzQ3NTA3NDIsImV4cCI6MjA1MDMyNjc0Mn0.5R1H_6tsnp27PN5qYNE-4VdRT1H8kqH-NXQMJQL8sxg",
+          },
+          body: JSON.stringify({
+            candidate_id: candidate.id,
+            first_name: candidate.first_name,
+            last_name: candidate.last_name,
+            city: candidate.city,
+            state: candidate.state,
+            specialty: candidate.specialty,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Enrichment failed");
+      }
+
+      const data = await response.json();
+      const foundPhone = data.phone || data.personal_mobile;
+      const foundEmail = data.email || data.personal_email;
+
+      if (foundPhone || foundEmail) {
+        // Update the candidate in state
+        setCandidates(prev =>
+          prev.map(c =>
+            c.id === candidate.id
+              ? {
+                  ...c,
+                  phone: data.phone || c.phone,
+                  personal_mobile: data.personal_mobile || c.personal_mobile,
+                  email: data.email || c.email,
+                  personal_email: data.personal_email || c.personal_email,
+                }
+              : c
+          )
+        );
+        toast.success(`✅ Found: ${foundPhone || "—"} / ${foundEmail || "—"}`);
+      } else {
+        toast.warning("⚠️ No contact info found");
+      }
+    } catch (error) {
+      console.error("Enrichment error:", error);
+      toast.error("Failed to enrich contact");
+    } finally {
+      setEnrichingIds(prev => {
+        const next = new Set(prev);
+        next.delete(candidate.id);
+        return next;
+      });
+    }
   };
 
   const handleNext = () => {
@@ -295,6 +375,18 @@ const CampaignCandidates = () => {
               </div>
             </div>
 
+            {/* Show All Tiers Toggle */}
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="showAllTiers"
+                checked={showAllTiers}
+                onCheckedChange={handleShowAllTiers}
+              />
+              <label htmlFor="showAllTiers" className="text-sm text-muted-foreground cursor-pointer">
+                ☑️ Show all tiers
+              </label>
+            </div>
+
             {/* A-Tier Section */}
             {aTier.length > 0 && (
               <TierSection
@@ -306,6 +398,8 @@ const CampaignCandidates = () => {
                 isOpen={aTierOpen}
                 onOpenChange={setATierOpen}
                 variant="green"
+                onEnrich={enrichCandidate}
+                enrichingIds={enrichingIds}
               />
             )}
 
@@ -320,13 +414,15 @@ const CampaignCandidates = () => {
                 isOpen={bTierOpen}
                 onOpenChange={setBTierOpen}
                 variant="blue"
+                onEnrich={enrichCandidate}
+                enrichingIds={enrichingIds}
               />
             )}
 
             {/* C-Tier Section */}
             {cTier.length > 0 && (
               <TierSection
-                title="C-Tier (Consider)"
+                title={cTierOpen ? "C-Tier (Consider)" : `📋 C-Tier (${cTier.length} candidates) - Click to expand`}
                 icon={<ClipboardList className="h-5 w-5" />}
                 candidates={cTier}
                 selectedIds={selectedIds}
@@ -334,6 +430,8 @@ const CampaignCandidates = () => {
                 isOpen={cTierOpen}
                 onOpenChange={setCTierOpen}
                 variant="gray"
+                onEnrich={enrichCandidate}
+                enrichingIds={enrichingIds}
               />
             )}
           </>
@@ -404,6 +502,16 @@ function hasContact(candidate: MatchedCandidate): boolean {
   return !!(candidate.phone || candidate.personal_mobile || candidate.email || candidate.personal_email);
 }
 
+// Helper to check contact status
+function getContactStatus(candidate: MatchedCandidate): "ready" | "partial" | "missing" {
+  const hasPhone = !!(candidate.phone || candidate.personal_mobile);
+  const hasEmail = !!(candidate.email || candidate.personal_email);
+  
+  if (hasPhone && hasEmail) return "ready";
+  if (hasPhone || hasEmail) return "partial";
+  return "missing";
+}
+
 // Tier Section Component
 interface TierSectionProps {
   title: string;
@@ -414,6 +522,8 @@ interface TierSectionProps {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
   variant: "green" | "blue" | "gray";
+  onEnrich: (candidate: MatchedCandidate) => void;
+  enrichingIds: Set<string>;
 }
 
 const TierSection = ({
@@ -425,6 +535,8 @@ const TierSection = ({
   isOpen,
   onOpenChange,
   variant,
+  onEnrich,
+  enrichingIds,
 }: TierSectionProps) => {
   const headerColors = {
     green: "bg-green-500/10 border-green-500/30 text-green-600",
@@ -441,9 +553,11 @@ const TierSection = ({
               <CardTitle className="flex items-center gap-2 text-base">
                 {icon}
                 {title}
-                <Badge variant="secondary" className="ml-2">
-                  {candidates.length}
-                </Badge>
+                {isOpen && (
+                  <Badge variant="secondary" className="ml-2">
+                    {candidates.length}
+                  </Badge>
+                )}
               </CardTitle>
               {isOpen ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
             </div>
@@ -465,7 +579,9 @@ const TierSection = ({
               </thead>
               <tbody>
                 {candidates.map((candidate) => {
-                  const isReady = hasContact(candidate);
+                  const contactStatus = getContactStatus(candidate);
+                  const isEnriching = enrichingIds.has(candidate.id);
+                  
                   return (
                     <tr
                       key={candidate.id}
@@ -509,14 +625,36 @@ const TierSection = ({
                         </div>
                       </td>
                       <td className="p-3">
-                        {isReady ? (
-                          <Badge className="bg-green-500/10 text-green-600 border-green-500/30 hover:bg-green-500/20">
-                            Ready
+                        {contactStatus === "ready" ? (
+                          <Badge className="bg-green-500/10 text-green-600 border-green-500/30">
+                            ✅ Ready
                           </Badge>
+                        ) : contactStatus === "partial" ? (
+                          <Badge className="bg-yellow-500/10 text-yellow-600 border-yellow-500/30">
+                            ⚠️ Partial
+                          </Badge>
+                        ) : isEnriching ? (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled
+                            className="h-6 px-2 text-xs"
+                          >
+                            <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                            Enriching...
+                          </Button>
                         ) : (
-                          <Badge className="bg-warning/10 text-warning border-warning/30 hover:bg-warning/20">
-                            Needs Enrichment
-                          </Badge>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onEnrich(candidate);
+                            }}
+                            className="h-6 px-2 text-xs bg-primary/10 border-primary/30 text-primary hover:bg-primary/20"
+                          >
+                            🔍 Enrich
+                          </Button>
                         )}
                       </td>
                     </tr>
