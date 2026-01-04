@@ -1,909 +1,194 @@
-import { useState, useEffect, useRef } from "react";
-import { useSearchParams } from "react-router-dom";
-import Layout from "@/components/layout/Layout";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Textarea } from "@/components/ui/textarea";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { useTwilioDevice } from "@/hooks/useTwilioDevice";
-import { formatDistanceToNow } from "date-fns";
-import { 
-  Phone, 
-  MessageSquare, 
-  Mail, 
-  Search, 
-  PhoneCall, 
-  PhoneOff, 
-  PhoneMissed,
-  Mic,
-  MicOff,
-  Pause,
-  Play,
-  X,
-  Minimize2,
-  Maximize2,
-  ExternalLink
-} from "lucide-react";
-import { Link } from "react-router-dom";
-import { toast } from "sonner";
+import Layout from "@/components/layout/Layout";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Plus, Inbox as InboxIcon } from "lucide-react";
+import { ConversationList } from "@/components/inbox/ConversationList";
+import { ConversationDetail } from "@/components/inbox/ConversationDetail";
+import { NewMessageModal } from "@/components/inbox/NewMessageModal";
 
-interface SMSConversation {
-  id: string;
-  candidate_id: string;
-  candidate_name: string;
-  phone_number: string;
-  last_message: string;
-  last_message_at: string;
-  unread_count: number;
-}
+export type ChannelFilter = "all" | "sms" | "calls" | "ai_calls";
 
-interface CallLog {
+export interface ConversationItem {
   id: string;
-  candidate_id: string;
-  candidate_name: string;
-  phone_number: string;
-  duration_seconds: number;
-  status: string;
-  call_result: string;
-  transcript_text: string;
-  created_at: string;
-}
-
-interface Message {
-  id: string;
-  type: 'sms' | 'call';
-  direction: 'inbound' | 'outbound';
-  content: string;
+  channel: "sms" | "call";
+  candidateId: string | null;
+  candidateName: string;
+  candidatePhone: string | null;
+  preview: string;
   timestamp: string;
-  duration_seconds?: number;
-  call_result?: string;
-  transcript_text?: string;
+  unreadCount: number;
 }
 
-interface Candidate {
-  id: string;
-  first_name: string;
-  last_name: string;
-  specialty: string;
-  phone: string;
-  email: string;
-  personal_mobile: string;
-  city: string;
-  state: string;
-  licenses: string[];
-  enrichment_tier: string;
-}
+const Communications = () => {
+  const [activeTab, setActiveTab] = useState<ChannelFilter>("all");
+  const [selectedConversation, setSelectedConversation] = useState<ConversationItem | null>(null);
+  const [isNewMessageOpen, setIsNewMessageOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
-interface CampaignLead {
-  id: string;
-  campaign_id: string;
-  campaign_name: string;
-  status: string;
-}
-
-export default function Communications() {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const [activeTab, setActiveTab] = useState<'sms' | 'calls'>('sms');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [conversations, setConversations] = useState<SMSConversation[]>([]);
-  const [callLogs, setCallLogs] = useState<CallLog[]>([]);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [candidate, setCandidate] = useState<Candidate | null>(null);
-  const [campaignLeads, setCampaignLeads] = useState<CampaignLead[]>([]);
-  const [replyText, setReplyText] = useState('');
-  const [sending, setSending] = useState(false);
-  const [callWidgetMinimized, setCallWidgetMinimized] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const initialActionHandled = useRef(false);
-  const pendingAction = useRef<{ type: 'call' | 'sms'; phone: string } | null>(null);
-  const replyTextareaRef = useRef<HTMLTextAreaElement>(null);
-
-  const twilioDevice = useTwilioDevice('recruiter-1');
-
-  // Handle query params for call/sms actions
-  useEffect(() => {
-    if (initialActionHandled.current) return;
-    
-    const callPhone = searchParams.get('call');
-    const smsPhone = searchParams.get('sms');
-    
-    if (callPhone || smsPhone) {
-      const phone = callPhone || smsPhone;
-      pendingAction.current = {
-        type: callPhone ? 'call' : 'sms',
-        phone: phone!
-      };
+  // Fetch SMS conversations with candidate data
+  const { data: smsConversations = [], isLoading: smsLoading } = useQuery({
+    queryKey: ["sms-conversations"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("sms_conversations")
+        .select(`
+          id,
+          candidate_id,
+          candidate_phone,
+          last_message_at,
+          last_message_preview,
+          unread_count,
+          candidates!sms_conversations_candidate_id_fkey (
+            first_name,
+            last_name
+          )
+        `)
+        .order("last_message_at", { ascending: false })
+        .limit(100);
       
-      if (callPhone) {
-        setActiveTab('calls');
-      } else {
-        setActiveTab('sms');
-      }
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  // Fetch AI call logs
+  const { data: aiCallLogs = [], isLoading: callsLoading } = useQuery({
+    queryKey: ["ai-call-logs"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("ai_call_logs")
+        .select("id, candidate_id, candidate_name, phone_number, call_result, created_at, status")
+        .order("created_at", { ascending: false })
+        .limit(100);
       
-      // Clear the query params
-      setSearchParams({});
-      initialActionHandled.current = true;
-    }
-  }, [searchParams, setSearchParams]);
+      if (error) throw error;
+      return data || [];
+    },
+  });
 
-  // Process pending action after data is loaded
-  useEffect(() => {
-    if (loading || !pendingAction.current) return;
-    
-    const { type, phone } = pendingAction.current;
-    
-    const handlePendingAction = async () => {
-      // Normalize phone for comparison
-      const normalizePhone = (p: string) => p.replace(/\D/g, '');
-      const normalizedPhone = normalizePhone(phone);
-      
-      // Find existing conversation/call with this phone
-      let existingItem: SMSConversation | CallLog | undefined;
-      
-      if (type === 'sms') {
-        existingItem = conversations.find(c => 
-          normalizePhone(c.phone_number) === normalizedPhone
-        );
-      } else {
-        existingItem = callLogs.find(c => 
-          normalizePhone(c.phone_number) === normalizedPhone
-        );
-      }
-      
-      if (existingItem) {
-        // Select existing conversation
-        setSelectedId(existingItem.id);
-      } else {
-        // Fetch candidate by phone and create a new conversation entry
-        const { data: candidateData } = await supabase
-          .from('candidates')
-          .select('*')
-          .or(`phone.eq.${phone},personal_mobile.eq.${phone}`)
-          .limit(1)
-          .single();
-        
-        if (candidateData) {
-          // Create a virtual conversation for the sidebar
-          const newConversation: SMSConversation = {
-            id: `new-${Date.now()}`,
-            candidate_id: candidateData.id,
-            candidate_name: `${candidateData.first_name || ''} ${candidateData.last_name || ''}`.trim() || 'Unknown',
-            phone_number: phone,
-            last_message: 'New conversation',
-            last_message_at: new Date().toISOString(),
-            unread_count: 0
-          };
-          
-          // Add to conversations list and select it
-          setConversations(prev => [newConversation, ...prev]);
-          setSelectedId(newConversation.id);
-          
-          // Set candidate directly
-          setCandidate({
-            id: candidateData.id,
-            first_name: candidateData.first_name || '',
-            last_name: candidateData.last_name || '',
-            specialty: candidateData.specialty || '',
-            phone: candidateData.phone || '',
-            email: candidateData.email || '',
-            personal_mobile: candidateData.personal_mobile || '',
-            city: candidateData.city || '',
-            state: candidateData.state || '',
-            licenses: candidateData.licenses || [],
-            enrichment_tier: candidateData.enrichment_tier || ''
-          });
-        } else {
-          // No candidate found, create with just phone number
-          const newConversation: SMSConversation = {
-            id: `new-${Date.now()}`,
-            candidate_id: '',
-            candidate_name: phone,
-            phone_number: phone,
-            last_message: 'New conversation',
-            last_message_at: new Date().toISOString(),
-            unread_count: 0
-          };
-          
-          setConversations(prev => [newConversation, ...prev]);
-          setSelectedId(newConversation.id);
-        }
-      }
-      
-      // If it's a call action, initiate the call when device is ready
-      if (type === 'call' && twilioDevice.isReady && !twilioDevice.currentCall) {
-        twilioDevice.makeCall(phone, '+18001234567');
-        toast.success('Initiating call...');
-      } else if (type === 'sms') {
-        // Focus the textarea for SMS
-        setTimeout(() => {
-          replyTextareaRef.current?.focus();
-        }, 100);
-      }
-      
-      pendingAction.current = null;
-    };
-    
-    handlePendingAction();
-  }, [loading, conversations, callLogs, twilioDevice.isReady, twilioDevice.currentCall, twilioDevice]);
+  // Transform data into unified conversation items
+  const conversations: ConversationItem[] = [
+    // SMS conversations
+    ...smsConversations.map((conv: any) => ({
+      id: conv.id,
+      channel: "sms" as const,
+      candidateId: conv.candidate_id,
+      candidateName: conv.candidates 
+        ? `${conv.candidates.first_name || ""} ${conv.candidates.last_name || ""}`.trim() || "Unknown"
+        : "Unknown",
+      candidatePhone: conv.candidate_phone,
+      preview: conv.last_message_preview || "No messages",
+      timestamp: conv.last_message_at,
+      unreadCount: conv.unread_count || 0,
+    })),
+    // AI Call logs
+    ...aiCallLogs.map((call: any) => ({
+      id: call.id,
+      channel: "call" as const,
+      candidateId: call.candidate_id,
+      candidateName: call.candidate_name || "Unknown",
+      candidatePhone: call.phone_number,
+      preview: call.call_result || call.status || "Call",
+      timestamp: call.created_at,
+      unreadCount: 0,
+    })),
+  ];
 
+  // Filter by tab and search
+  const filteredConversations = conversations
+    .filter((conv) => {
+      if (activeTab === "sms") return conv.channel === "sms";
+      if (activeTab === "calls" || activeTab === "ai_calls") return conv.channel === "call";
+      return true;
+    })
+    .filter((conv) => {
+      if (!searchQuery) return true;
+      const query = searchQuery.toLowerCase();
+      return (
+        conv.candidateName.toLowerCase().includes(query) ||
+        (conv.candidatePhone && conv.candidatePhone.includes(query))
+      );
+    })
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
-  // Fetch conversations/calls
-  useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
-      
-      if (activeTab === 'sms') {
-        // For now, we'll aggregate from ai_call_logs where there might be SMS records
-        // In production, this would query sms_conversations table
-        const { data } = await supabase
-          .from('ai_call_logs')
-          .select('*')
-          .not('candidate_name', 'is', null)
-          .order('created_at', { ascending: false })
-          .limit(50);
-        
-        if (data) {
-          const grouped = data.reduce((acc: Record<string, SMSConversation>, log) => {
-            const key = log.phone_number;
-            if (!acc[key]) {
-              acc[key] = {
-                id: log.id,
-                candidate_id: log.candidate_id || '',
-                candidate_name: log.candidate_name || 'Unknown',
-                phone_number: log.phone_number,
-                last_message: log.call_summary || 'No messages yet',
-                last_message_at: log.created_at || new Date().toISOString(),
-                unread_count: 0
-              };
-            }
-            return acc;
-          }, {});
-          setConversations(Object.values(grouped));
-        }
-      } else {
-        const { data } = await supabase
-          .from('ai_call_logs')
-          .select('*')
-          .order('created_at', { ascending: false })
-          .limit(50);
-        
-        if (data) {
-          setCallLogs(data.map(log => ({
-            id: log.id,
-            candidate_id: log.candidate_id || '',
-            candidate_name: log.candidate_name || 'Unknown',
-            phone_number: log.phone_number,
-            duration_seconds: log.duration_seconds || 0,
-            status: log.status || 'completed',
-            call_result: log.call_result || '',
-            transcript_text: log.transcript_text || '',
-            created_at: log.created_at || new Date().toISOString()
-          })));
-        }
-      }
-      
-      setLoading(false);
-    };
+  // Calculate total unread
+  const totalUnread = conversations.reduce((sum, c) => sum + c.unreadCount, 0);
 
-    fetchData();
-  }, [activeTab]);
-
-  // Fetch messages when selection changes
-  useEffect(() => {
-    if (!selectedId) {
-      setMessages([]);
-      setCandidate(null);
-      setCampaignLeads([]);
-      return;
-    }
-
-    const fetchMessages = async () => {
-      // Get candidate info
-      const selectedItem = activeTab === 'sms' 
-        ? conversations.find(c => c.id === selectedId)
-        : callLogs.find(c => c.id === selectedId);
-      
-      if (!selectedItem) return;
-
-      // Fetch candidate details
-      if (selectedItem.candidate_id) {
-        const { data: candidateData } = await supabase
-          .from('candidates')
-          .select('*')
-          .eq('id', selectedItem.candidate_id)
-          .single();
-        
-        if (candidateData) {
-          setCandidate({
-            id: candidateData.id,
-            first_name: candidateData.first_name || '',
-            last_name: candidateData.last_name || '',
-            specialty: candidateData.specialty || '',
-            phone: candidateData.phone || '',
-            email: candidateData.email || '',
-            personal_mobile: candidateData.personal_mobile || '',
-            city: candidateData.city || '',
-            state: candidateData.state || '',
-            licenses: candidateData.licenses || [],
-            enrichment_tier: candidateData.enrichment_tier || ''
-          });
-
-          // Fetch campaign leads
-          const { data: leadsData } = await supabase
-            .from('campaign_leads_v2')
-            .select('id, campaign_id, status, campaigns(name)')
-            .eq('candidate_id', candidateData.id)
-            .limit(5);
-          
-          if (leadsData) {
-            setCampaignLeads(leadsData.map((lead: any) => ({
-              id: lead.id,
-              campaign_id: lead.campaign_id,
-              campaign_name: lead.campaigns?.name || 'Unknown Campaign',
-              status: lead.status || 'active'
-            })));
-          }
-        }
-      }
-
-      // Fetch call logs for this phone number to build message history
-      const { data: callData } = await supabase
-        .from('ai_call_logs')
-        .select('*')
-        .eq('phone_number', selectedItem.phone_number)
-        .order('created_at', { ascending: true });
-      
-      if (callData) {
-        const msgs: Message[] = callData.map(log => ({
-          id: log.id,
-          type: 'call' as const,
-          direction: log.call_type === 'inbound' ? 'inbound' as const : 'outbound' as const,
-          content: log.call_summary || 'Call completed',
-          timestamp: log.created_at || new Date().toISOString(),
-          duration_seconds: log.duration_seconds || 0,
-          call_result: log.call_result || '',
-          transcript_text: log.transcript_text || ''
-        }));
-        setMessages(msgs);
-      }
-    };
-
-    fetchMessages();
-  }, [selectedId, activeTab, conversations, callLogs]);
-
-  const handleCall = () => {
-    if (!candidate?.phone && !candidate?.personal_mobile) {
-      toast.error('No phone number available');
-      return;
-    }
-    const phoneNumber = candidate.personal_mobile || candidate.phone;
-    twilioDevice.makeCall(phoneNumber, '+18001234567');
-    toast.success('Initiating call...');
-  };
-
-  const handleSendSMS = async () => {
-    if (!replyText.trim() || !candidate?.phone) return;
-    
-    setSending(true);
-    try {
-      const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/sms-campaign-send`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`
-        },
-        body: JSON.stringify({
-          to: candidate.personal_mobile || candidate.phone,
-          message: replyText
-        })
-      });
-
-      if (response.ok) {
-        toast.success('SMS sent successfully');
-        setReplyText('');
-        // Add to messages
-        setMessages(prev => [...prev, {
-          id: Date.now().toString(),
-          type: 'sms',
-          direction: 'outbound',
-          content: replyText,
-          timestamp: new Date().toISOString()
-        }]);
-      } else {
-        toast.error('Failed to send SMS');
-      }
-    } catch (error) {
-      toast.error('Failed to send SMS');
-    }
-    setSending(false);
-  };
-
-  const formatDuration = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  const getCallStatusIcon = (status: string) => {
-    switch (status) {
-      case 'completed':
-        return <PhoneCall className="h-4 w-4 text-green-500" />;
-      case 'missed':
-      case 'no-answer':
-        return <PhoneMissed className="h-4 w-4 text-red-500" />;
-      case 'voicemail':
-        return <Phone className="h-4 w-4 text-yellow-500" />;
-      default:
-        return <Phone className="h-4 w-4 text-muted-foreground" />;
-    }
-  };
-
-  const filteredConversations = conversations.filter(c =>
-    c.candidate_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    c.phone_number.includes(searchQuery)
-  );
-
-  const filteredCallLogs = callLogs.filter(c =>
-    c.candidate_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    c.phone_number.includes(searchQuery)
-  );
-
-  const selectedItem = activeTab === 'sms'
-    ? conversations.find(c => c.id === selectedId)
-    : callLogs.find(c => c.id === selectedId);
+  const isLoading = smsLoading || callsLoading;
 
   return (
     <Layout>
-      <div className="flex h-[calc(100vh-4rem)] overflow-hidden">
-        {/* LEFT COLUMN - Conversations List */}
-        <div className="w-[280px] border-r border-border flex flex-col bg-card">
-          {/* Tab Toggle */}
-          <div className="p-3 border-b border-border">
-            <div className="flex rounded-lg bg-muted p-1">
-              <button
-                onClick={() => setActiveTab('sms')}
-                className={`flex-1 px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                  activeTab === 'sms' 
-                    ? 'bg-background text-foreground shadow-sm' 
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                💬 SMS
-              </button>
-              <button
-                onClick={() => setActiveTab('calls')}
-                className={`flex-1 px-3 py-1.5 text-sm font-medium rounded-md transition-colors ${
-                  activeTab === 'calls' 
-                    ? 'bg-background text-foreground shadow-sm' 
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                📞 Calls
-              </button>
+      <div className="flex flex-col h-[calc(100vh-4rem)]">
+        {/* Header */}
+        <div className="flex-shrink-0 border-b border-border bg-card px-6 py-4">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-primary/10">
+                <InboxIcon className="h-6 w-6 text-primary" />
+              </div>
+              <h1 className="text-2xl font-display font-bold text-foreground">
+                Communication Hub
+              </h1>
+              {totalUnread > 0 && (
+                <Badge variant="destructive" className="rounded-full px-2.5">
+                  {totalUnread}
+                </Badge>
+              )}
             </div>
           </div>
 
-          {/* Search */}
-          <div className="p-3 border-b border-border">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9"
-              />
-            </div>
+          {/* Tabs */}
+          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as ChannelFilter)}>
+            <TabsList className="bg-muted">
+              <TabsTrigger value="all">All</TabsTrigger>
+              <TabsTrigger value="sms">SMS</TabsTrigger>
+              <TabsTrigger value="calls">Calls</TabsTrigger>
+              <TabsTrigger value="ai_calls">AI Calls</TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
+
+        {/* Two-column layout */}
+        <div className="flex flex-1 overflow-hidden">
+          {/* Left sidebar - Conversation list */}
+          <div className="w-full md:w-[350px] flex-shrink-0 border-r border-border bg-card overflow-hidden flex flex-col">
+            <ConversationList
+              conversations={filteredConversations}
+              selectedId={selectedConversation?.id || null}
+              onSelect={setSelectedConversation}
+              searchQuery={searchQuery}
+              onSearchChange={setSearchQuery}
+              isLoading={isLoading}
+            />
           </div>
 
-          {/* List */}
-          <ScrollArea className="flex-1">
-            {loading ? (
-              <div className="p-4 text-center text-muted-foreground">Loading...</div>
-            ) : activeTab === 'sms' ? (
-              filteredConversations.length === 0 ? (
-                <div className="p-4 text-center text-muted-foreground">No conversations</div>
-              ) : (
-                filteredConversations.map((conv) => (
-                  <div
-                    key={conv.id}
-                    onClick={() => setSelectedId(conv.id)}
-                    className={`p-3 cursor-pointer border-b border-border/50 hover:bg-muted/50 transition-colors ${
-                      selectedId === conv.id ? 'bg-primary/10 border-l-2 border-l-primary' : ''
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-sm truncate">{conv.candidate_name}</span>
-                          {conv.unread_count > 0 && (
-                            <Badge variant="destructive" className="h-5 w-5 p-0 flex items-center justify-center text-xs">
-                              {conv.unread_count}
-                            </Badge>
-                          )}
-                        </div>
-                        <p className="text-xs text-muted-foreground truncate mt-0.5">
-                          {conv.last_message}
-                        </p>
-                      </div>
-                      <span className="text-xs text-muted-foreground whitespace-nowrap">
-                        {formatDistanceToNow(new Date(conv.last_message_at), { addSuffix: true })}
-                      </span>
-                    </div>
-                  </div>
-                ))
-              )
-            ) : (
-              filteredCallLogs.length === 0 ? (
-                <div className="p-4 text-center text-muted-foreground">No calls</div>
-              ) : (
-                filteredCallLogs.map((call) => (
-                  <div
-                    key={call.id}
-                    onClick={() => setSelectedId(call.id)}
-                    className={`p-3 cursor-pointer border-b border-border/50 hover:bg-muted/50 transition-colors ${
-                      selectedId === call.id ? 'bg-primary/10 border-l-2 border-l-primary' : ''
-                    }`}
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          {getCallStatusIcon(call.status)}
-                          <span className="font-medium text-sm truncate">{call.candidate_name}</span>
-                        </div>
-                        <p className="text-xs text-muted-foreground mt-0.5">
-                          {formatDuration(call.duration_seconds)} • {call.call_result || 'Completed'}
-                        </p>
-                      </div>
-                      <span className="text-xs text-muted-foreground whitespace-nowrap">
-                        {formatDistanceToNow(new Date(call.created_at), { addSuffix: true })}
-                      </span>
-                    </div>
-                  </div>
-                ))
-              )
-            )}
-          </ScrollArea>
+          {/* Right panel - Conversation detail */}
+          <div className="hidden md:flex flex-1 bg-background overflow-hidden">
+            <ConversationDetail conversation={selectedConversation} />
+          </div>
         </div>
 
-        {/* MIDDLE COLUMN - Conversation View */}
-        <div className="flex-1 flex flex-col bg-background">
-          {!selectedItem ? (
-            <div className="flex-1 flex items-center justify-center text-muted-foreground">
-              <div className="text-center">
-                <MessageSquare className="h-12 w-12 mx-auto mb-3 opacity-50" />
-                <p>Select a conversation to view</p>
-              </div>
-            </div>
-          ) : (
-            <>
-              {/* Header */}
-              <div className="p-4 border-b border-border bg-card">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h2 className="font-semibold text-lg">
-                      {selectedItem.candidate_name}
-                    </h2>
-                    <p className="text-sm text-muted-foreground">
-                      {selectedItem.phone_number}
-                      {candidate?.specialty && ` • ${candidate.specialty}`}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button 
-                      variant="outline" 
-                      size="sm"
-                      onClick={handleCall}
-                      disabled={twilioDevice.isConnecting || !!twilioDevice.currentCall}
-                    >
-                      <Phone className="h-4 w-4 mr-1" />
-                      Call
-                    </Button>
-                    <Button variant="outline" size="sm">
-                      <MessageSquare className="h-4 w-4 mr-1" />
-                      SMS
-                    </Button>
-                    <Button variant="outline" size="sm">
-                      <Mail className="h-4 w-4 mr-1" />
-                      Email
-                    </Button>
-                  </div>
-                </div>
-              </div>
+        {/* Floating action button */}
+        <Button
+          onClick={() => setIsNewMessageOpen(true)}
+          className="fixed bottom-6 right-6 h-14 w-14 rounded-full shadow-lg gradient-primary hover:shadow-glow transition-all"
+          size="icon"
+        >
+          <Plus className="h-6 w-6" />
+        </Button>
 
-              {/* Messages Area */}
-              <ScrollArea className="flex-1 p-4">
-                <div className="space-y-4">
-                  {messages.map((msg) => (
-                    <div key={msg.id}>
-                      {msg.type === 'sms' ? (
-                        <div className={`flex ${msg.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}>
-                          <div className={`max-w-[70%] rounded-lg px-4 py-2 ${
-                            msg.direction === 'outbound'
-                              ? 'bg-primary text-primary-foreground'
-                              : 'bg-muted'
-                          }`}>
-                            <p className="text-sm">{msg.content}</p>
-                            <p className={`text-xs mt-1 ${
-                              msg.direction === 'outbound' ? 'text-primary-foreground/70' : 'text-muted-foreground'
-                            }`}>
-                              {formatDistanceToNow(new Date(msg.timestamp), { addSuffix: true })}
-                            </p>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="bg-card border border-border rounded-lg p-4">
-                          <div className="flex items-center gap-2 mb-2">
-                            <Phone className="h-4 w-4 text-muted-foreground" />
-                            <span className="font-medium text-sm">
-                              {msg.direction === 'outbound' ? 'Outbound Call' : 'Inbound Call'}
-                            </span>
-                            <Badge variant="outline" className="ml-auto">
-                              {formatDuration(msg.duration_seconds || 0)}
-                            </Badge>
-                          </div>
-                          {msg.call_result && (
-                            <p className="text-sm text-muted-foreground mb-2">
-                              Outcome: {msg.call_result}
-                            </p>
-                          )}
-                          {msg.content && (
-                            <p className="text-sm">{msg.content}</p>
-                          )}
-                          {msg.transcript_text && (
-                            <details className="mt-2">
-                              <summary className="text-xs text-primary cursor-pointer">
-                                View transcript
-                              </summary>
-                              <p className="text-xs text-muted-foreground mt-2 whitespace-pre-wrap">
-                                {msg.transcript_text}
-                              </p>
-                            </details>
-                          )}
-                          <p className="text-xs text-muted-foreground mt-2">
-                            {formatDistanceToNow(new Date(msg.timestamp), { addSuffix: true })}
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </ScrollArea>
-
-              {/* Reply Composer */}
-              <div className="p-4 border-t border-border bg-card">
-                <div className="flex gap-2">
-                  <div className="flex-1 relative">
-                    <Textarea
-                      ref={replyTextareaRef}
-                      placeholder="Type your message..."
-                      value={replyText}
-                      onChange={(e) => setReplyText(e.target.value)}
-                      className="min-h-[80px] resize-none pr-16"
-                      maxLength={160}
-                    />
-                    <span className="absolute bottom-2 right-2 text-xs text-muted-foreground">
-                      {replyText.length}/160
-                    </span>
-                  </div>
-                  <Button
-                    onClick={handleSendSMS}
-                    disabled={!replyText.trim() || sending}
-                    className="self-end"
-                  >
-                    Send SMS
-                  </Button>
-                </div>
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* RIGHT COLUMN - Candidate Info */}
-        <div className="w-[300px] border-l border-border bg-card overflow-auto">
-          {!candidate ? (
-            <div className="p-6 text-center text-muted-foreground">
-              <p className="text-sm">Select a conversation to view candidate details</p>
-            </div>
-          ) : (
-            <div className="p-4 space-y-4">
-              {/* Photo Placeholder */}
-              <div className="flex flex-col items-center">
-                <div className="w-20 h-20 rounded-full bg-muted flex items-center justify-center text-3xl">
-                  👤
-                </div>
-                <h3 className="font-semibold text-lg mt-3">
-                  {candidate.first_name} {candidate.last_name}
-                </h3>
-                <p className="text-sm text-muted-foreground">{candidate.specialty}</p>
-              </div>
-
-              <Separator />
-
-              {/* Contact Info */}
-              <div className="space-y-2">
-                <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                  Contact
-                </h4>
-                <div className="space-y-1 text-sm">
-                  <p>📱 {candidate.phone || 'N/A'}</p>
-                  <p>📞 {candidate.personal_mobile || 'N/A'}</p>
-                  <p>✉️ {candidate.email || 'N/A'}</p>
-                </div>
-              </div>
-
-              <Separator />
-
-              {/* Location */}
-              <div className="space-y-2">
-                <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                  Location
-                </h4>
-                <p className="text-sm">
-                  📍 {candidate.city && candidate.state 
-                    ? `${candidate.city}, ${candidate.state}` 
-                    : 'Location not specified'}
-                </p>
-              </div>
-
-              <Separator />
-
-              {/* Licenses */}
-              {candidate.licenses && candidate.licenses.length > 0 && (
-                <>
-                  <div className="space-y-2">
-                    <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                      Licenses
-                    </h4>
-                    <div className="flex flex-wrap gap-1">
-                      {candidate.licenses.map((license, idx) => (
-                        <Badge key={idx} variant="secondary" className="text-xs">
-                          {license}
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>
-                  <Separator />
-                </>
-              )}
-
-              {/* Enrichment Tier */}
-              {candidate.enrichment_tier && (
-                <>
-                  <div className="space-y-2">
-                    <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                      Tier
-                    </h4>
-                    <Badge className={
-                      candidate.enrichment_tier === 'platinum' ? 'bg-purple-500' :
-                      candidate.enrichment_tier === 'gold' ? 'bg-yellow-500' :
-                      candidate.enrichment_tier === 'silver' ? 'bg-gray-400' : ''
-                    }>
-                      {candidate.enrichment_tier}
-                    </Badge>
-                  </div>
-                  <Separator />
-                </>
-              )}
-
-              {/* View Profile Link */}
-              <Link
-                to={`/candidates/search?candidateId=${candidate.id}`}
-                className="flex items-center justify-center gap-2 text-sm text-primary hover:underline"
-              >
-                View Full Profile
-                <ExternalLink className="h-3 w-3" />
-              </Link>
-
-              {/* Recent Campaigns */}
-              {campaignLeads.length > 0 && (
-                <>
-                  <Separator />
-                  <div className="space-y-2">
-                    <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                      Recent Campaigns
-                    </h4>
-                    <div className="space-y-2">
-                      {campaignLeads.map((lead) => (
-                        <Link
-                          key={lead.id}
-                          to={`/campaigns/${lead.campaign_id}`}
-                          className="block p-2 rounded-md bg-muted/50 hover:bg-muted transition-colors"
-                        >
-                          <p className="text-sm font-medium">{lead.campaign_name}</p>
-                          <Badge variant="outline" className="text-xs mt-1">
-                            {lead.status}
-                          </Badge>
-                        </Link>
-                      ))}
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-        </div>
+        {/* New Message Modal */}
+        <NewMessageModal 
+          open={isNewMessageOpen} 
+          onOpenChange={setIsNewMessageOpen} 
+        />
       </div>
-
-      {/* Floating Call Widget */}
-      {twilioDevice.currentCall && (
-        <div className={`fixed bottom-6 right-6 bg-card border border-border rounded-xl shadow-lg transition-all ${
-          callWidgetMinimized ? 'w-[200px]' : 'w-[320px]'
-        }`}>
-          <div className="p-4">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-green-500 animate-pulse" />
-                <span className="font-medium text-sm">
-                  {callWidgetMinimized ? 'On Call' : 'Active Call'}
-                </span>
-              </div>
-              <button
-                onClick={() => setCallWidgetMinimized(!callWidgetMinimized)}
-                className="p-1 hover:bg-muted rounded"
-              >
-                {callWidgetMinimized ? (
-                  <Maximize2 className="h-4 w-4" />
-                ) : (
-                  <Minimize2 className="h-4 w-4" />
-                )}
-              </button>
-            </div>
-
-            {!callWidgetMinimized && (
-              <>
-                <p className="text-sm text-muted-foreground mb-2">
-                  {selectedItem?.candidate_name || 'Unknown'}
-                </p>
-                <p className="text-2xl font-mono text-center mb-4">
-                  {formatDuration(twilioDevice.callDuration)}
-                </p>
-              </>
-            )}
-
-            <div className={`flex items-center ${callWidgetMinimized ? 'gap-2' : 'justify-center gap-4'}`}>
-              <Button
-                variant="outline"
-                size={callWidgetMinimized ? 'sm' : 'default'}
-                onClick={twilioDevice.toggleMute}
-                className={twilioDevice.isMuted ? 'bg-yellow-500/20' : ''}
-              >
-                {twilioDevice.isMuted ? (
-                  <MicOff className="h-4 w-4" />
-                ) : (
-                  <Mic className="h-4 w-4" />
-                )}
-              </Button>
-              
-              {!callWidgetMinimized && (
-                <Button
-                  variant="outline"
-                  onClick={twilioDevice.toggleHold}
-                  className={twilioDevice.isOnHold ? 'bg-yellow-500/20' : ''}
-                >
-                  {twilioDevice.isOnHold ? (
-                    <Play className="h-4 w-4" />
-                  ) : (
-                    <Pause className="h-4 w-4" />
-                  )}
-                </Button>
-              )}
-
-              <Button
-                variant="destructive"
-                size={callWidgetMinimized ? 'sm' : 'default'}
-                onClick={twilioDevice.hangUp}
-              >
-                <PhoneOff className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
     </Layout>
   );
-}
+};
+
+export default Communications;
