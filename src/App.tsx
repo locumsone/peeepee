@@ -17,6 +17,7 @@ import EnrichmentReview from "./pages/EnrichmentReview";
 import LaunchConfirmation from "./pages/LaunchConfirmation";
 import Campaigns from "./pages/Campaigns";
 import CampaignBuilder from "./pages/CampaignBuilder";
+import CampaignCandidates from "./pages/CampaignCandidates";
 import CampaignDetail from "./pages/CampaignDetail";
 import Communications from "./pages/Communications";
 import Enrichment from "./pages/Enrichment";
@@ -44,6 +45,8 @@ const App = () => (
           <Route path="/campaigns/launch" element={<LaunchConfirmation />} />
           <Route path="/campaigns" element={<Campaigns />} />
           <Route path="/campaigns/new" element={<CampaignBuilder />} />
+          <Route path="/campaigns/new/candidates" element={<CampaignCandidates />} />
+          <Route path="/campaigns/:id" element={<CampaignDetail />} />
           <Route path="/campaigns/:id" element={<CampaignDetail />} />
           <Route path="/communications" element={<Communications />} />
           
