@@ -1,4 +1,4 @@
-import { Search, MessageSquare, Phone, Loader2 } from "lucide-react";
+import { Search, MessageSquare, Phone, Loader2, Flame } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
@@ -29,6 +29,11 @@ export const ConversationList = ({
     } catch {
       return "";
     }
+  };
+
+  const truncatePreview = (text: string, maxLength: number = 60) => {
+    if (text.length <= maxLength) return text;
+    return text.substring(0, maxLength).trim() + "...";
   };
 
   return (
@@ -71,7 +76,7 @@ export const ConversationList = ({
                 {/* Channel icon */}
                 <div
                   className={cn(
-                    "flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center",
+                    "flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center relative",
                     conversation.channel === "sms"
                       ? "bg-accent/20 text-accent"
                       : "bg-success/20 text-success"
@@ -81,6 +86,12 @@ export const ConversationList = ({
                     <MessageSquare className="h-5 w-5" />
                   ) : (
                     <Phone className="h-5 w-5" />
+                  )}
+                  {/* Hot indicator */}
+                  {conversation.isHot && (
+                    <div className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-orange-500 flex items-center justify-center">
+                      <Flame className="h-2.5 w-2.5 text-white" />
+                    </div>
                   )}
                 </div>
 
@@ -96,21 +107,25 @@ export const ConversationList = ({
                   </div>
                   <div className="flex items-center justify-between gap-2 mt-0.5">
                     <p className="text-sm text-muted-foreground truncate">
-                      {conversation.preview}
+                      {truncatePreview(conversation.preview)}
                     </p>
                     {/* Show duration for calls */}
-                    {conversation.channel === "call" && (conversation as any).duration && (
+                    {conversation.channel === "call" && conversation.duration && (
                       <span className="text-xs text-muted-foreground font-mono flex-shrink-0">
-                        {Math.floor((conversation as any).duration / 60)}:{((conversation as any).duration % 60).toString().padStart(2, '0')}
+                        {Math.floor(conversation.duration / 60)}:{(conversation.duration % 60).toString().padStart(2, '0')}
                       </span>
                     )}
                   </div>
+                  {/* Phone number row */}
+                  <p className="text-xs text-muted-foreground/70 mt-0.5 font-mono">
+                    {conversation.candidatePhone}
+                  </p>
                 </div>
 
                 {/* Unread indicator */}
                 {conversation.unreadCount > 0 && (
-                  <div className="flex-shrink-0 w-5 h-5 rounded-full bg-destructive flex items-center justify-center">
-                    <span className="text-[10px] font-bold text-destructive-foreground">
+                  <div className="flex-shrink-0 w-5 h-5 rounded-full bg-primary flex items-center justify-center">
+                    <span className="text-[10px] font-bold text-primary-foreground">
                       {conversation.unreadCount > 9 ? "9+" : conversation.unreadCount}
                     </span>
                   </div>
