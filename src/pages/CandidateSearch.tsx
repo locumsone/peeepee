@@ -11,7 +11,6 @@ import {
   ChevronDown
 } from "lucide-react";
 import Layout from "@/components/layout/Layout";
-import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -25,12 +24,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
 import {
   Dialog,
   DialogContent,
@@ -51,6 +44,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import CandidateDetailPanel from "@/components/candidates/CandidateDetailPanel";
 
 interface Candidate {
   id: string;
@@ -102,7 +96,7 @@ const CandidateSearch = () => {
   
   // UI state
   const [filtersOpen, setFiltersOpen] = useState(true);
-  const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null);
+  const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
   const [campaignModalOpen, setCampaignModalOpen] = useState(false);
   const [selectedCampaignId, setSelectedCampaignId] = useState<string>("");
 
@@ -533,7 +527,7 @@ const CandidateSearch = () => {
                     <TableRow
                       key={candidate.id}
                       className="cursor-pointer hover:bg-muted/50"
-                      onClick={() => setSelectedCandidate(candidate)}
+                      onClick={() => setSelectedCandidateId(candidate.id)}
                     >
                       <TableCell onClick={(e) => e.stopPropagation()}>
                         <Checkbox
@@ -606,50 +600,11 @@ const CandidateSearch = () => {
           </div>
         </div>
 
-        {/* Candidate Detail Sheet */}
-        <Sheet open={!!selectedCandidate} onOpenChange={() => setSelectedCandidate(null)}>
-          <SheetContent className="w-[400px] sm:w-[540px]">
-            <SheetHeader>
-              <SheetTitle>
-                {selectedCandidate?.first_name} {selectedCandidate?.last_name}
-              </SheetTitle>
-            </SheetHeader>
-            {selectedCandidate && (
-              <div className="mt-6 space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-sm text-muted-foreground">Specialty</label>
-                    <p className="text-foreground">{selectedCandidate.specialty || "—"}</p>
-                  </div>
-                  <div>
-                    <label className="text-sm text-muted-foreground">Tier</label>
-                    <div className="mt-1">{getTierBadge(selectedCandidate.enrichment_tier)}</div>
-                  </div>
-                  <div>
-                    <label className="text-sm text-muted-foreground">Location</label>
-                    <p className="text-foreground">
-                      {selectedCandidate.city && selectedCandidate.state
-                        ? `${selectedCandidate.city}, ${selectedCandidate.state}`
-                        : selectedCandidate.state || "—"}
-                    </p>
-                  </div>
-                  <div>
-                    <label className="text-sm text-muted-foreground">Licenses</label>
-                    <p className="text-foreground">{selectedCandidate.licenses?.length || 0} states</p>
-                  </div>
-                  <div className="col-span-2">
-                    <label className="text-sm text-muted-foreground">Email</label>
-                    <p className="text-foreground">{selectedCandidate.email || "—"}</p>
-                  </div>
-                  <div className="col-span-2">
-                    <label className="text-sm text-muted-foreground">Phone</label>
-                    <p className="text-foreground">{selectedCandidate.phone || "—"}</p>
-                  </div>
-                </div>
-              </div>
-            )}
-          </SheetContent>
-        </Sheet>
+        {/* Candidate Detail Panel */}
+        <CandidateDetailPanel
+          candidateId={selectedCandidateId}
+          onClose={() => setSelectedCandidateId(null)}
+        />
 
         {/* Add to Campaign Modal */}
         <Dialog open={campaignModalOpen} onOpenChange={setCampaignModalOpen}>
