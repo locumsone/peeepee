@@ -13,6 +13,7 @@ import TierAssignment from "./pages/TierAssignment";
 import CampaignBuilder from "./pages/CampaignBuilder";
 import LaunchConfirmation from "./pages/LaunchConfirmation";
 import Campaigns from "./pages/Campaigns";
+import CampaignDetail from "./pages/CampaignDetail";
 import NotFound from "./pages/NotFound";
 import { Softphone } from "./components/softphone/Softphone";
 
@@ -35,7 +36,7 @@ const App = () => (
           <Route path="/campaign/launch" element={<LaunchConfirmation />} />
           <Route path="/campaign-builder" element={<CampaignBuilder />} />
           <Route path="/campaigns" element={<Campaigns />} />
-          <Route path="/campaigns/:id" element={<NotFound />} />
+          <Route path="/campaigns/:id" element={<CampaignDetail />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
         <Softphone />
