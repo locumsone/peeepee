@@ -1,5 +1,5 @@
 import { MessageSquare, Phone } from "lucide-react";
-import type { ConversationItem } from "@/pages/Inbox";
+import type { ConversationItem } from "@/pages/Communications";
 
 interface ConversationDetailProps {
   conversation: ConversationItem | null;

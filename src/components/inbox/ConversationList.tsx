@@ -3,7 +3,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
-import type { ConversationItem } from "@/pages/Inbox";
+import type { ConversationItem } from "@/pages/Communications";
 
 interface ConversationListProps {
   conversations: ConversationItem[];
