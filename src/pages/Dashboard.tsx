@@ -10,10 +10,6 @@ import {
   Search,
   Mail,
   BarChart3,
-  MessageSquare,
-  PhoneCall,
-  Eye,
-  Star,
   Clock,
   User
 } from "lucide-react";
@@ -22,15 +18,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { supabase } from "@/integrations/supabase/client";
+import { ActivityFeed } from "@/components/ActivityFeed";
 import type { Json } from "@/integrations/supabase/types";
-
-interface ActivityItem {
-  id: string;
-  action_type: string;
-  user_name: string;
-  metadata: Json | null;
-  created_at: string;
-}
 
 interface Callback {
   id: string;
@@ -47,7 +36,6 @@ const Dashboard = () => {
     callsToday: 0,
     placementsMTD: 0,
   });
-  const [activities, setActivities] = useState<ActivityItem[]>([]);
   const [callbacks, setCallbacks] = useState<Callback[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -79,7 +67,6 @@ const Dashboard = () => {
         hotLeadsRes,
         callsRes,
         placementsRes,
-        activityRes,
         callbacksRes,
       ] = await Promise.all([
         // Active campaigns count
@@ -108,13 +95,6 @@ const Dashboard = () => {
           .eq("status", "placed")
           .gte("created_at", monthStart),
         
-        // Recent activity
-        supabase
-          .from("activity_log")
-          .select("*")
-          .order("created_at", { ascending: false })
-          .limit(20),
-        
         // Upcoming callbacks from ai_call_queue
         supabase
           .from("ai_call_queue")
@@ -132,47 +112,11 @@ const Dashboard = () => {
         placementsMTD: placementsRes.count || 0,
       });
 
-      setActivities(activityRes.data || []);
       setCallbacks(callbacksRes.data || []);
     } catch (error) {
       console.error("Error fetching dashboard data:", error);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const getActivityIcon = (type: string) => {
-    switch (type) {
-      case "email_opened":
-        return <Eye className="h-4 w-4 text-blue-400" />;
-      case "sms_reply":
-      case "reply":
-        return <MessageSquare className="h-4 w-4 text-green-400" />;
-      case "call_completed":
-        return <PhoneCall className="h-4 w-4 text-purple-400" />;
-      case "interested_signal":
-        return <Star className="h-4 w-4 text-yellow-400" />;
-      default:
-        return <Clock className="h-4 w-4 text-muted-foreground" />;
-    }
-  };
-
-  const getActivityDescription = (activity: ActivityItem) => {
-    const metadata = activity.metadata as Record<string, unknown> | null;
-    const candidateName = (metadata?.candidate_name as string) || "Unknown";
-    
-    switch (activity.action_type) {
-      case "email_opened":
-        return `${candidateName} opened an email`;
-      case "sms_reply":
-      case "reply":
-        return `${candidateName} replied to message`;
-      case "call_completed":
-        return `Call completed with ${candidateName}`;
-      case "interested_signal":
-        return `${candidateName} showed interest`;
-      default:
-        return `${activity.action_type} by ${activity.user_name}`;
     }
   };
 
@@ -313,38 +257,7 @@ const Dashboard = () => {
               <CardTitle className="text-lg font-semibold">Recent Activity</CardTitle>
             </CardHeader>
             <CardContent>
-              <ScrollArea className="h-[400px] pr-4">
-                {loading ? (
-                  <div className="text-center text-muted-foreground py-8">
-                    Loading activity...
-                  </div>
-                ) : activities.length === 0 ? (
-                  <div className="text-center text-muted-foreground py-8">
-                    No recent activity
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {activities.map((activity) => (
-                      <div
-                        key={activity.id}
-                        className="flex items-start gap-3 p-3 rounded-lg bg-muted/50 hover:bg-muted transition-colors"
-                      >
-                        <div className="mt-0.5">
-                          {getActivityIcon(activity.action_type)}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm text-foreground">
-                            {getActivityDescription(activity)}
-                          </p>
-                          <p className="text-xs text-muted-foreground mt-0.5">
-                            {formatDistanceToNow(new Date(activity.created_at), { addSuffix: true })}
-                          </p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </ScrollArea>
+              <ActivityFeed filter={{ limit: 20 }} showCandidate={true} className="h-[400px]" />
             </CardContent>
           </Card>
 

@@ -16,9 +16,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { supabase } from "@/integrations/supabase/client";
 import { formatDistanceToNow, format } from "date-fns";
+import { ActivityFeed } from "@/components/ActivityFeed";
 
 interface Campaign {
   id: string;
@@ -50,21 +50,12 @@ interface CampaignLead {
   interest_level: string | null;
 }
 
-interface ActivityLog {
-  id: string;
-  action_type: string;
-  user_name: string;
-  created_at: string | null;
-  metadata: unknown;
-  channel: string | null;
-}
 
 const CampaignDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [leads, setLeads] = useState<CampaignLead[]>([]);
-  const [activities, setActivities] = useState<ActivityLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("candidates");
 
@@ -103,16 +94,6 @@ const CampaignDetail = () => {
       if (leadsError) throw leadsError;
       setLeads(leadsData || []);
 
-      // Fetch activity log
-      const { data: activityData, error: activityError } = await supabase
-        .from("activity_log")
-        .select("*")
-        .eq("campaign_id", id)
-        .order("created_at", { ascending: false })
-        .limit(50);
-
-      if (activityError) throw activityError;
-      setActivities(activityData || []);
     } catch (error) {
       console.error("Error fetching campaign data:", error);
     } finally {
@@ -177,18 +158,6 @@ const CampaignDetail = () => {
     }
   };
 
-  const getActivityIcon = (actionType: string, channel: string | null) => {
-    if (channel === "email" || actionType.includes("email")) {
-      return <Mail className="h-4 w-4 text-primary" />;
-    }
-    if (channel === "sms" || actionType.includes("sms")) {
-      return <MessageSquare className="h-4 w-4 text-info" />;
-    }
-    if (channel === "call" || actionType.includes("call")) {
-      return <Phone className="h-4 w-4 text-success" />;
-    }
-    return <Clock className="h-4 w-4 text-muted-foreground" />;
-  };
 
   // Calculate metrics from leads
   const metrics = {
@@ -413,34 +382,11 @@ const CampaignDetail = () => {
           {/* Activity Tab */}
           <TabsContent value="activity">
             <div className="rounded-xl bg-card shadow-card p-6">
-              {activities.length === 0 ? (
-                <p className="text-center text-muted-foreground py-12">No activity yet</p>
-              ) : (
-                <ScrollArea className="h-[500px]">
-                  <div className="space-y-4">
-                    {activities.map((activity) => (
-                      <div key={activity.id} className="flex items-start gap-4 pb-4 border-b border-border last:border-0">
-                        <div className="h-10 w-10 rounded-full bg-secondary/50 flex items-center justify-center shrink-0">
-                          {getActivityIcon(activity.action_type, activity.channel)}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-foreground">
-                            {activity.action_type.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase())}
-                          </p>
-                          <p className="text-sm text-muted-foreground">
-                            by {activity.user_name}
-                          </p>
-                        </div>
-                        <span className="text-xs text-muted-foreground shrink-0">
-                          {activity.created_at
-                            ? formatDistanceToNow(new Date(activity.created_at), { addSuffix: true })
-                            : "—"}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </ScrollArea>
-              )}
+              <ActivityFeed 
+                filter={{ campaign_id: id, limit: 50 }} 
+                showCandidate={true} 
+                className="h-[500px]" 
+              />
             </div>
           </TabsContent>
 
