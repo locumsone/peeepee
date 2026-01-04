@@ -1,4 +1,4 @@
-import { Home, Briefcase, Users, BarChart3, FilePlus } from "lucide-react";
+import { Home, Briefcase, Users, BarChart3, FilePlus, MessageSquare } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import {
   Sidebar,
@@ -17,6 +17,7 @@ const navItems = [
   { title: "Dashboard", url: "/dashboard", icon: Home, emoji: "🏠" },
   { title: "Jobs", url: "/jobs", icon: Briefcase, emoji: "📋" },
   { title: "Candidates", url: "/candidates/search", icon: Users, emoji: "👥" },
+  { title: "Communications", url: "/communications", icon: MessageSquare, emoji: "📱" },
   { title: "Campaigns", url: "/campaigns", icon: BarChart3, emoji: "📊" },
   { title: "New Job", url: "/jobs/new", icon: FilePlus, emoji: "📝" },
 ];

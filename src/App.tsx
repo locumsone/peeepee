@@ -16,6 +16,7 @@ import CampaignBuilder from "./pages/CampaignBuilder";
 import LaunchConfirmation from "./pages/LaunchConfirmation";
 import Campaigns from "./pages/Campaigns";
 import CampaignDetail from "./pages/CampaignDetail";
+import Communications from "./pages/Communications";
 import NotFound from "./pages/NotFound";
 import { Softphone } from "./components/softphone/Softphone";
 
@@ -36,6 +37,7 @@ const App = () => (
           <Route path="/new-job" element={<JobEntry />} />
           <Route path="/candidates" element={<CandidateMatching />} />
           <Route path="/candidates/search" element={<CandidateSearch />} />
+          <Route path="/communications" element={<Communications />} />
           <Route path="/campaign/tiers" element={<TierAssignment />} />
           <Route path="/campaign/enrich" element={<EnrichmentReview />} />
           <Route path="/campaign/launch" element={<LaunchConfirmation />} />
