@@ -276,7 +276,7 @@ const Dashboard = () => {
             variant="outline"
             className="h-16 flex items-center justify-center gap-2 bg-card hover:bg-accent"
           >
-            <Link to="/candidates">
+            <Link to="/candidates/search">
               <Search className="h-5 w-5" />
               <span>Find Candidates</span>
             </Link>
