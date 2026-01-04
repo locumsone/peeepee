@@ -486,7 +486,7 @@ export const ConversationDetail = ({ conversation }: ConversationDetailProps) =>
           },
           body: JSON.stringify({
             to_phone: conversation.candidatePhone,
-            message: messageText,
+            custom_message: messageText,
             from_number: "+12185628671",
           }),
         }
