@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { 
   Users, Loader2, ArrowRight, ArrowLeft, ChevronDown, ChevronUp,
   AlertCircle, CheckCircle2, Star, Phone, X
@@ -17,6 +17,7 @@ interface Candidate {
   last_name: string;
   specialty: string;
   unified_score: string;
+  match_strength: number;
   licenses_count: number;
   icebreaker: string;
   talking_points: string[];
@@ -24,89 +25,18 @@ interface Candidate {
   needs_enrichment: boolean;
 }
 
-// Mock data for demonstration
-const mockCandidates: Candidate[] = [
-  { 
-    id: "1", 
-    first_name: "Sarah", 
-    last_name: "Johnson", 
-    specialty: "Interventional Radiology", 
-    unified_score: "A+", 
-    licenses_count: 37,
-    icebreaker: "Sarah recently spoke at the RSNA conference about innovative IR techniques and has published 12 papers on vascular interventions.", 
-    talking_points: [
-      "Presented at RSNA 2025 on micro-catheter innovations",
-      "Fellowship-trained at Johns Hopkins",
-      "Prefers Midwest assignments due to family proximity"
-    ],
-    has_personal_contact: true, 
-    needs_enrichment: false 
-  },
-  { 
-    id: "2", 
-    first_name: "Michael", 
-    last_name: "Chen", 
-    specialty: "Interventional Radiology", 
-    unified_score: "A", 
-    licenses_count: 24,
-    icebreaker: "Michael has 15 years of experience in IR and leads a research team at Stanford focusing on minimally invasive procedures.", 
-    talking_points: [
-      "Stanford faculty member with research focus",
-      "Experience with complex embolization cases",
-      "Available for long-term assignments"
-    ],
-    has_personal_contact: true, 
-    needs_enrichment: false 
-  },
-  { 
-    id: "3", 
-    first_name: "Emily", 
-    last_name: "Rodriguez", 
-    specialty: "Interventional Radiology", 
-    unified_score: "B+", 
-    licenses_count: 12,
-    icebreaker: "Emily completed her fellowship at Mayo Clinic and specializes in hepatobiliary interventions.", 
-    talking_points: [
-      "Mayo Clinic fellowship graduate",
-      "Specializes in liver/biliary procedures",
-      "Seeking work-life balance opportunities"
-    ],
-    has_personal_contact: false, 
-    needs_enrichment: true 
-  },
-  { 
-    id: "4", 
-    first_name: "David", 
-    last_name: "Thompson", 
-    specialty: "Interventional Radiology", 
-    unified_score: "B", 
-    licenses_count: 8,
-    icebreaker: "David has extensive locum tenens experience with flexible scheduling preferences and excellent patient reviews.", 
-    talking_points: [
-      "5+ years locum tenens experience",
-      "Flexible on scheduling",
-      "Strong patient satisfaction scores"
-    ],
-    has_personal_contact: true, 
-    needs_enrichment: false 
-  },
-  { 
-    id: "5", 
-    first_name: "Lisa", 
-    last_name: "Park", 
-    specialty: "Interventional Radiology", 
-    unified_score: "C", 
-    licenses_count: 4,
-    icebreaker: "Lisa is actively seeking new locum opportunities and is willing to obtain additional state licenses.", 
-    talking_points: [
-      "Early career with strong training",
-      "Willing to obtain new licenses",
-      "Interested in mentorship opportunities"
-    ],
-    has_personal_contact: false, 
-    needs_enrichment: true 
-  },
-];
+interface SummaryData {
+  total: number;
+  a_tier: number;
+  b_tier: number;
+  needs_enrichment: number;
+}
+
+interface ApiResponse {
+  success: boolean;
+  summary: SummaryData;
+  candidates: Candidate[];
+}
 
 const getScoreColor = (score: string) => {
   if (score === "A+") return "bg-success text-success-foreground";
@@ -118,9 +48,14 @@ const getScoreColor = (score: string) => {
 
 const CandidateMatching = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const jobId = searchParams.get("jobId");
+  
   const [job, setJob] = useState<ParsedJob | null>(null);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [summary, setSummary] = useState<SummaryData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
@@ -131,16 +66,54 @@ const CandidateMatching = () => {
       setJob(JSON.parse(storedJob));
     }
 
-    // Simulate API call for candidate matching
+    // Fetch candidates from real API
     const fetchCandidates = async () => {
+      if (!jobId) {
+        setError("No job ID provided");
+        setIsLoading(false);
+        return;
+      }
+
       setIsLoading(true);
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-      setCandidates(mockCandidates);
-      setIsLoading(false);
+      setError(null);
+
+      try {
+        const response = await fetch(
+          "https://qpvyzyspwxwtwjhfcuhh.supabase.co/functions/v1/ai-candidate-matcher",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              job_id: jobId,
+              limit: 50,
+            }),
+          }
+        );
+
+        if (!response.ok) {
+          throw new Error(`API error: ${response.status}`);
+        }
+
+        const data: ApiResponse = await response.json();
+
+        if (data.success) {
+          setCandidates(data.candidates || []);
+          setSummary(data.summary || null);
+        } else {
+          throw new Error("API returned unsuccessful response");
+        }
+      } catch (err) {
+        console.error("Error fetching candidates:", err);
+        setError(err instanceof Error ? err.message : "Failed to fetch candidates");
+      } finally {
+        setIsLoading(false);
+      }
     };
 
     fetchCandidates();
-  }, []);
+  }, [jobId]);
 
   const toggleSelect = (id: string) => {
     const newSelected = new Set(selectedIds);
@@ -182,10 +155,11 @@ const CandidateMatching = () => {
     navigate("/campaign-builder");
   };
 
-  // Stats
-  const aTierCount = candidates.filter(c => c.unified_score.startsWith("A")).length;
-  const bTierCount = candidates.filter(c => c.unified_score.startsWith("B")).length;
-  const needsEnrichmentCount = candidates.filter(c => c.needs_enrichment).length;
+  // Stats - use summary from API or calculate from candidates
+  const aTierCount = summary?.a_tier ?? candidates.filter(c => c.unified_score.startsWith("A")).length;
+  const bTierCount = summary?.b_tier ?? candidates.filter(c => c.unified_score.startsWith("B")).length;
+  const needsEnrichmentCount = summary?.needs_enrichment ?? candidates.filter(c => c.needs_enrichment).length;
+  const totalCount = summary?.total ?? candidates.length;
 
   if (isLoading) {
     return (
@@ -210,6 +184,26 @@ const CandidateMatching = () => {
     );
   }
 
+  if (error) {
+    return (
+      <Layout currentStep={2}>
+        <div className="flex flex-col items-center justify-center min-h-[400px] gap-6">
+          <AlertCircle className="h-16 w-16 text-destructive" />
+          <div className="text-center space-y-2">
+            <h2 className="font-display text-2xl font-bold text-foreground">
+              Error Loading Candidates
+            </h2>
+            <p className="text-muted-foreground">{error}</p>
+          </div>
+          <Button variant="outline" onClick={() => navigate("/job-entry")}>
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Go Back
+          </Button>
+        </div>
+      </Layout>
+    );
+  }
+
   return (
     <Layout currentStep={2}>
       <div className="mx-auto max-w-6xl space-y-6">
@@ -222,7 +216,7 @@ const CandidateMatching = () => {
 
         {/* Stats Cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <StatCard label="Total Matched" value={candidates.length} color="primary" />
+          <StatCard label="Total Matched" value={totalCount} color="primary" />
           <StatCard label="A-Tier" value={aTierCount} color="success" />
           <StatCard label="B-Tier" value={bTierCount} color="accent" />
           <StatCard label="Needs Enrichment" value={needsEnrichmentCount} color="warning" />
