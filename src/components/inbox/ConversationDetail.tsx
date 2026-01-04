@@ -674,7 +674,7 @@ export const ConversationDetail = ({ conversation }: ConversationDetailProps) =>
         <div className="flex items-end gap-3">
           <div className="flex-1 relative">
             <Textarea
-              placeholder="Type a message..."
+              placeholder="Reply via SMS..."
               value={messageText}
               onChange={(e) => setMessageText(e.target.value)}
               className="min-h-[80px] resize-none pr-16"
