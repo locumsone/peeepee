@@ -4,8 +4,11 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Softphone } from "./components/softphone";
-import Dashboard from "./pages/Dashboard";
+import { AuthGuard } from "./components/auth/AuthGuard";
 
+import Login from "./pages/Login";
+import Signup from "./pages/Signup";
+import Dashboard from "./pages/Dashboard";
 import Jobs from "./pages/Jobs";
 import JobDetail from "./pages/JobDetail";
 import JobEntry from "./pages/JobEntry";
@@ -34,26 +37,31 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/dashboard" element={<Dashboard />} />
-          <Route path="/jobs" element={<Jobs />} />
-          <Route path="/jobs/:id" element={<JobDetail />} />
-          <Route path="/jobs/new" element={<JobEntry />} />
-          <Route path="/jobs/entry" element={<NewJobEntry />} />
-          <Route path="/candidates/search" element={<CandidateSearch />} />
-          <Route path="/candidates/matching" element={<CandidateMatching />} />
-          <Route path="/candidates/tiers" element={<TierAssignment />} />
-          <Route path="/candidates/enrichment" element={<EnrichmentReview />} />
-          <Route path="/campaigns/launch" element={<LaunchConfirmation />} />
-          <Route path="/campaigns" element={<Campaigns />} />
-          <Route path="/campaigns/new" element={<CampaignBuilder />} />
-          <Route path="/campaigns/new/candidates" element={<CampaignCandidates />} />
-          <Route path="/campaigns/new/channels" element={<CampaignChannels />} />
-          <Route path="/campaigns/new/review" element={<CampaignReview />} />
-          <Route path="/campaigns/:id" element={<CampaignDetail />} />
-          <Route path="/communications" element={<Communications />} />
+          {/* Public routes */}
+          <Route path="/login" element={<Login />} />
+          <Route path="/signup" element={<Signup />} />
           
-          <Route path="/enrichment" element={<Enrichment />} />
+          {/* Protected routes */}
+          <Route path="/" element={<AuthGuard><Dashboard /></AuthGuard>} />
+          <Route path="/dashboard" element={<AuthGuard><Dashboard /></AuthGuard>} />
+          <Route path="/jobs" element={<AuthGuard><Jobs /></AuthGuard>} />
+          <Route path="/jobs/:id" element={<AuthGuard><JobDetail /></AuthGuard>} />
+          <Route path="/jobs/new" element={<AuthGuard><JobEntry /></AuthGuard>} />
+          <Route path="/jobs/entry" element={<AuthGuard><NewJobEntry /></AuthGuard>} />
+          <Route path="/candidates/search" element={<AuthGuard><CandidateSearch /></AuthGuard>} />
+          <Route path="/candidates/matching" element={<AuthGuard><CandidateMatching /></AuthGuard>} />
+          <Route path="/candidates/tiers" element={<AuthGuard><TierAssignment /></AuthGuard>} />
+          <Route path="/candidates/enrichment" element={<AuthGuard><EnrichmentReview /></AuthGuard>} />
+          <Route path="/campaigns/launch" element={<AuthGuard><LaunchConfirmation /></AuthGuard>} />
+          <Route path="/campaigns" element={<AuthGuard><Campaigns /></AuthGuard>} />
+          <Route path="/campaigns/new" element={<AuthGuard><CampaignBuilder /></AuthGuard>} />
+          <Route path="/campaigns/new/candidates" element={<AuthGuard><CampaignCandidates /></AuthGuard>} />
+          <Route path="/campaigns/new/channels" element={<AuthGuard><CampaignChannels /></AuthGuard>} />
+          <Route path="/campaigns/new/review" element={<AuthGuard><CampaignReview /></AuthGuard>} />
+          <Route path="/campaigns/:id" element={<AuthGuard><CampaignDetail /></AuthGuard>} />
+          <Route path="/communications" element={<AuthGuard><Communications /></AuthGuard>} />
+          <Route path="/enrichment" element={<AuthGuard><Enrichment /></AuthGuard>} />
+          
           <Route path="*" element={<NotFound />} />
         </Routes>
         <Softphone />

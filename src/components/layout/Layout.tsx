@@ -2,6 +2,7 @@ import { ReactNode } from "react";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "./AppSidebar";
 import StepIndicator from "./StepIndicator";
+import { UserMenu } from "./UserMenu";
 
 interface LayoutProps {
   children: ReactNode;
@@ -23,9 +24,12 @@ const Layout = ({ children, currentStep = 1, showSteps = true }: LayoutProps) =>
         <AppSidebar />
         
         <div className="flex-1 flex flex-col min-w-0">
-          <header className="sticky top-0 z-50 h-14 flex items-center border-b border-border/50 bg-card/80 backdrop-blur-xl px-4">
-            <SidebarTrigger className="mr-4" />
-            <span className="text-sm text-muted-foreground">Campaign Builder</span>
+          <header className="sticky top-0 z-50 h-14 flex items-center justify-between border-b border-border/50 bg-card/80 backdrop-blur-xl px-4">
+            <div className="flex items-center">
+              <SidebarTrigger className="mr-4" />
+              <span className="text-sm text-muted-foreground">Campaign Builder</span>
+            </div>
+            <UserMenu />
           </header>
           
           <main className="flex-1 p-6">
