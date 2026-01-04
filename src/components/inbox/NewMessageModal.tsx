@@ -151,7 +151,7 @@ export const NewMessageModal = ({ open, onOpenChange }: NewMessageModalProps) =>
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFwdnl6eXNwd3h3dHdqaGZjdWhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYyNTEyODYsImV4cCI6MjA4MTgyNzI4Nn0.yTePf_4bp6ZkZH_kI2YXlRN69SKGjVEKcdzX2bGW4OA`,
+            Authorization: "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFwdnl6eXNwd3h3dHdqaGZjdWhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzQ3NTA3NDIsImV4cCI6MjA1MDMyNjc0Mn0.5R1H_6tsnp27PN5qYNE-4VdRT1H8kqH-NXQMJQL8sxg",
           },
           body: JSON.stringify({
             to_phone: selectedCandidate.phone,
