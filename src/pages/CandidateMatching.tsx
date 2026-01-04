@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { 
   Users, Loader2, ArrowRight, ArrowLeft, ChevronDown, ChevronUp,
-  AlertCircle, CheckCircle2, Star, Phone, X, Sparkles, Mail, MapPin
+  AlertCircle, CheckCircle2, Star, Phone, X, Sparkles, Mail, MapPin, Search
 } from "lucide-react";
 import Layout from "@/components/layout/Layout";
 import { Button } from "@/components/ui/button";
@@ -16,8 +16,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { ParsedJob } from "@/components/jobs/ParsedJobCard";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 interface Candidate {
   id: string;
@@ -25,6 +28,7 @@ interface Candidate {
   last_name: string;
   specialty: string;
   state: string;
+  city?: string;
   unified_score: string;
   match_strength: number;
   licenses: string[];
@@ -37,6 +41,8 @@ interface Candidate {
   needs_enrichment: boolean;
   work_email?: string;
   work_phone?: string;
+  personal_mobile?: string;
+  personal_email?: string;
 }
 
 interface SummaryData {
@@ -67,6 +73,7 @@ interface ApiResponse {
 }
 
 type SortOption = "best_match" | "score" | "licenses" | "ready_to_contact";
+type FilterOption = "all" | "ready" | "needs_enrichment";
 
 // Score badge configuration
 const getScoreBadgeConfig = (score: string) => {
@@ -181,8 +188,11 @@ const CandidateMatching = () => {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [sortBy, setSortBy] = useState<SortOption>("best_match");
+  const [filterBy, setFilterBy] = useState<FilterOption>("all");
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
+  const [enrichingIds, setEnrichingIds] = useState<Set<string>>(new Set());
+  const [bulkEnriching, setBulkEnriching] = useState(false);
 
   const effectiveJobId = jobId || "befd5ba5-4e46-41d9-b144-d4077f750035";
 
@@ -262,9 +272,98 @@ const CandidateMatching = () => {
     }
   };
 
+  // Check if candidate needs enrichment
+  const candidateNeedsEnrichment = (candidate: Candidate) => {
+    return candidate.needs_enrichment || 
+           !['platinum', 'gold'].includes(candidate.enrichment_tier?.toLowerCase() || '');
+  };
+
+  // Check if candidate is ready to contact
+  const candidateIsReady = (candidate: Candidate) => {
+    return candidate.personal_mobile || candidate.personal_email || candidate.has_personal_contact;
+  };
+
+  // Add single candidate to enrichment queue
+  const handleEnrichCandidate = async (candidate: Candidate) => {
+    setEnrichingIds(prev => new Set(prev).add(candidate.id));
+    
+    try {
+      const { error } = await supabase
+        .from("enrichment_queue")
+        .insert({
+          candidate_id: candidate.id,
+          signal_type: "contact_enrichment",
+          status: "pending",
+          priority: 2,
+        });
+
+      if (error) throw error;
+      
+      toast.success("Added to enrichment queue");
+    } catch (error: any) {
+      console.error("Error adding to queue:", error);
+      toast.error(error.message || "Failed to add to queue");
+    } finally {
+      setEnrichingIds(prev => {
+        const next = new Set(prev);
+        next.delete(candidate.id);
+        return next;
+      });
+    }
+  };
+
+  // Bulk add candidates to enrichment queue
+  const handleBulkEnrich = async () => {
+    const candidatesToEnrich = candidates.filter(
+      c => selectedIds.has(c.id) && candidateNeedsEnrichment(c)
+    );
+
+    if (candidatesToEnrich.length === 0) {
+      toast.error("No candidates needing enrichment selected");
+      return;
+    }
+
+    setBulkEnriching(true);
+    
+    try {
+      const inserts = candidatesToEnrich.map(c => ({
+        candidate_id: c.id,
+        signal_type: "contact_enrichment",
+        status: "pending",
+        priority: 2,
+      }));
+
+      const { error } = await supabase
+        .from("enrichment_queue")
+        .insert(inserts);
+
+      if (error) throw error;
+      
+      toast.success(`Added ${candidatesToEnrich.length} candidates to enrichment queue`);
+      setSelectedIds(new Set());
+    } catch (error: any) {
+      console.error("Error bulk adding to queue:", error);
+      toast.error(error.message || "Failed to add to queue");
+    } finally {
+      setBulkEnriching(false);
+    }
+  };
+
+  // Filtered candidates
+  const filteredCandidates = useMemo(() => {
+    switch (filterBy) {
+      case "ready":
+        return candidates.filter(c => candidateIsReady(c));
+      case "needs_enrichment":
+        return candidates.filter(c => candidateNeedsEnrichment(c));
+      default:
+        return candidates;
+    }
+  }, [candidates, filterBy]);
+
   // Sorted candidates
   const sortedCandidates = useMemo(() => {
-    const sorted = [...candidates];
+    const sorted = [...filteredCandidates];
     switch (sortBy) {
       case "best_match":
         return sorted.sort((a, b) => b.match_strength - a.match_strength);
@@ -284,7 +383,12 @@ const CandidateMatching = () => {
       default:
         return sorted;
     }
-  }, [candidates, sortBy]);
+  }, [filteredCandidates, sortBy]);
+
+  // Count candidates needing enrichment in selection
+  const selectedNeedingEnrichment = useMemo(() => {
+    return candidates.filter(c => selectedIds.has(c.id) && candidateNeedsEnrichment(c)).length;
+  }, [candidates, selectedIds]);
 
   const toggleSelect = (id: string) => {
     const newSelected = new Set(selectedIds);
@@ -456,6 +560,22 @@ const CandidateMatching = () => {
           <StatCard label="Needs Enrichment" value={needsEnrichmentCount} color="warning" />
         </div>
 
+        {/* Filter Toggle */}
+        <div className="flex items-center gap-4">
+          <span className="text-sm font-medium text-muted-foreground">Filter:</span>
+          <ToggleGroup type="single" value={filterBy} onValueChange={(v) => v && setFilterBy(v as FilterOption)}>
+            <ToggleGroupItem value="all" aria-label="Show All">
+              Show All ({candidates.length})
+            </ToggleGroupItem>
+            <ToggleGroupItem value="ready" aria-label="Ready to Contact">
+              Ready to Contact ({candidates.filter(c => candidateIsReady(c)).length})
+            </ToggleGroupItem>
+            <ToggleGroupItem value="needs_enrichment" aria-label="Needs Enrichment">
+              Needs Enrichment ({candidates.filter(c => candidateNeedsEnrichment(c)).length})
+            </ToggleGroupItem>
+          </ToggleGroup>
+        </div>
+
         {/* Bulk Actions & Sorting */}
         <div className="flex flex-wrap gap-3 items-center">
           <Button variant="outline" size="sm" onClick={selectAllATier}>
@@ -470,6 +590,22 @@ const CandidateMatching = () => {
             <X className="h-4 w-4 mr-1" />
             Clear Selection
           </Button>
+          {selectedNeedingEnrichment > 0 && (
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={handleBulkEnrich}
+              disabled={bulkEnriching}
+              className="bg-orange-500/10 text-orange-600 border-orange-500/30 hover:bg-orange-500/20"
+            >
+              {bulkEnriching ? (
+                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+              ) : (
+                <Search className="h-4 w-4 mr-1" />
+              )}
+              Add {selectedNeedingEnrichment} to Enrichment Queue
+            </Button>
+          )}
           
           <div className="ml-auto flex items-center gap-3">
             <span className="text-sm text-muted-foreground">
@@ -512,6 +648,7 @@ const CandidateMatching = () => {
                   <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Match</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Enrichment</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Indicators</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Actions</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground w-20"></th>
                 </tr>
               </thead>
@@ -568,10 +705,17 @@ const CandidateMatching = () => {
                           </div>
                         </td>
                         <td className="px-4 py-4">
-                          <Badge className={cn("text-xs flex items-center w-fit", enrichmentBadge.className)}>
-                            {enrichmentBadge.icon}
-                            {enrichmentBadge.label}
-                          </Badge>
+                          <div className="flex items-center gap-2">
+                            <Badge className={cn("text-xs flex items-center w-fit", enrichmentBadge.className)}>
+                              {enrichmentBadge.icon}
+                              {enrichmentBadge.label}
+                            </Badge>
+                            {candidateNeedsEnrichment(candidate) && (
+                              <Badge variant="outline" className="text-xs bg-orange-500/10 text-orange-600 border-orange-500/30">
+                                Needs Enrichment
+                              </Badge>
+                            )}
+                          </div>
                         </td>
                         <td className="px-4 py-4">
                           <div className="flex flex-wrap gap-1 max-w-[200px]">
@@ -586,6 +730,25 @@ const CandidateMatching = () => {
                               </Badge>
                             )}
                           </div>
+                        </td>
+                        <td className="px-4 py-4" onClick={(e) => e.stopPropagation()}>
+                          {candidateNeedsEnrichment(candidate) && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="text-orange-600 border-orange-500/30 hover:bg-orange-500/10"
+                              disabled={enrichingIds.has(candidate.id)}
+                              onClick={() => handleEnrichCandidate(candidate)}
+                            >
+                              {enrichingIds.has(candidate.id) ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <>
+                                  🔍 Enrich
+                                </>
+                              )}
+                            </Button>
+                          )}
                         </td>
                         <td className="px-4 py-4">
                           <button
@@ -605,7 +768,7 @@ const CandidateMatching = () => {
                       </tr>
                       {expandedIds.has(candidate.id) && (
                         <tr key={`${candidate.id}-expanded`} className="bg-secondary/20">
-                          <td colSpan={7} className="px-6 py-4">
+                          <td colSpan={8} className="px-6 py-4">
                             <div className="space-y-4 animate-fade-in">
                               {/* Icebreaker Callout */}
                               <div className="rounded-lg bg-primary/10 border border-primary/20 p-4">
