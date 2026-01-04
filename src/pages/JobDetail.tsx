@@ -92,12 +92,11 @@ const JobDetail = () => {
     return styles[status] || "bg-muted text-muted-foreground";
   };
 
-  // Calculate pay breakdown
+  // Calculate pay breakdown based on bill_rate
   const billRate = job?.bill_rate || 0;
-  const payRate = job?.pay_rate || 0;
+  const payRate = billRate * 0.73;
   const malpractice = payRate * 0.10;
-  const margin = billRate - payRate - malpractice;
-  const marginPercent = billRate > 0 ? ((margin / billRate) * 100).toFixed(0) : 0;
+  const margin = billRate - (payRate * 1.10);
 
   if (isLoading) {
     return (
@@ -158,6 +157,26 @@ const JobDetail = () => {
                     </Badge>
                   )}
                 </div>
+              </div>
+              
+              {/* Action Buttons in Header */}
+              <div className="flex items-center gap-2">
+                <Button 
+                  variant="default" 
+                  className="bg-primary hover:bg-primary/90"
+                  onClick={() => navigate(`/candidates/search?jobId=${id}`)}
+                >
+                  <Users className="h-4 w-4 mr-2" />
+                  Find Candidates
+                </Button>
+                <Button 
+                  variant="default"
+                  className="bg-success hover:bg-success/90 text-success-foreground"
+                  onClick={() => navigate(`/campaign/tiers?jobId=${id}`)}
+                >
+                  <Rocket className="h-4 w-4 mr-2" />
+                  Create Campaign
+                </Button>
               </div>
             </div>
           </div>
@@ -239,7 +258,7 @@ const JobDetail = () => {
                 <tr>
                   <td className="py-3 text-muted-foreground">Margin</td>
                   <td className="py-3 text-foreground">
-                    ${margin.toFixed(0)}/hr <span className="text-muted-foreground">(~{marginPercent}%)</span>
+                    ${margin.toFixed(0)}/hr
                   </td>
                 </tr>
               </tbody>
@@ -247,30 +266,11 @@ const JobDetail = () => {
           </div>
         </div>
 
-        {/* Action Buttons */}
-        <div className="flex flex-wrap items-center justify-end gap-3 pt-4 border-t border-border">
+        {/* Edit Button */}
+        <div className="flex items-center justify-end pt-4 border-t border-border">
           <Button variant="outline" onClick={() => navigate(`/edit-job/${id}`)}>
             <Pencil className="h-4 w-4 mr-2" />
             Edit Job
-          </Button>
-          <Button 
-            variant="default" 
-            className="bg-primary hover:bg-primary/90"
-            onClick={() => navigate(`/candidates?jobId=${id}`)}
-          >
-            <Users className="h-4 w-4 mr-2" />
-            Find Candidates →
-          </Button>
-          <Button 
-            variant="default"
-            className="bg-success hover:bg-success/90 text-success-foreground"
-            onClick={() => {
-              sessionStorage.setItem("currentJobId", id || "");
-              navigate(`/campaign-builder?jobId=${id}`);
-            }}
-          >
-            <Rocket className="h-4 w-4 mr-2" />
-            Start Campaign
           </Button>
         </div>
       </div>
