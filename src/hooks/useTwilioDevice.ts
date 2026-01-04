@@ -51,20 +51,16 @@ export const useTwilioDevice = (userId: string | null) => {
     try {
       setState(prev => ({ ...prev, isConnecting: true, error: null }));
 
-      const response = await fetch(
-        'https://qpvyzyspwxwtwjhfcuhh.supabase.co/functions/v1/voice-token',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ user_id: userId }),
-        }
-      );
+      const { data, error: invokeError } = await supabase.functions.invoke('voice-token', {
+        body: { user_id: userId },
+      });
 
-      if (!response.ok) {
-        throw new Error('Failed to get voice token');
+      if (invokeError) {
+        throw new Error(invokeError.message || 'Failed to get voice token');
       }
 
-      const { token } = await response.json();
+      const { token } = data;
+
 
       const device = new Device(token, {
         logLevel: 1,
