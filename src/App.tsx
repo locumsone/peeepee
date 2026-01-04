@@ -12,6 +12,7 @@ import EnrichmentReview from "./pages/EnrichmentReview";
 import TierAssignment from "./pages/TierAssignment";
 import CampaignBuilder from "./pages/CampaignBuilder";
 import LaunchConfirmation from "./pages/LaunchConfirmation";
+import Campaigns from "./pages/Campaigns";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -32,6 +33,8 @@ const App = () => (
           <Route path="/campaign/enrich" element={<EnrichmentReview />} />
           <Route path="/campaign/launch" element={<LaunchConfirmation />} />
           <Route path="/campaign-builder" element={<CampaignBuilder />} />
+          <Route path="/campaigns" element={<Campaigns />} />
+          <Route path="/campaigns/:id" element={<NotFound />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
