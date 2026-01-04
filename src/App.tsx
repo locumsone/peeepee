@@ -14,6 +14,7 @@ import CampaignBuilder from "./pages/CampaignBuilder";
 import LaunchConfirmation from "./pages/LaunchConfirmation";
 import Campaigns from "./pages/Campaigns";
 import NotFound from "./pages/NotFound";
+import { Softphone } from "./components/softphone/Softphone";
 
 const queryClient = new QueryClient();
 
@@ -37,6 +38,7 @@ const App = () => (
           <Route path="/campaigns/:id" element={<NotFound />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
+        <Softphone />
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>
