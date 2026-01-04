@@ -549,12 +549,48 @@ export const ConversationDetail = ({ conversation }: ConversationDetailProps) =>
     return <CallDetailView conversation={conversation} />;
   }
 
+  // Interest level options
+  const interestLevels = [
+    { value: "not_set", label: "Not Set", color: "text-muted-foreground" },
+    { value: "cold", label: "Cold", color: "text-blue-400" },
+    { value: "warm", label: "Warm", color: "text-yellow-400" },
+    { value: "hot", label: "Hot", color: "text-orange-500" },
+    { value: "placed", label: "Placed", color: "text-green-500" },
+  ];
+
+  const [interestLevel, setInterestLevel] = useState("not_set");
+
+  const handleCopyToClipboard = (text: string, label: string) => {
+    navigator.clipboard.writeText(text);
+    toast.success(`${label} copied`);
+  };
+
+  const handleScheduleCallback = () => {
+    toast.info("Schedule callback coming soon");
+  };
+
+  const handleOptOut = async () => {
+    if (!conversation?.candidateId) {
+      toast.error("No candidate linked");
+      return;
+    }
+    try {
+      await supabase
+        .from("candidates")
+        .update({ sms_opt_out: true })
+        .eq("id", conversation.candidateId);
+      toast.success("Candidate opted out from SMS");
+    } catch {
+      toast.error("Failed to opt out");
+    }
+  };
+
   // SMS conversation view
   return (
     <div className="flex flex-col h-full w-full">
       {/* Header */}
       <div className="flex-shrink-0 px-6 py-4 border-b border-border bg-card">
-        <div className="flex items-center justify-between">
+        <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-full flex items-center justify-center bg-accent/20 text-accent">
               <MessageSquare className="h-5 w-5" />
@@ -570,13 +606,53 @@ export const ConversationDetail = ({ conversation }: ConversationDetailProps) =>
               ) : (
                 <h2 className="font-semibold text-foreground">{conversation.candidateName}</h2>
               )}
-              <p className="text-sm text-muted-foreground">
-                {conversation.candidatePhone || "No phone number"}
-              </p>
+              <div className="flex items-center gap-2 mt-0.5">
+                <button
+                  onClick={() => handleCopyToClipboard(conversation.candidatePhone || "", "Phone")}
+                  className="text-sm text-muted-foreground hover:text-foreground transition-colors font-mono"
+                  title="Click to copy"
+                >
+                  {conversation.candidatePhone || "No phone number"}
+                </button>
+                {conversation.candidateEmail && (
+                  <>
+                    <span className="text-muted-foreground/50">•</span>
+                    <button
+                      onClick={() => handleCopyToClipboard(conversation.candidateEmail || "", "Email")}
+                      className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                      title="Click to copy"
+                    >
+                      {conversation.candidateEmail}
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Interest Level Dropdown */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="gap-1.5">
+                  <span className={interestLevels.find(l => l.value === interestLevel)?.color}>
+                    {interestLevels.find(l => l.value === interestLevel)?.label || "Not Set"}
+                  </span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {interestLevels.map((level) => (
+                  <DropdownMenuItem
+                    key={level.value}
+                    onClick={() => setInterestLevel(level.value)}
+                    className={level.color}
+                  >
+                    {level.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
             {conversation.unreadCount > 0 && (
               <Button
                 variant="outline"
@@ -596,14 +672,19 @@ export const ConversationDetail = ({ conversation }: ConversationDetailProps) =>
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => toast.info("Add note coming soon")}>
-                  Add Note
+                <DropdownMenuItem onClick={() => toast.info("Opening dialer...")}>
+                  <PhoneCall className="h-4 w-4 mr-2" />
+                  Call
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleScheduleCallback}>
+                  <Calendar className="h-4 w-4 mr-2" />
+                  Schedule Callback
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   className="text-destructive"
-                  onClick={() => toast.info("Block number coming soon")}
+                  onClick={handleOptOut}
                 >
-                  Block Number
+                  Opt Out
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

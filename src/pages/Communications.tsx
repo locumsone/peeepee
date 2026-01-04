@@ -5,12 +5,13 @@ import Layout from "@/components/layout/Layout";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Plus, Inbox as InboxIcon } from "lucide-react";
+import { Plus, Inbox as InboxIcon, Flame, MessageSquare, Phone } from "lucide-react";
 import { ConversationList } from "@/components/inbox/ConversationList";
 import { ConversationDetail } from "@/components/inbox/ConversationDetail";
 import { NewMessageModal } from "@/components/inbox/NewMessageModal";
+import { CampaignNavigator } from "@/components/inbox/CampaignNavigator";
 
-export type ChannelFilter = "all" | "sms" | "calls" | "ai_calls";
+export type ChannelFilter = "all" | "hot" | "sms" | "calls";
 
 export interface ConversationItem {
   id: string;
@@ -18,11 +19,15 @@ export interface ConversationItem {
   candidateId: string | null;
   candidateName: string;
   candidatePhone: string | null;
+  candidateEmail?: string | null;
   preview: string;
   timestamp: string;
   unreadCount: number;
   duration?: number;
   outcome?: string;
+  campaignId?: string | null;
+  isHot?: boolean;
+  interestLevel?: string | null;
 }
 
 const Communications = () => {
@@ -30,6 +35,7 @@ const Communications = () => {
   const [selectedConversation, setSelectedConversation] = useState<ConversationItem | null>(null);
   const [isNewMessageOpen, setIsNewMessageOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
 
   // Fetch SMS conversations with candidate data via proper join
   const { data: smsConversations = [], isLoading: smsLoading } = useQuery({
@@ -44,10 +50,14 @@ const Communications = () => {
           last_message_at,
           last_message_preview,
           unread_count,
+          campaign_id,
+          interest_detected,
+          candidate_replied,
           candidates (
             id,
             first_name,
-            last_name
+            last_name,
+            email
           )
         `)
         .order("last_message_at", { ascending: false })
@@ -58,7 +68,7 @@ const Communications = () => {
     },
   });
 
-  // Fetch AI call logs with candidate data via proper join
+  // Fetch AI call logs with candidate data
   const { data: aiCallLogs = [], isLoading: callsLoading } = useQuery({
     queryKey: ["ai-call-logs"],
     queryFn: async () => {
@@ -109,6 +119,28 @@ const Communications = () => {
     return `Call ${formatDuration(duration)}`;
   };
 
+  // Check if conversation is "hot" (recent activity, interested, or unread)
+  const isConversationHot = (conv: any, channel: "sms" | "call") => {
+    const now = new Date();
+    const timestamp = new Date(conv.last_message_at || conv.created_at);
+    const hoursDiff = (now.getTime() - timestamp.getTime()) / (1000 * 60 * 60);
+    
+    if (channel === "sms") {
+      return (
+        (conv.unread_count || 0) > 0 ||
+        conv.interest_detected ||
+        hoursDiff <= 48
+      );
+    }
+    
+    // For calls
+    return (
+      conv.call_result === "interested" ||
+      conv.call_result === "callback_requested" ||
+      hoursDiff <= 48
+    );
+  };
+
   // Transform data into unified conversation items
   const conversations: ConversationItem[] = [
     // SMS conversations with proper candidate name
@@ -124,9 +156,12 @@ const Communications = () => {
         candidateId: conv.candidate_id,
         candidateName: candidateName || conv.candidate_phone || "Unknown",
         candidatePhone: conv.candidate_phone,
+        candidateEmail: candidate?.email || null,
         preview: conv.last_message_preview || "No messages",
         timestamp: conv.last_message_at,
         unreadCount: conv.unread_count || 0,
+        campaignId: conv.campaign_id,
+        isHot: isConversationHot(conv, "sms"),
       };
     }),
     // AI Call logs with proper candidate name and outcome
@@ -141,14 +176,23 @@ const Communications = () => {
       unreadCount: 0,
       duration: call.duration_seconds,
       outcome: call.call_result,
+      isHot: isConversationHot(call, "call"),
     })),
   ];
 
+  // Filter by campaign
+  const campaignFiltered = conversations.filter((conv) => {
+    if (selectedCampaignId === null) return true;
+    if (selectedCampaignId === "unassigned") return !conv.campaignId;
+    return conv.campaignId === selectedCampaignId;
+  });
+
   // Filter by tab and search
-  const filteredConversations = conversations
+  const filteredConversations = campaignFiltered
     .filter((conv) => {
+      if (activeTab === "hot") return conv.isHot;
       if (activeTab === "sms") return conv.channel === "sms";
-      if (activeTab === "calls" || activeTab === "ai_calls") return conv.channel === "call";
+      if (activeTab === "calls") return conv.channel === "call";
       return true;
     })
     .filter((conv) => {
@@ -161,8 +205,9 @@ const Communications = () => {
     })
     .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
-  // Calculate total unread
+  // Calculate counts
   const totalUnread = conversations.reduce((sum, c) => sum + c.unreadCount, 0);
+  const hotCount = conversations.filter((c) => c.isHot).length;
 
   const isLoading = smsLoading || callsLoading;
 
@@ -190,18 +235,42 @@ const Communications = () => {
           {/* Tabs */}
           <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as ChannelFilter)}>
             <TabsList className="bg-muted">
-              <TabsTrigger value="all">All</TabsTrigger>
-              <TabsTrigger value="sms">SMS</TabsTrigger>
-              <TabsTrigger value="calls">Calls</TabsTrigger>
-              <TabsTrigger value="ai_calls">AI Calls</TabsTrigger>
+              <TabsTrigger value="all" className="gap-1.5">
+                All
+              </TabsTrigger>
+              <TabsTrigger value="hot" className="gap-1.5">
+                <Flame className="h-3.5 w-3.5 text-orange-500" />
+                Hot
+                {hotCount > 0 && (
+                  <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-[10px]">
+                    {hotCount}
+                  </Badge>
+                )}
+              </TabsTrigger>
+              <TabsTrigger value="sms" className="gap-1.5">
+                <MessageSquare className="h-3.5 w-3.5" />
+                SMS
+              </TabsTrigger>
+              <TabsTrigger value="calls" className="gap-1.5">
+                <Phone className="h-3.5 w-3.5" />
+                Calls
+              </TabsTrigger>
             </TabsList>
           </Tabs>
         </div>
 
-        {/* Two-column layout */}
+        {/* Three-column layout */}
         <div className="flex flex-1 overflow-hidden">
-          {/* Left sidebar - Conversation list */}
-          <div className="w-full md:w-[350px] flex-shrink-0 border-r border-border bg-card overflow-hidden flex flex-col">
+          {/* Left sidebar - Campaign Navigator */}
+          <div className="hidden lg:flex w-[250px] flex-shrink-0 overflow-hidden">
+            <CampaignNavigator
+              selectedCampaignId={selectedCampaignId}
+              onSelectCampaign={setSelectedCampaignId}
+            />
+          </div>
+
+          {/* Center - Conversation list */}
+          <div className="w-full md:w-[400px] flex-shrink-0 border-r border-border bg-card overflow-hidden flex flex-col">
             <ConversationList
               conversations={filteredConversations}
               selectedId={selectedConversation?.id || null}
