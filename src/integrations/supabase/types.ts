@@ -2577,6 +2577,7 @@ export type Database = {
           status: string | null
           telnyx_number: string
           total_messages: number | null
+          twilio_number: string | null
           unread_count: number | null
           updated_at: string | null
         }
@@ -2597,6 +2598,7 @@ export type Database = {
           status?: string | null
           telnyx_number: string
           total_messages?: number | null
+          twilio_number?: string | null
           unread_count?: number | null
           updated_at?: string | null
         }
@@ -2617,6 +2619,7 @@ export type Database = {
           status?: string | null
           telnyx_number?: string
           total_messages?: number | null
+          twilio_number?: string | null
           unread_count?: number | null
           updated_at?: string | null
         }
@@ -2954,6 +2957,36 @@ export type Database = {
           },
         ]
       }
+      softphone_sessions: {
+        Row: {
+          created_at: string | null
+          device_info: Json | null
+          id: string
+          identity: string
+          last_heartbeat: string | null
+          status: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          device_info?: Json | null
+          id?: string
+          identity: string
+          last_heartbeat?: string | null
+          status?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          device_info?: Json | null
+          id?: string
+          identity?: string
+          last_heartbeat?: string | null
+          status?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       telnyx_numbers: {
         Row: {
           assigned_to: string | null
@@ -3115,6 +3148,57 @@ export type Database = {
           updated_at?: string | null
           use_for?: string[] | null
           weight?: number | null
+        }
+        Relationships: []
+      }
+      voicemails: {
+        Row: {
+          assigned_to: string | null
+          call_sid: string | null
+          candidate_id: string | null
+          created_at: string | null
+          duration_seconds: number | null
+          from_number: string | null
+          id: string
+          listened_at: string | null
+          notes: string | null
+          recording_sid: string | null
+          recording_url: string | null
+          status: string | null
+          to_number: string | null
+          transcription: string | null
+        }
+        Insert: {
+          assigned_to?: string | null
+          call_sid?: string | null
+          candidate_id?: string | null
+          created_at?: string | null
+          duration_seconds?: number | null
+          from_number?: string | null
+          id?: string
+          listened_at?: string | null
+          notes?: string | null
+          recording_sid?: string | null
+          recording_url?: string | null
+          status?: string | null
+          to_number?: string | null
+          transcription?: string | null
+        }
+        Update: {
+          assigned_to?: string | null
+          call_sid?: string | null
+          candidate_id?: string | null
+          created_at?: string | null
+          duration_seconds?: number | null
+          from_number?: string | null
+          id?: string
+          listened_at?: string | null
+          notes?: string | null
+          recording_sid?: string | null
+          recording_url?: string | null
+          status?: string | null
+          to_number?: string | null
+          transcription?: string | null
         }
         Relationships: []
       }
