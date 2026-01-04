@@ -59,39 +59,54 @@ const steps = [
   { number: 4, label: "Review" },
 ];
 
-const senderAccounts = {
-  "@locums.one": [
-    { email: "info@locums.one", name: "Locums One" },
-    { email: "rainey@locums.one", name: "Rainey Morris" },
-    { email: "parker@locums.one", name: "Parker Spring" },
-    { email: "gio@locums.one", name: "Gio D'Alesio" },
-    { email: "meow@locums.one", name: "Meow Meow" },
-  ],
-  "@trylocumsone.com": [
-    { email: "rainey@trylocumsone.com", name: "Rainey Morris" },
-    { email: "parker@trylocumsone.com", name: "Parker Spring" },
-    { email: "ali@trylocumsone.com", name: "Ali Mussabayev" },
-    { email: "gio@trylocumsone.com", name: "Gio D'Alesio" },
-  ],
-  "@meetlocumsone.com": [
-    { email: "rainey@meetlocumsone.com", name: "Rainey Morris" },
-    { email: "parker@meetlocumsone.com", name: "Parker Spring" },
-    { email: "ali@meetlocumsone.com", name: "Ali Mussabayev" },
-    { email: "gio@meetlocumsone.com", name: "Gio D'Alesio" },
-  ],
-  "@teamlocumsone.com": [
-    { email: "rainey@teamlocumsone.com", name: "Rainey Morris" },
-    { email: "parker@teamlocumsone.com", name: "Parker Spring" },
-    { email: "ali@teamlocumsone.com", name: "Ali Mussabayev" },
-    { email: "gio@teamlocumsone.com", name: "Gio D'Alesio" },
-  ],
-  "@locumsonehq.com": [
-    { email: "rainey@locumsonehq.com", name: "Rainey Morris" },
-    { email: "parker@locumsonehq.com", name: "Parker Spring" },
-    { email: "ali@locumsonehq.com", name: "Ali Mussabayev" },
-    { email: "gio@locumsonehq.com", name: "Gio D'Alesio" },
-  ],
-};
+const senderAccounts = [
+  {
+    group: "Rainey Morris",
+    emails: [
+      "rainey@locums.one",
+      "rainey@trylocumsone.com",
+      "rainey@meetlocumsone.com",
+      "rainey@teamlocumsone.com",
+      "rainey@locumsonehq.com",
+    ],
+  },
+  {
+    group: "Parker Spring",
+    emails: [
+      "parker@locums.one",
+      "parker@trylocumsone.com",
+      "parker@meetlocumsone.com",
+      "parker@teamlocumsone.com",
+      "parker@locumsonehq.com",
+    ],
+  },
+  {
+    group: "Ali Mussabayev",
+    emails: [
+      "ali@trylocumsone.com",
+      "ali@meetlocumsone.com",
+      "ali@teamlocumsone.com",
+      "ali@locumsonehq.com",
+    ],
+  },
+  {
+    group: "Gio D'Alesio",
+    emails: [
+      "gio@locums.one",
+      "gio@trylocumsone.com",
+      "gio@meetlocumsone.com",
+      "gio@teamlocumsone.com",
+      "gio@locumsonehq.com",
+    ],
+  },
+  {
+    group: "Other",
+    emails: [
+      "info@locums.one",
+      "meow@locums.one",
+    ],
+  },
+];
 
 interface Job {
   id: string;
@@ -122,6 +137,7 @@ interface PersonalizationHook {
   candidateId: string;
   candidateName: string;
   hook: string;
+  confidence?: string;
   isEditing?: boolean;
 }
 
@@ -256,6 +272,7 @@ export default function CampaignReview() {
           candidateId: r.candidate_id,
           candidateName: r.candidate_name || "Unknown",
           hook: r.personalization_hook || "No hook generated",
+          confidence: r.confidence || "medium",
         })) || [];
 
         setPersonalizationHooks(hooks);
@@ -274,6 +291,7 @@ export default function CampaignReview() {
           hook: c.company_name
             ? `Your experience at ${c.company_name} makes you an excellent fit...`
             : `Your background in ${c.specialty || "medicine"} caught our attention...`,
+          confidence: c.company_name ? "high" : "medium",
         }));
 
         setPersonalizationHooks(mockHooks);
@@ -623,52 +641,85 @@ export default function CampaignReview() {
                         />
                       </Button>
                     </CollapsibleTrigger>
-                    <CollapsibleContent className="space-y-2 mt-2">
-                      {personalizationHooks.slice(0, 10).map((hook) => (
-                        <div
-                          key={hook.candidateId}
-                          className="flex items-start gap-3 p-3 rounded-lg bg-muted/50"
-                        >
-                          <div className="flex-1 space-y-1">
-                            <p className="font-medium text-sm">{hook.candidateName}</p>
-                            {hook.isEditing ? (
-                              <div className="flex gap-2">
-                                <Textarea
-                                  defaultValue={hook.hook}
-                                  className="text-sm"
-                                  id={`hook-${hook.candidateId}`}
-                                />
-                                <Button
-                                  size="sm"
-                                  onClick={() =>
-                                    handleSaveHook(
-                                      hook.candidateId,
-                                      (
-                                        document.getElementById(
-                                          `hook-${hook.candidateId}`
-                                        ) as HTMLTextAreaElement
-                                      )?.value || hook.hook
-                                    )
-                                  }
-                                >
-                                  <Save className="h-4 w-4" />
-                                </Button>
-                              </div>
-                            ) : (
-                              <p className="text-sm text-muted-foreground italic">"{hook.hook}"</p>
-                            )}
-                          </div>
-                          {!hook.isEditing && (
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleEditHook(hook.candidateId)}
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                          )}
-                        </div>
-                      ))}
+                    <CollapsibleContent className="mt-2">
+                      <div className="border rounded-lg overflow-hidden">
+                        <table className="w-full text-sm">
+                          <thead className="bg-muted/50">
+                            <tr>
+                              <th className="text-left px-3 py-2 font-medium">Candidate</th>
+                              <th className="text-left px-3 py-2 font-medium">Hook Preview</th>
+                              <th className="text-center px-3 py-2 font-medium">Confidence</th>
+                              <th className="w-12"></th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border">
+                            {personalizationHooks.slice(0, 10).map((hook) => (
+                              <tr key={hook.candidateId} className="hover:bg-muted/30">
+                                <td className="px-3 py-2 font-medium whitespace-nowrap">
+                                  {hook.candidateName}
+                                </td>
+                                <td className="px-3 py-2">
+                                  {hook.isEditing ? (
+                                    <div className="flex gap-2">
+                                      <Textarea
+                                        defaultValue={hook.hook}
+                                        className="text-sm min-h-[60px]"
+                                        id={`hook-${hook.candidateId}`}
+                                      />
+                                      <Button
+                                        size="sm"
+                                        onClick={() =>
+                                          handleSaveHook(
+                                            hook.candidateId,
+                                            (
+                                              document.getElementById(
+                                                `hook-${hook.candidateId}`
+                                              ) as HTMLTextAreaElement
+                                            )?.value || hook.hook
+                                          )
+                                        }
+                                      >
+                                        <Save className="h-4 w-4" />
+                                      </Button>
+                                    </div>
+                                  ) : (
+                                    <p className="text-muted-foreground italic line-clamp-2">
+                                      "{hook.hook}"
+                                    </p>
+                                  )}
+                                </td>
+                                <td className="px-3 py-2 text-center">
+                                  <span
+                                    className={cn(
+                                      "px-2 py-0.5 rounded-full text-xs font-medium",
+                                      hook.confidence === "high" &&
+                                        "bg-green-500/10 text-green-500",
+                                      hook.confidence === "medium" &&
+                                        "bg-yellow-500/10 text-yellow-500",
+                                      hook.confidence === "low" &&
+                                        "bg-red-500/10 text-red-500",
+                                      !hook.confidence && "bg-muted text-muted-foreground"
+                                    )}
+                                  >
+                                    {hook.confidence || "unknown"}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2">
+                                  {!hook.isEditing && (
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => handleEditHook(hook.candidateId)}
+                                    >
+                                      <Pencil className="h-4 w-4" />
+                                    </Button>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
                       {personalizationHooks.length > 10 && (
                         <p className="text-sm text-muted-foreground text-center">
                           +{personalizationHooks.length - 10} more hooks
@@ -695,13 +746,15 @@ export default function CampaignReview() {
                   <SelectTrigger className="w-full">
                     <SelectValue placeholder="Select sender account..." />
                   </SelectTrigger>
-                  <SelectContent className="max-h-80">
-                    {Object.entries(senderAccounts).map(([domain, accounts]) => (
-                      <SelectGroup key={domain}>
-                        <SelectLabel className="text-xs text-primary">{domain}</SelectLabel>
-                        {accounts.map((account) => (
-                          <SelectItem key={account.email} value={account.email}>
-                            {account.email} ({account.name})
+                  <SelectContent className="max-h-80 bg-popover">
+                    {senderAccounts.map((group) => (
+                      <SelectGroup key={group.group}>
+                        <SelectLabel className="text-xs text-primary font-semibold">
+                          {group.group} ({group.emails.length} accounts)
+                        </SelectLabel>
+                        {group.emails.map((email) => (
+                          <SelectItem key={email} value={email}>
+                            {email}
                           </SelectItem>
                         ))}
                       </SelectGroup>
