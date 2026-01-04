@@ -12,7 +12,9 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -29,12 +31,53 @@ const steps = [
   { number: 4, label: "Review" },
 ];
 
-const senderOptions = [
-  "rainey@trylocumsone.com",
-  "parker@trylocumsone.com",
-  "gio@trylocumsone.com",
-  "ali@trylocumsone.com",
-  "info@locums.one",
+const senderAccounts = [
+  {
+    group: "Rainey Morris",
+    emails: [
+      "rainey@locums.one",
+      "rainey@trylocumsone.com",
+      "rainey@meetlocumsone.com",
+      "rainey@teamlocumsone.com",
+      "rainey@locumsonehq.com",
+    ],
+  },
+  {
+    group: "Parker Spring",
+    emails: [
+      "parker@locums.one",
+      "parker@trylocumsone.com",
+      "parker@meetlocumsone.com",
+      "parker@teamlocumsone.com",
+      "parker@locumsonehq.com",
+    ],
+  },
+  {
+    group: "Ali Mussabayev",
+    emails: [
+      "ali@trylocumsone.com",
+      "ali@meetlocumsone.com",
+      "ali@teamlocumsone.com",
+      "ali@locumsonehq.com",
+    ],
+  },
+  {
+    group: "Gio D'Alesio",
+    emails: [
+      "gio@locums.one",
+      "gio@trylocumsone.com",
+      "gio@meetlocumsone.com",
+      "gio@teamlocumsone.com",
+      "gio@locumsonehq.com",
+    ],
+  },
+  {
+    group: "Other",
+    emails: [
+      "info@locums.one",
+      "meow@locums.one",
+    ],
+  },
 ];
 
 const recruiterOptions = [
@@ -65,7 +108,7 @@ export default function CampaignChannels() {
 
   // Channel states
   const [emailEnabled, setEmailEnabled] = useState(true);
-  const [emailSender, setEmailSender] = useState(senderOptions[0]);
+  const [emailSender, setEmailSender] = useState(senderAccounts[0].emails[0]);
   const [emailSequence, setEmailSequence] = useState("4");
   const [emailGap, setEmailGap] = useState("3");
 
@@ -245,8 +288,13 @@ export default function CampaignChannels() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          {senderOptions.map(sender => (
-                            <SelectItem key={sender} value={sender}>{sender}</SelectItem>
+                          {senderAccounts.map(group => (
+                            <SelectGroup key={group.group}>
+                              <SelectLabel>{group.group}</SelectLabel>
+                              {group.emails.map(email => (
+                                <SelectItem key={email} value={email}>{email}</SelectItem>
+                              ))}
+                            </SelectGroup>
                           ))}
                         </SelectContent>
                       </Select>
