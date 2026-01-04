@@ -1,13 +1,21 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { 
   Users, Loader2, ArrowRight, ArrowLeft, ChevronDown, ChevronUp,
-  AlertCircle, CheckCircle2, Star, Phone, X
+  AlertCircle, CheckCircle2, Star, Phone, X, Sparkles, Mail, MapPin
 } from "lucide-react";
 import Layout from "@/components/layout/Layout";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { ParsedJob } from "@/components/jobs/ParsedJobCard";
 import { cn } from "@/lib/utils";
 
@@ -16,13 +24,19 @@ interface Candidate {
   first_name: string;
   last_name: string;
   specialty: string;
+  state: string;
   unified_score: string;
   match_strength: number;
+  licenses: string[];
   licenses_count: number;
+  enrichment_tier: string;
+  score_reason: string;
   icebreaker: string;
   talking_points: string[];
   has_personal_contact: boolean;
   needs_enrichment: boolean;
+  work_email?: string;
+  work_phone?: string;
 }
 
 interface SummaryData {
@@ -44,6 +58,7 @@ interface ApiResponse {
     facility: string;
     specialty: string;
     location: string;
+    state: string;
     pay_rate: number;
     bill_rate: number;
   };
@@ -51,12 +66,103 @@ interface ApiResponse {
   candidates: Candidate[];
 }
 
-const getScoreColor = (score: string) => {
-  if (score === "A+") return "bg-success text-success-foreground";
-  if (score === "A") return "bg-success/80 text-success-foreground";
-  if (score === "B+") return "bg-accent text-accent-foreground";
-  if (score === "B") return "bg-accent/80 text-accent-foreground";
-  return "bg-muted text-muted-foreground";
+type SortOption = "best_match" | "score" | "licenses" | "ready_to_contact";
+
+// Score badge configuration
+const getScoreBadgeConfig = (score: string) => {
+  switch (score) {
+    case "A+":
+      return { 
+        className: "bg-success text-success-foreground ring-2 ring-yellow-400", 
+        label: "Tier 1" 
+      };
+    case "A":
+      return { 
+        className: "bg-success text-success-foreground", 
+        label: "Tier 1" 
+      };
+    case "A-":
+      return { 
+        className: "bg-blue-500 text-white", 
+        label: "Tier 2" 
+      };
+    case "B+":
+      return { 
+        className: "bg-blue-500 text-white", 
+        label: "Tier 2" 
+      };
+    case "B":
+      return { 
+        className: "bg-warning text-warning-foreground", 
+        label: "Tier 3" 
+      };
+    case "B-":
+      return { 
+        className: "bg-warning text-warning-foreground", 
+        label: "Tier 3" 
+      };
+    default:
+      return { 
+        className: "bg-muted text-muted-foreground", 
+        label: "Tier 4" 
+      };
+  }
+};
+
+// Enrichment tier badge configuration
+const getEnrichmentBadgeConfig = (tier: string) => {
+  switch (tier?.toLowerCase()) {
+    case "platinum":
+      return { 
+        className: "bg-purple-500 text-white", 
+        icon: <Sparkles className="h-3 w-3 mr-1" />,
+        label: "Platinum"
+      };
+    case "gold":
+      return { 
+        className: "bg-yellow-500 text-yellow-900", 
+        icon: null,
+        label: "Gold"
+      };
+    case "silver":
+      return { 
+        className: "bg-gray-400 text-gray-900", 
+        icon: null,
+        label: "Silver"
+      };
+    case "bronze":
+      return { 
+        className: "bg-orange-600 text-white", 
+        icon: null,
+        label: "Bronze"
+      };
+    default:
+      return { 
+        className: "bg-muted text-muted-foreground", 
+        icon: null,
+        label: tier || "Unknown"
+      };
+  }
+};
+
+// Highlight key phrases in score reason
+const highlightScoreReason = (reason: string) => {
+  if (!reason) return null;
+  
+  const highlights: { pattern: RegExp; className: string }[] = [
+    { pattern: /\b(WI license|WI License|Wisconsin license)\b/gi, className: "text-success font-semibold" },
+    { pattern: /\bIMLc?\b/gi, className: "text-blue-400 font-semibold" },
+    { pattern: /\blocal\b/gi, className: "text-success font-semibold" },
+    { pattern: /\b(Gold tier|Gold Tier)\b/gi, className: "text-yellow-400 font-semibold" },
+    { pattern: /\b(Platinum tier|Platinum Tier)\b/gi, className: "text-purple-400 font-semibold" },
+  ];
+  
+  let result = reason;
+  highlights.forEach(({ pattern, className }) => {
+    result = result.replace(pattern, (match) => `<span class="${className}">${match}</span>`);
+  });
+  
+  return <span className="italic text-muted-foreground text-sm" dangerouslySetInnerHTML={{ __html: result }} />;
 };
 
 const CandidateMatching = () => {
@@ -64,13 +170,14 @@ const CandidateMatching = () => {
   const [searchParams] = useSearchParams();
   const jobId = searchParams.get("jobId");
   
-  const [job, setJob] = useState<ParsedJob | null>(null);
+  const [job, setJob] = useState<(ParsedJob & { state?: string }) | null>(null);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [summary, setSummary] = useState<SummaryData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [sortBy, setSortBy] = useState<SortOption>("best_match");
 
   useEffect(() => {
     // Get jobId from URL params or use test ID
@@ -95,7 +202,7 @@ const CandidateMatching = () => {
             },
             body: JSON.stringify({
               job_id: effectiveJobId,
-              limit: 50,
+              limit: 200,
             }),
           }
         );
@@ -116,6 +223,7 @@ const CandidateMatching = () => {
             specialty: data.job.specialty,
             facility: data.job.facility,
             location: data.job.location,
+            state: data.job.state,
             dates: '',
             billRate: data.job.bill_rate,
             payRate: data.job.pay_rate,
@@ -131,6 +239,30 @@ const CandidateMatching = () => {
 
     fetchCandidates();
   }, [jobId]);
+
+  // Sorted candidates
+  const sortedCandidates = useMemo(() => {
+    const sorted = [...candidates];
+    switch (sortBy) {
+      case "best_match":
+        return sorted.sort((a, b) => b.match_strength - a.match_strength);
+      case "score":
+        return sorted.sort((a, b) => {
+          const scoreOrder = ["A+", "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D"];
+          return scoreOrder.indexOf(a.unified_score) - scoreOrder.indexOf(b.unified_score);
+        });
+      case "licenses":
+        return sorted.sort((a, b) => b.licenses_count - a.licenses_count);
+      case "ready_to_contact":
+        return sorted.sort((a, b) => {
+          const tierOrder = ["platinum", "gold", "silver", "bronze", ""];
+          return tierOrder.indexOf(a.enrichment_tier?.toLowerCase() || "") - 
+                 tierOrder.indexOf(b.enrichment_tier?.toLowerCase() || "");
+        });
+      default:
+        return sorted;
+    }
+  }, [candidates, sortBy]);
 
   const toggleSelect = (id: string) => {
     const newSelected = new Set(selectedIds);
@@ -170,6 +302,56 @@ const CandidateMatching = () => {
     const selected = candidates.filter(c => selectedIds.has(c.id));
     sessionStorage.setItem("selectedCandidates", JSON.stringify(selected));
     navigate("/campaign-builder");
+  };
+
+  // Get job state for indicator checks
+  const jobState = job?.state || job?.location?.split(', ').pop() || 'WI';
+
+  // Key indicators for a candidate
+  const getKeyIndicators = (candidate: Candidate) => {
+    const indicators: { label: string; className: string }[] = [];
+    
+    // Has job state license
+    if (candidate.licenses?.some(l => l.includes(jobState))) {
+      indicators.push({ 
+        label: `Has ${jobState} License ✓`, 
+        className: "bg-success/20 text-success border-success/30" 
+      });
+    }
+    
+    // Multi-state licenses
+    if (candidate.licenses_count > 20) {
+      indicators.push({ 
+        label: `Multi-State (${candidate.licenses_count} licenses)`, 
+        className: "bg-blue-500/20 text-blue-400 border-blue-500/30" 
+      });
+    }
+    
+    // Contact ready (Platinum)
+    if (candidate.enrichment_tier?.toLowerCase() === "platinum") {
+      indicators.push({ 
+        label: "Contact Ready", 
+        className: "bg-purple-500/20 text-purple-400 border-purple-500/30" 
+      });
+    }
+    
+    // Needs enrichment
+    if (candidate.needs_enrichment) {
+      indicators.push({ 
+        label: "Needs Enrichment", 
+        className: "bg-warning/20 text-warning border-warning/30" 
+      });
+    }
+    
+    // Local candidate
+    if (candidate.state === jobState) {
+      indicators.push({ 
+        label: "Local Candidate", 
+        className: "bg-success/20 text-success border-success/30" 
+      });
+    }
+    
+    return indicators;
   };
 
   // Stats - use summary from API or calculate from candidates
@@ -227,7 +409,7 @@ const CandidateMatching = () => {
         {/* Job Summary Bar */}
         <div className="rounded-xl bg-secondary/50 border border-border px-6 py-4">
           <p className="text-lg font-semibold text-foreground">
-            IR at {job?.facility || "Chippewa Valley"} | {job?.location || "Eau Claire, WI"} | <span className="text-success">{job?.payRate || "$529/hr"}</span>
+            {job?.specialty || "IR"} at {job?.facility || "Chippewa Valley"} | {job?.location || "Eau Claire, WI"} | <span className="text-success">${job?.payRate || 529}/hr</span>
           </p>
         </div>
 
@@ -239,8 +421,8 @@ const CandidateMatching = () => {
           <StatCard label="Needs Enrichment" value={needsEnrichmentCount} color="warning" />
         </div>
 
-        {/* Bulk Actions */}
-        <div className="flex flex-wrap gap-3">
+        {/* Bulk Actions & Sorting */}
+        <div className="flex flex-wrap gap-3 items-center">
           <Button variant="outline" size="sm" onClick={selectAllATier}>
             <Star className="h-4 w-4 mr-1" />
             Select All A-Tier
@@ -253,9 +435,23 @@ const CandidateMatching = () => {
             <X className="h-4 w-4 mr-1" />
             Clear Selection
           </Button>
-          <span className="flex items-center text-sm text-muted-foreground ml-auto">
-            {selectedIds.size} selected
-          </span>
+          
+          <div className="ml-auto flex items-center gap-3">
+            <span className="text-sm text-muted-foreground">
+              {selectedIds.size} selected
+            </span>
+            <Select value={sortBy} onValueChange={(v) => setSortBy(v as SortOption)}>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="Sort by..." />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="best_match">Best Match</SelectItem>
+                <SelectItem value="score">Score</SelectItem>
+                <SelectItem value="licenses">Most Licenses</SelectItem>
+                <SelectItem value="ready_to_contact">Ready to Contact</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
         {/* Candidates Table */}
@@ -276,97 +472,187 @@ const CandidateMatching = () => {
                       }}
                     />
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Name</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Candidate</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Score</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Specialty</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Licenses</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Contact Status</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Match</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Enrichment</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Indicators</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground w-20"></th>
                 </tr>
               </thead>
               <tbody>
-                {candidates.map((candidate, index) => (
-                  <>
-                    <tr 
-                      key={candidate.id}
-                      className={cn(
-                        "border-b border-border/50 transition-colors hover:bg-secondary/30",
-                        selectedIds.has(candidate.id) && "bg-primary/5"
-                      )}
-                      style={{ animationDelay: `${index * 50}ms` }}
-                    >
-                      <td className="px-4 py-4">
-                        <Checkbox
-                          checked={selectedIds.has(candidate.id)}
-                          onCheckedChange={() => toggleSelect(candidate.id)}
-                        />
-                      </td>
-                      <td className="px-4 py-4">
-                        <span className="font-medium text-foreground">
-                          {candidate.first_name} {candidate.last_name}
-                        </span>
-                      </td>
-                      <td className="px-4 py-4">
-                        <Badge className={cn("font-bold", getScoreColor(candidate.unified_score))}>
-                          {candidate.unified_score}
-                        </Badge>
-                      </td>
-                      <td className="px-4 py-4 text-muted-foreground">
-                        {candidate.specialty}
-                      </td>
-                      <td className="px-4 py-4">
-                        <Badge variant="secondary" className="text-xs">
-                          {candidate.licenses_count} states
-                        </Badge>
-                      </td>
-                      <td className="px-4 py-4">
-                        {candidate.has_personal_contact ? (
-                          <div className="flex items-center gap-1.5 text-success">
-                            <CheckCircle2 className="h-4 w-4" />
-                            <span className="text-xs font-medium">Available</span>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-1.5 text-warning">
-                            <AlertCircle className="h-4 w-4" />
-                            <span className="text-xs font-medium">Needs Enrichment</span>
-                          </div>
+                {sortedCandidates.map((candidate, index) => {
+                  const scoreBadge = getScoreBadgeConfig(candidate.unified_score);
+                  const enrichmentBadge = getEnrichmentBadgeConfig(candidate.enrichment_tier);
+                  const indicators = getKeyIndicators(candidate);
+                  
+                  return (
+                    <>
+                      <tr 
+                        key={candidate.id}
+                        className={cn(
+                          "border-b border-border/50 transition-colors hover:bg-secondary/30 cursor-pointer",
+                          selectedIds.has(candidate.id) && "bg-primary/5"
                         )}
-                      </td>
-                      <td className="px-4 py-4">
-                        <button
-                          onClick={() => toggleExpand(candidate.id)}
-                          className="flex items-center gap-1 text-sm text-primary hover:text-primary/80 transition-colors font-medium"
-                        >
-                          {expandedIds.has(candidate.id) ? (
-                            <ChevronUp className="h-5 w-5" />
-                          ) : (
-                            <ChevronDown className="h-5 w-5" />
-                          )}
-                        </button>
-                      </td>
-                    </tr>
-                    {expandedIds.has(candidate.id) && (
-                      <tr key={`${candidate.id}-expanded`} className="bg-secondary/20">
-                        <td colSpan={7} className="px-6 py-4">
-                          <div className="space-y-3 animate-fade-in">
-                            <div>
-                              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Icebreaker</p>
-                              <p className="text-sm text-foreground">{candidate.icebreaker}</p>
-                            </div>
-                            <div>
-                              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Talking Points</p>
-                              <ul className="list-disc list-inside text-sm text-foreground space-y-1">
-                                {candidate.talking_points.map((point, i) => (
-                                  <li key={i}>{point}</li>
-                                ))}
-                              </ul>
-                            </div>
+                        style={{ animationDelay: `${index * 50}ms` }}
+                        onClick={() => toggleExpand(candidate.id)}
+                      >
+                        <td className="px-4 py-4" onClick={(e) => e.stopPropagation()}>
+                          <Checkbox
+                            checked={selectedIds.has(candidate.id)}
+                            onCheckedChange={() => toggleSelect(candidate.id)}
+                          />
+                        </td>
+                        <td className="px-4 py-4">
+                          <div className="space-y-1">
+                            <span className="font-medium text-foreground">
+                              {candidate.first_name} {candidate.last_name}
+                            </span>
+                            <p className="text-xs text-muted-foreground">{candidate.specialty}</p>
+                            {candidate.score_reason && (
+                              <div className="mt-1">
+                                {highlightScoreReason(candidate.score_reason)}
+                              </div>
+                            )}
                           </div>
                         </td>
+                        <td className="px-4 py-4">
+                          <div className="flex flex-col gap-1">
+                            <Badge className={cn("font-bold text-xs", scoreBadge.className)}>
+                              {candidate.unified_score}
+                            </Badge>
+                            <span className="text-xs text-muted-foreground">{scoreBadge.label}</span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-4">
+                          <div className="flex items-center gap-2 min-w-[120px]">
+                            <Progress value={candidate.match_strength} className="h-2 flex-1" />
+                            <span className="text-xs font-medium text-muted-foreground w-10">
+                              {candidate.match_strength}%
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-4">
+                          <Badge className={cn("text-xs flex items-center w-fit", enrichmentBadge.className)}>
+                            {enrichmentBadge.icon}
+                            {enrichmentBadge.label}
+                          </Badge>
+                        </td>
+                        <td className="px-4 py-4">
+                          <div className="flex flex-wrap gap-1 max-w-[200px]">
+                            {indicators.slice(0, 3).map((ind, i) => (
+                              <Badge key={i} variant="outline" className={cn("text-[10px] border", ind.className)}>
+                                {ind.label}
+                              </Badge>
+                            ))}
+                            {indicators.length > 3 && (
+                              <Badge variant="outline" className="text-[10px]">
+                                +{indicators.length - 3}
+                              </Badge>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-4">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleExpand(candidate.id);
+                            }}
+                            className="flex items-center gap-1 text-sm text-primary hover:text-primary/80 transition-colors font-medium"
+                          >
+                            {expandedIds.has(candidate.id) ? (
+                              <ChevronUp className="h-5 w-5" />
+                            ) : (
+                              <ChevronDown className="h-5 w-5" />
+                            )}
+                          </button>
+                        </td>
                       </tr>
-                    )}
-                  </>
-                ))}
+                      {expandedIds.has(candidate.id) && (
+                        <tr key={`${candidate.id}-expanded`} className="bg-secondary/20">
+                          <td colSpan={7} className="px-6 py-4">
+                            <div className="space-y-4 animate-fade-in">
+                              {/* Icebreaker Callout */}
+                              <div className="rounded-lg bg-primary/10 border border-primary/20 p-4">
+                                <p className="text-xs font-semibold uppercase tracking-wide text-primary mb-2">
+                                  💡 Icebreaker
+                                </p>
+                                <p className="text-sm text-foreground">{candidate.icebreaker || "No icebreaker available"}</p>
+                              </div>
+                              
+                              {/* Talking Points */}
+                              <div>
+                                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+                                  Talking Points
+                                </p>
+                                <ol className="list-decimal list-inside text-sm text-foreground space-y-1">
+                                  {candidate.talking_points?.map((point, i) => (
+                                    <li key={i}>{point}</li>
+                                  )) || <li className="text-muted-foreground">No talking points available</li>}
+                                </ol>
+                              </div>
+                              
+                              {/* Licenses */}
+                              <div>
+                                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+                                  Licenses ({candidate.licenses_count} states)
+                                </p>
+                                <div className="flex flex-wrap gap-1">
+                                  {candidate.licenses?.slice(0, 30).map((license, i) => (
+                                    <Badge 
+                                      key={i} 
+                                      variant="outline" 
+                                      className={cn(
+                                        "text-[10px]",
+                                        license.includes(jobState) && "bg-success/20 text-success border-success/30"
+                                      )}
+                                    >
+                                      {license}
+                                    </Badge>
+                                  ))}
+                                  {(candidate.licenses?.length || 0) > 30 && (
+                                    <Badge variant="outline" className="text-[10px]">
+                                      +{candidate.licenses.length - 30} more
+                                    </Badge>
+                                  )}
+                                </div>
+                              </div>
+                              
+                              {/* Contact Info */}
+                              {(candidate.work_email || candidate.work_phone) && (
+                                <div className="flex flex-wrap gap-4 pt-2 border-t border-border">
+                                  {candidate.work_email && (
+                                    <div className="flex items-center gap-2 text-sm">
+                                      <Mail className="h-4 w-4 text-muted-foreground" />
+                                      <span className="text-foreground">{candidate.work_email}</span>
+                                    </div>
+                                  )}
+                                  {candidate.work_phone && (
+                                    <div className="flex items-center gap-2 text-sm">
+                                      <Phone className="h-4 w-4 text-muted-foreground" />
+                                      <span className="text-foreground">{candidate.work_phone}</span>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                              
+                              {/* All Indicators */}
+                              {indicators.length > 0 && (
+                                <div className="flex flex-wrap gap-2 pt-2">
+                                  {indicators.map((ind, i) => (
+                                    <Badge key={i} variant="outline" className={cn("text-xs border", ind.className)}>
+                                      {ind.label}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </>
+                  );
+                })}
               </tbody>
             </table>
           </div>
