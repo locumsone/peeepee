@@ -8,6 +8,7 @@ import JobDetail from "./pages/JobDetail";
 import JobEntry from "./pages/JobEntry";
 import NewJobEntry from "./pages/NewJobEntry";
 import CandidateMatching from "./pages/CandidateMatching";
+import EnrichmentReview from "./pages/EnrichmentReview";
 import TierAssignment from "./pages/TierAssignment";
 import CampaignBuilder from "./pages/CampaignBuilder";
 import LaunchConfirmation from "./pages/LaunchConfirmation";
@@ -28,8 +29,9 @@ const App = () => (
           <Route path="/new-job" element={<JobEntry />} />
           <Route path="/candidates" element={<CandidateMatching />} />
           <Route path="/campaign/tiers" element={<TierAssignment />} />
+          <Route path="/campaign/enrich" element={<EnrichmentReview />} />
+          <Route path="/campaign/launch" element={<LaunchConfirmation />} />
           <Route path="/campaign-builder" element={<CampaignBuilder />} />
-          <Route path="/launch" element={<LaunchConfirmation />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>
