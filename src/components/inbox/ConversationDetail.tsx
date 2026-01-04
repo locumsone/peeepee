@@ -395,6 +395,7 @@ interface SMSTemplate {
 export const ConversationDetail = ({ conversation }: ConversationDetailProps) => {
   const [messageText, setMessageText] = useState("");
   const [isSending, setIsSending] = useState(false);
+  const [interestLevel, setInterestLevel] = useState("not_set");
   const scrollRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
 
@@ -557,8 +558,6 @@ export const ConversationDetail = ({ conversation }: ConversationDetailProps) =>
     { value: "hot", label: "Hot", color: "text-orange-500" },
     { value: "placed", label: "Placed", color: "text-green-500" },
   ];
-
-  const [interestLevel, setInterestLevel] = useState("not_set");
 
   const handleCopyToClipboard = (text: string, label: string) => {
     navigator.clipboard.writeText(text);
