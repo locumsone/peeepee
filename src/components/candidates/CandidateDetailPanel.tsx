@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { format } from "date-fns";
+import { useNavigate } from "react-router-dom";
 import {
   Phone,
   MessageSquare,
@@ -29,12 +30,6 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
@@ -74,6 +69,7 @@ interface CandidateDetailPanelProps {
 }
 
 const CandidateDetailPanel = ({ candidateId, onClose }: CandidateDetailPanelProps) => {
+  const navigate = useNavigate();
   const { toast } = useToast();
   const [candidate, setCandidate] = useState<CandidateDetail | null>(null);
   const [interactions, setInteractions] = useState<Interaction[]>([]);
@@ -323,49 +319,58 @@ const CandidateDetailPanel = ({ candidateId, onClose }: CandidateDetailPanelProp
                   <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">
                     Quick Actions
                   </h3>
-                  <TooltipProvider>
-                    <div className="flex gap-2">
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button variant="outline" size="sm" disabled>
-                            <Phone className="h-4 w-4 mr-1" />
-                            Call
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>Coming soon</TooltipContent>
-                      </Tooltip>
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button variant="outline" size="sm" disabled>
-                            <MessageSquare className="h-4 w-4 mr-1" />
-                            SMS
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>Coming soon</TooltipContent>
-                      </Tooltip>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          if (candidate.email) {
-                            window.location.href = `mailto:${candidate.email}`;
-                          }
-                        }}
-                        disabled={!candidate.email}
-                      >
-                        <Mail className="h-4 w-4 mr-1" />
-                        Email
-                      </Button>
-                      <Button
-                        variant="default"
-                        size="sm"
-                        onClick={() => setCampaignModalOpen(true)}
-                      >
-                        <Users className="h-4 w-4 mr-1" />
-                        Add to Campaign
-                      </Button>
-                    </div>
-                  </TooltipProvider>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const phone = candidate.personal_mobile || candidate.phone;
+                        if (phone) {
+                          navigate(`/communications?call=${encodeURIComponent(phone)}`);
+                        }
+                      }}
+                      disabled={!candidate.phone && !candidate.personal_mobile}
+                    >
+                      <Phone className="h-4 w-4 mr-1" />
+                      Call
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const phone = candidate.personal_mobile || candidate.phone;
+                        if (phone) {
+                          navigate(`/communications?sms=${encodeURIComponent(phone)}`);
+                        }
+                      }}
+                      disabled={!candidate.phone && !candidate.personal_mobile}
+                    >
+                      <MessageSquare className="h-4 w-4 mr-1" />
+                      SMS
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        const email = candidate.personal_email || candidate.email;
+                        if (email) {
+                          window.open(`mailto:${email}`, '_blank');
+                        }
+                      }}
+                      disabled={!candidate.email && !candidate.personal_email}
+                    >
+                      <Mail className="h-4 w-4 mr-1" />
+                      Email
+                    </Button>
+                    <Button
+                      variant="default"
+                      size="sm"
+                      onClick={() => setCampaignModalOpen(true)}
+                    >
+                      <Users className="h-4 w-4 mr-1" />
+                      Add to Campaign
+                    </Button>
+                  </div>
                 </div>
 
                 <Separator />

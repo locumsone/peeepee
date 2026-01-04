@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { useSearchParams } from "react-router-dom";
 import Layout from "@/components/layout/Layout";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -84,11 +85,13 @@ interface CampaignLead {
 }
 
 export default function Communications() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState<'sms' | 'calls'>('sms');
   const [searchQuery, setSearchQuery] = useState('');
   const [conversations, setConversations] = useState<SMSConversation[]>([]);
   const [callLogs, setCallLogs] = useState<CallLog[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedPhone, setSelectedPhone] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [candidate, setCandidate] = useState<Candidate | null>(null);
   const [campaignLeads, setCampaignLeads] = useState<CampaignLead[]>([]);
@@ -96,8 +99,71 @@ export default function Communications() {
   const [sending, setSending] = useState(false);
   const [callWidgetMinimized, setCallWidgetMinimized] = useState(false);
   const [loading, setLoading] = useState(true);
+  const initialActionHandled = useRef(false);
 
   const twilioDevice = useTwilioDevice('recruiter-1');
+
+  // Handle query params for call/sms actions
+  useEffect(() => {
+    if (initialActionHandled.current) return;
+    
+    const callPhone = searchParams.get('call');
+    const smsPhone = searchParams.get('sms');
+    
+    if (callPhone || smsPhone) {
+      const phone = callPhone || smsPhone;
+      setSelectedPhone(phone);
+      
+      if (callPhone) {
+        setActiveTab('calls');
+        // Auto-initiate call when device is ready
+        if (twilioDevice.isReady && !twilioDevice.currentCall) {
+          twilioDevice.makeCall(callPhone, '+18001234567');
+          toast.success('Initiating call...');
+          initialActionHandled.current = true;
+          // Clear the query param
+          setSearchParams({});
+        }
+      } else if (smsPhone) {
+        setActiveTab('sms');
+        initialActionHandled.current = true;
+        // Clear the query param
+        setSearchParams({});
+      }
+    }
+  }, [searchParams, twilioDevice.isReady, twilioDevice.currentCall, twilioDevice, setSearchParams]);
+
+  // Fetch candidate by phone when selectedPhone is set from query params
+  useEffect(() => {
+    if (!selectedPhone) return;
+    
+    const fetchCandidateByPhone = async () => {
+      const { data } = await supabase
+        .from('candidates')
+        .select('*')
+        .or(`phone.eq.${selectedPhone},personal_mobile.eq.${selectedPhone}`)
+        .limit(1)
+        .single();
+      
+      if (data) {
+        setCandidate({
+          id: data.id,
+          first_name: data.first_name || '',
+          last_name: data.last_name || '',
+          specialty: data.specialty || '',
+          phone: data.phone || '',
+          email: data.email || '',
+          personal_mobile: data.personal_mobile || '',
+          city: data.city || '',
+          state: data.state || '',
+          licenses: data.licenses || [],
+          enrichment_tier: data.enrichment_tier || ''
+        });
+      }
+    };
+    
+    fetchCandidateByPhone();
+  }, [selectedPhone]);
 
   // Fetch conversations/calls
   useEffect(() => {
