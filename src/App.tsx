@@ -52,6 +52,12 @@ const App = () => (
           <Route path="/candidates/matching" element={<AuthGuard><CandidateMatching /></AuthGuard>} />
           <Route path="/candidates/tiers" element={<AuthGuard><TierAssignment /></AuthGuard>} />
           <Route path="/candidates/enrichment" element={<AuthGuard><EnrichmentReview /></AuthGuard>} />
+          
+          {/* Legacy campaign routes (singular /campaign/) */}
+          <Route path="/campaign/tiers" element={<AuthGuard><TierAssignment /></AuthGuard>} />
+          <Route path="/campaign/review" element={<AuthGuard><EnrichmentReview /></AuthGuard>} />
+          <Route path="/campaign/launch" element={<AuthGuard><LaunchConfirmation /></AuthGuard>} />
+          
           <Route path="/campaigns/launch" element={<AuthGuard><LaunchConfirmation /></AuthGuard>} />
           <Route path="/campaigns" element={<AuthGuard><Campaigns /></AuthGuard>} />
           <Route path="/campaigns/new" element={<AuthGuard><CampaignBuilder /></AuthGuard>} />
