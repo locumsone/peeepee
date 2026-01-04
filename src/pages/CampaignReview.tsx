@@ -214,70 +214,131 @@ export default function CampaignReview() {
   const [launching, setLaunching] = useState(false);
   const [launchStep, setLaunchStep] = useState<string>("");
 
+  // Loading and error state
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const handleStartOver = () => {
+    sessionStorage.removeItem("campaign_job_id");
+    sessionStorage.removeItem("campaign_job");
+    sessionStorage.removeItem("campaign_candidate_ids");
+    sessionStorage.removeItem("campaign_candidates");
+    sessionStorage.removeItem("campaign_channels");
+    sessionStorage.removeItem("selectedCandidates");
+    sessionStorage.removeItem("job");
+    sessionStorage.removeItem("channelConfig");
+    navigate("/campaigns/new");
+  };
+
   useEffect(() => {
-    const storedJobId = sessionStorage.getItem("campaign_job_id");
-    const storedCandidates = sessionStorage.getItem("campaign_candidates");
-    const storedChannels = sessionStorage.getItem("campaign_channels");
+    setIsLoading(true);
+    setLoadError(null);
 
-    if (!storedJobId || !storedCandidates || !storedChannels) {
-      navigate("/campaigns/new");
-      return;
-    }
+    try {
+      // Read from both legacy and new sessionStorage keys
+      const storedJobId = sessionStorage.getItem("campaign_job_id");
+      const storedJob = sessionStorage.getItem("job") || sessionStorage.getItem("campaign_job");
+      const storedCandidates = sessionStorage.getItem("selectedCandidates") || sessionStorage.getItem("campaign_candidates");
+      const storedChannels = sessionStorage.getItem("channelConfig") || sessionStorage.getItem("campaign_channels");
 
-    setJobId(storedJobId);
-    const candidates = JSON.parse(storedCandidates);
-    setCandidateIds(candidates);
-    setChannelConfig(JSON.parse(storedChannels));
+      // Validate required data
+      if (!storedJobId && !storedJob) {
+        setLoadError("Missing job data. Please start over.");
+        setIsLoading(false);
+        return;
+      }
 
-    // Fetch job
-    const fetchJob = async () => {
-      const { data } = await supabase
-        .from("jobs")
-        .select("*")
-        .eq("id", storedJobId)
-        .single();
+      if (!storedCandidates || storedCandidates === "[]") {
+        setLoadError("No candidates selected. Please start over.");
+        setIsLoading(false);
+        return;
+      }
 
-      if (data) {
-        setJob(data);
-        // Auto-generate campaign name
-        const specialty = data.specialty || "Campaign";
-        const facility = data.facility_name || "Facility";
-        const today = format(new Date(), "MMM d");
-        setCampaignName(`${specialty} - ${facility} - ${today}`);
+      if (!storedChannels || storedChannels === "{}") {
+        setLoadError("Missing channel configuration. Please start over.");
+        setIsLoading(false);
+        return;
+      }
 
-        // Set default sender
-        if (storedChannels) {
-          const channels = JSON.parse(storedChannels);
-          if (channels.email?.sender) {
-            setSelectedSender(channels.email.sender);
-          }
+      setJobId(storedJobId);
+      
+      // Parse job if available from sessionStorage
+      if (storedJob) {
+        try {
+          setJob(JSON.parse(storedJob));
+        } catch (e) {
+          console.error("Error parsing job from sessionStorage:", e);
         }
       }
-    };
 
-    // Fetch candidate stats and details
-    const fetchCandidateStats = async () => {
-      const { data } = await supabase
-        .from("candidates")
-        .select("id, first_name, last_name, enrichment_tier, phone, personal_mobile, email, personal_email, specialty")
-        .in("id", candidates);
-
-      if (data) {
-        setSelectedCandidates(data);
-        const stats = {
-          total: data.length,
-          aTier: data.filter((c) => c.enrichment_tier === "Platinum" || c.enrichment_tier === "Gold").length,
-          bTier: data.filter((c) => c.enrichment_tier === "Silver").length,
-          cTier: data.filter((c) => c.enrichment_tier === "Bronze" || !c.enrichment_tier).length,
-          ready: data.filter((c) => c.phone || c.personal_mobile || c.email || c.personal_email).length,
-          needEnrichment: data.filter((c) => !c.phone && !c.personal_mobile && !c.personal_email).length,
-        };
-        setCandidateStats(stats);
+      const candidates = JSON.parse(storedCandidates);
+      // Handle both array of IDs and array of candidate objects
+      if (Array.isArray(candidates) && candidates.length > 0) {
+        if (typeof candidates[0] === 'string') {
+          setCandidateIds(candidates);
+        } else {
+          setCandidateIds(candidates.map((c: any) => c.id));
+          setSelectedCandidates(candidates);
+        }
       }
-    };
+      
+      setChannelConfig(JSON.parse(storedChannels));
 
-    fetchJob();
-    fetchCandidateStats();
+      // Fetch job
+      const fetchJob = async () => {
+        const { data } = await supabase
+          .from("jobs")
+          .select("*")
+          .eq("id", storedJobId)
+          .single();
+
+        if (data) {
+          setJob(data);
+          // Auto-generate campaign name
+          const specialty = data.specialty || "Campaign";
+          const facility = data.facility_name || "Facility";
+          const today = format(new Date(), "MMM d");
+          setCampaignName(`${specialty} - ${facility} - ${today}`);
+
+          // Set default sender
+          if (storedChannels) {
+            const channels = JSON.parse(storedChannels);
+            if (channels.email?.sender) {
+              setSelectedSender(channels.email.sender);
+            }
+          }
+        }
+      };
+
+      // Fetch candidate stats and details
+      const fetchCandidateStats = async () => {
+        const { data } = await supabase
+          .from("candidates")
+          .select("id, first_name, last_name, enrichment_tier, phone, personal_mobile, email, personal_email, specialty")
+          .in("id", candidates);
+
+        if (data) {
+          setSelectedCandidates(data);
+          const stats = {
+            total: data.length,
+            aTier: data.filter((c) => c.enrichment_tier === "Platinum" || c.enrichment_tier === "Gold").length,
+            bTier: data.filter((c) => c.enrichment_tier === "Silver").length,
+            cTier: data.filter((c) => c.enrichment_tier === "Bronze" || !c.enrichment_tier).length,
+            ready: data.filter((c) => c.phone || c.personal_mobile || c.email || c.personal_email).length,
+            needEnrichment: data.filter((c) => !c.phone && !c.personal_mobile && !c.personal_email).length,
+          };
+          setCandidateStats(stats);
+        }
+      };
+
+      fetchJob();
+      fetchCandidateStats();
+      setIsLoading(false);
+    } catch (error) {
+      console.error("Error loading campaign data:", error);
+      setLoadError("Something went wrong loading campaign data. Please start over.");
+      setIsLoading(false);
+    }
   }, [navigate]);
 
   const handleRunSherlock = async () => {
@@ -646,6 +707,36 @@ export default function CampaignReview() {
         <div className="max-w-5xl mx-auto space-y-6">
           <StepIndicator currentStep={4} steps={steps} />
 
+          {/* Loading State */}
+          {isLoading && (
+            <div className="flex flex-col items-center justify-center py-20 space-y-4">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              <p className="text-muted-foreground">Loading campaign data...</p>
+            </div>
+          )}
+
+          {/* Error State */}
+          {loadError && !isLoading && (
+            <Card className="border-destructive bg-destructive/10">
+              <CardContent className="flex flex-col items-center justify-center py-12 space-y-4">
+                <XCircle className="h-12 w-12 text-destructive" />
+                <p className="text-lg font-medium text-destructive">{loadError}</p>
+                <div className="flex gap-3">
+                  <Button variant="outline" onClick={() => navigate(-1)}>
+                    <ArrowLeft className="h-4 w-4 mr-2" />
+                    Go Back
+                  </Button>
+                  <Button variant="default" onClick={handleStartOver}>
+                    Start Over
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Main Content - Only show if no errors and not loading */}
+          {!isLoading && !loadError && (
+            <>
           {/* Campaign Name */}
           <div className="space-y-2">
             <Label htmlFor="campaign-name" className="text-lg font-medium">
@@ -1164,6 +1255,8 @@ export default function CampaignReview() {
               Launch Campaign
             </Button>
           </div>
+            </>
+          )}
         </div>
 
         {/* Launch Confirmation Modal */}

@@ -182,7 +182,21 @@ export default function CampaignChannels() {
       },
     };
 
+    // Save channel config in both formats for compatibility
     sessionStorage.setItem("campaign_channels", JSON.stringify(config));
+    sessionStorage.setItem("channelConfig", JSON.stringify({
+      email: { enabled: emailEnabled, sender: emailSender, sequenceCount: parseInt(emailSequence) },
+      sms: { enabled: smsEnabled, sequenceCount: parseInt(smsSequence) },
+      aiCalls: { enabled: aiCallEnabled, callDay: parseInt(callTiming) },
+      linkedin: { enabled: linkedinEnabled },
+      schedule: { 
+        startDate: startDate.toISOString(), 
+        startTime: sendWindowStart, 
+        endTime: sendWindowEnd, 
+        timezone, 
+        weekdaysOnly 
+      }
+    }));
     navigate("/campaigns/new/review");
   };
 

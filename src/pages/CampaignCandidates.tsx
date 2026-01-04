@@ -144,8 +144,13 @@ const CampaignCandidates = () => {
 
   const handleNext = () => {
     const selectedCandidates = candidates.filter(c => selectedIds.has(c.id));
+    // Save all required data to sessionStorage
     sessionStorage.setItem("campaign_candidate_ids", JSON.stringify(Array.from(selectedIds)));
     sessionStorage.setItem("campaign_candidates", JSON.stringify(selectedCandidates));
+    sessionStorage.setItem("selectedCandidates", JSON.stringify(selectedCandidates));
+    if (job) {
+      sessionStorage.setItem("job", JSON.stringify(job));
+    }
     navigate("/campaigns/new/channels");
   };
 
