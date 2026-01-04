@@ -165,6 +165,8 @@ const highlightScoreReason = (reason: string) => {
   return <span className="italic text-muted-foreground text-sm" dangerouslySetInnerHTML={{ __html: result }} />;
 };
 
+const BATCH_SIZE = 25;
+
 const CandidateMatching = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -174,47 +176,54 @@ const CandidateMatching = () => {
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [summary, setSummary] = useState<SummaryData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [sortBy, setSortBy] = useState<SortOption>("best_match");
+  const [offset, setOffset] = useState(0);
+  const [hasMore, setHasMore] = useState(true);
 
-  useEffect(() => {
-    // Get jobId from URL params or use test ID
-    const searchParams = new URLSearchParams(window.location.search);
-    const urlJobId = searchParams.get('jobId') || jobId;
-    const effectiveJobId = urlJobId || "befd5ba5-4e46-41d9-b144-d4077f750035";
-    
-    console.log('Job ID:', effectiveJobId);
+  const effectiveJobId = jobId || "befd5ba5-4e46-41d9-b144-d4077f750035";
 
-    // Fetch candidates from real API
-    const fetchCandidates = async () => {
+  const fetchCandidates = async (currentOffset: number, append: boolean = false) => {
+    if (append) {
+      setIsLoadingMore(true);
+    } else {
       setIsLoading(true);
-      setError(null);
+    }
+    setError(null);
 
-      try {
-        const response = await fetch(
-          "https://qpvyzyspwxwtwjhfcuhh.supabase.co/functions/v1/ai-candidate-matcher",
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              job_id: effectiveJobId,
-              limit: 200,
-            }),
-          }
-        );
-
-        if (!response.ok) {
-          throw new Error(`API error: ${response.status}`);
+    try {
+      const response = await fetch(
+        "https://qpvyzyspwxwtwjhfcuhh.supabase.co/functions/v1/ai-candidate-matcher",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            job_id: effectiveJobId,
+            limit: BATCH_SIZE,
+            offset: currentOffset,
+          }),
         }
+      );
 
-        const data: ApiResponse = await response.json();
-        console.log('API Response:', data);
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
 
-        setCandidates(data.candidates || []);
+      const data: ApiResponse = await response.json();
+      console.log('API Response:', data);
+
+      // Sort by match_strength DESC before adding
+      const sortedCandidates = (data.candidates || []).sort((a, b) => b.match_strength - a.match_strength);
+
+      if (append) {
+        setCandidates(prev => [...prev, ...sortedCandidates]);
+      } else {
+        setCandidates(sortedCandidates);
         setSummary(data.summary || null);
         
         // Set job info from API response
@@ -229,16 +238,29 @@ const CandidateMatching = () => {
             payRate: data.job.pay_rate,
           });
         }
-      } catch (err) {
-        console.error("Error fetching candidates:", err);
-        setError(err instanceof Error ? err.message : "Failed to fetch candidates");
-      } finally {
-        setIsLoading(false);
       }
-    };
+      
+      // Check if there are more candidates to load
+      setHasMore(sortedCandidates.length === BATCH_SIZE);
+      setOffset(currentOffset + sortedCandidates.length);
+    } catch (err) {
+      console.error("Error fetching candidates:", err);
+      setError(err instanceof Error ? err.message : "Failed to fetch candidates");
+    } finally {
+      setIsLoading(false);
+      setIsLoadingMore(false);
+    }
+  };
 
-    fetchCandidates();
-  }, [jobId]);
+  useEffect(() => {
+    fetchCandidates(0, false);
+  }, [effectiveJobId]);
+
+  const handleLoadMore = () => {
+    if (!isLoadingMore && hasMore) {
+      fetchCandidates(offset, true);
+    }
+  };
 
   // Sorted candidates
   const sortedCandidates = useMemo(() => {
@@ -357,7 +379,9 @@ const CandidateMatching = () => {
   // Stats - use summary from API or calculate from candidates
   const aTierCount = summary?.tier_breakdown?.a_tier ?? candidates.filter(c => c.unified_score.startsWith("A")).length;
   const bTierCount = summary?.tier_breakdown?.b_tier ?? candidates.filter(c => c.unified_score.startsWith("B")).length;
+  const cTierCount = candidates.filter(c => c.unified_score.startsWith("C")).length;
   const needsEnrichmentCount = summary?.needs_enrichment ?? candidates.filter(c => c.needs_enrichment).length;
+  const readyToContactCount = summary?.ready_to_contact ?? candidates.filter(c => c.enrichment_tier?.toLowerCase() === 'platinum').length;
   const totalCount = summary?.total_matched ?? candidates.length;
 
   if (isLoading) {
@@ -406,8 +430,19 @@ const CandidateMatching = () => {
   return (
     <Layout currentStep={2}>
       <div className="mx-auto max-w-6xl space-y-6">
-        {/* Job Summary Bar */}
-        <div className="rounded-xl bg-secondary/50 border border-border px-6 py-4">
+        {/* Tier Distribution Summary */}
+        <div className="rounded-xl bg-secondary/50 border border-border px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-6 text-sm font-medium">
+            <span className="text-foreground">
+              🔥 A-Tier: <span className="text-success">{aTierCount}</span>
+            </span>
+            <span className="text-foreground">
+              ⭐ B-Tier: <span className="text-blue-400">{bTierCount}</span>
+            </span>
+            <span className="text-foreground">
+              📋 C-Tier: <span className="text-warning">{cTierCount}</span>
+            </span>
+          </div>
           <p className="text-lg font-semibold text-foreground">
             {job?.specialty || "IR"} at {job?.facility || "Chippewa Valley"} | {job?.location || "Eau Claire, WI"} | <span className="text-success">${job?.payRate || 529}/hr</span>
           </p>
@@ -416,8 +451,8 @@ const CandidateMatching = () => {
         {/* Stats Cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <StatCard label="Total Matched" value={totalCount} color="primary" />
-          <StatCard label="A-Tier" value={aTierCount} color="success" />
-          <StatCard label="B-Tier" value={bTierCount} color="accent" />
+          <StatCard label="Loaded" value={candidates.length} color="accent" />
+          <StatCard label="Contact Ready" value={readyToContactCount} color="success" />
           <StatCard label="Needs Enrichment" value={needsEnrichmentCount} color="warning" />
         </div>
 
@@ -656,6 +691,29 @@ const CandidateMatching = () => {
               </tbody>
             </table>
           </div>
+        </div>
+
+        {/* Pagination Controls */}
+        <div className="flex items-center justify-center gap-4 py-4 border-t border-border">
+          <span className="text-sm text-muted-foreground">
+            Showing 1-{candidates.length} of {totalCount} matched
+          </span>
+          {hasMore && (
+            <Button
+              variant="outline"
+              onClick={handleLoadMore}
+              disabled={isLoadingMore}
+            >
+              {isLoadingMore ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Loading...
+                </>
+              ) : (
+                <>Load {BATCH_SIZE} More</>
+              )}
+            </Button>
+          )}
         </div>
 
         {/* Footer Navigation */}
