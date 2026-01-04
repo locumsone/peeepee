@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Jobs from "./pages/Jobs";
 import JobDetail from "./pages/JobDetail";
 import JobEntry from "./pages/JobEntry";
+import NewJobEntry from "./pages/NewJobEntry";
 import CandidateMatching from "./pages/CandidateMatching";
 import CampaignBuilder from "./pages/CampaignBuilder";
 import LaunchConfirmation from "./pages/LaunchConfirmation";
@@ -22,6 +23,7 @@ const App = () => (
         <Routes>
           <Route path="/" element={<Jobs />} />
           <Route path="/jobs/:id" element={<JobDetail />} />
+          <Route path="/jobs/new" element={<NewJobEntry />} />
           <Route path="/new-job" element={<JobEntry />} />
           <Route path="/candidates" element={<CandidateMatching />} />
           <Route path="/campaign-builder" element={<CampaignBuilder />} />
