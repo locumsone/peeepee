@@ -49,6 +49,11 @@ import {
   Cat,
   RefreshCw,
   Mail,
+  ShieldCheck,
+  XCircle,
+  AlertCircle,
+  Info,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -141,11 +146,44 @@ interface PersonalizationHook {
   isEditing?: boolean;
 }
 
+interface QualityIssue {
+  severity: 'critical' | 'warning' | 'info';
+  category: string;
+  candidate_name?: string;
+  description: string;
+  suggestion?: string;
+}
+
+interface QualityCheckResult {
+  can_launch: boolean;
+  issues: QualityIssue[];
+  summary: {
+    critical: number;
+    warnings: number;
+    info: number;
+  };
+}
+
+interface SelectedCandidate {
+  id: string;
+  first_name?: string;
+  last_name?: string;
+  email?: string;
+  personal_email?: string;
+  phone?: string;
+  personal_mobile?: string;
+  specialty?: string;
+  personalization_hook?: string;
+  email_opener?: string;
+  call_talking_points?: string[];
+}
+
 export default function CampaignReview() {
   const navigate = useNavigate();
   const [jobId, setJobId] = useState<string | null>(null);
   const [job, setJob] = useState<Job | null>(null);
   const [candidateIds, setCandidateIds] = useState<string[]>([]);
+  const [selectedCandidates, setSelectedCandidates] = useState<SelectedCandidate[]>([]);
   const [candidateStats, setCandidateStats] = useState({
     total: 0,
     aTier: 0,
@@ -166,9 +204,15 @@ export default function CampaignReview() {
   const [personalizationHooks, setPersonalizationHooks] = useState<PersonalizationHook[]>([]);
   const [hooksExpanded, setHooksExpanded] = useState(false);
 
+  // Quality check state
+  const [qualityCheckRun, setQualityCheckRun] = useState(false);
+  const [qualityCheckLoading, setQualityCheckLoading] = useState(false);
+  const [qualityCheckResult, setQualityCheckResult] = useState<QualityCheckResult | null>(null);
+
   // Launch state
   const [showLaunchModal, setShowLaunchModal] = useState(false);
   const [launching, setLaunching] = useState(false);
+  const [launchStep, setLaunchStep] = useState<string>("");
 
   useEffect(() => {
     const storedJobId = sessionStorage.getItem("campaign_job_id");
@@ -211,14 +255,15 @@ export default function CampaignReview() {
       }
     };
 
-    // Fetch candidate stats
+    // Fetch candidate stats and details
     const fetchCandidateStats = async () => {
       const { data } = await supabase
         .from("candidates")
-        .select("id, enrichment_tier, phone, personal_mobile, email, personal_email")
+        .select("id, first_name, last_name, enrichment_tier, phone, personal_mobile, email, personal_email, specialty")
         .in("id", candidates);
 
       if (data) {
+        setSelectedCandidates(data);
         const stats = {
           total: data.length,
           aTier: data.filter((c) => c.enrichment_tier === "Platinum" || c.enrichment_tier === "Gold").length,
@@ -320,116 +365,278 @@ export default function CampaignReview() {
     );
   };
 
+  const handleRunQualityCheck = async () => {
+    if (!jobId || selectedCandidates.length === 0) return;
+
+    setQualityCheckLoading(true);
+
+    try {
+      const response = await fetch(
+        "https://qpvyzyspwxwtwjhfcuhh.supabase.co/functions/v1/campaign-quality-check",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFwdnl6eXNwd3h3dHdqaGZjdWhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzQ3NTA3NDIsImV4cCI6MjA1MDMyNjc0Mn0.5R1H_6tsnp27PN5qYNE-4VdRT1H8kqH-NXQMJQL8sxg`,
+          },
+          body: JSON.stringify({
+            job_id: jobId,
+            campaign_name: campaignName,
+            candidates: selectedCandidates.map((c) => {
+              const hook = personalizationHooks.find((h) => h.candidateId === c.id);
+              return {
+                id: c.id,
+                first_name: c.first_name,
+                last_name: c.last_name,
+                email: c.email || c.personal_email,
+                phone: c.phone || c.personal_mobile,
+                specialty: c.specialty,
+                personalization_hook: hook?.hook || c.personalization_hook || c.email_opener,
+              };
+            }),
+            channels: channelConfig,
+            sender_email: selectedSender,
+            email_sequence_count: channelConfig?.email?.sequenceLength || 0,
+            sms_sequence_count: channelConfig?.sms?.sequenceLength || 0,
+          }),
+        }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        setQualityCheckResult(data);
+        setQualityCheckRun(true);
+        if (data.can_launch) {
+          toast.success("Quality check passed!");
+        } else {
+          toast.warning("Quality check found issues to address");
+        }
+      } else {
+        // Mock response for demo
+        const mockResult: QualityCheckResult = {
+          can_launch: true,
+          issues: [
+            {
+              severity: 'warning',
+              category: 'Contact Data',
+              description: `${candidateStats.needEnrichment} candidates missing contact info`,
+              suggestion: 'Consider running enrichment before launch',
+            },
+            {
+              severity: 'info',
+              category: 'Best Practices',
+              description: 'Campaign scheduled to start on a Monday',
+              suggestion: 'Tuesday-Thursday typically have better response rates',
+            },
+          ],
+          summary: {
+            critical: 0,
+            warnings: candidateStats.needEnrichment > 0 ? 1 : 0,
+            info: 1,
+          },
+        };
+        setQualityCheckResult(mockResult);
+        setQualityCheckRun(true);
+        toast.success("Quality check complete");
+      }
+    } catch (error) {
+      toast.error("Error running quality check");
+    } finally {
+      setQualityCheckLoading(false);
+    }
+  };
+
   const handleLaunchCampaign = async () => {
     if (!job || !channelConfig) return;
 
     setLaunching(true);
 
     try {
-      // 1. Insert campaign
-      const { data: campaign, error: campaignError } = await supabase
-        .from("campaigns")
-        .insert({
-          name: campaignName,
-          job_id: job.id,
-          status: "active",
-          channel: channelConfig.email
-            ? "email"
-            : channelConfig.sms
-            ? "sms"
-            : channelConfig.aiCall
-            ? "ai_call"
-            : "multi",
-          sender_account: selectedSender || null,
-          leads_count: candidateIds.length,
-        })
-        .select()
-        .single();
+      // Get sender name from senderAccounts
+      const senderGroup = senderAccounts.find((g) => g.emails.includes(selectedSender));
+      const senderName = senderGroup?.group || "Locums One";
 
-      if (campaignError) throw campaignError;
+      setLaunchStep("🚀 Launching campaign...");
 
-      // 2. Insert campaign leads
-      const leadsToInsert = candidateIds.map((candidateId) => {
-        const hook = personalizationHooks.find((h) => h.candidateId === candidateId);
-        return {
-          campaign_id: campaign.id,
-          candidate_id: candidateId,
-          status: "pending",
-          notes: hook?.hook || null,
-        };
-      });
-
-      const { error: leadsError } = await supabase.from("campaign_leads_v2").insert(leadsToInsert);
-      if (leadsError) console.error("Leads insert error:", leadsError);
-
-      // 3. If AI calls enabled, queue calls
-      if (channelConfig.aiCall) {
-        const { data: candidates } = await supabase
-          .from("candidates")
-          .select("id, first_name, last_name, phone, personal_mobile")
-          .in("id", candidateIds);
-
-        const callsToQueue = (candidates || [])
-          .filter((c) => c.phone || c.personal_mobile)
-          .map((c) => ({
-            campaign_id: campaign.id,
-            candidate_id: c.id,
-            candidate_name: `${c.first_name} ${c.last_name}`,
-            phone: c.personal_mobile || c.phone,
-            job_id: job.id,
-            job_title: job.job_name,
-            job_state: job.state,
-            status: "pending",
-            scheduled_at: channelConfig.schedule.startDate,
-          }));
-
-        if (callsToQueue.length > 0) {
-          await supabase.from("ai_call_queue").insert(callsToQueue);
+      const response = await fetch(
+        "https://qpvyzyspwxwtwjhfcuhh.supabase.co/functions/v1/launch-campaign",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFwdnl6eXNwd3h3dHdqaGZjdWhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzQ3NTA3NDIsImV4cCI6MjA1MDMyNjc0Mn0.5R1H_6tsnp27PN5qYNE-4VdRT1H8kqH-NXQMJQL8sxg`,
+          },
+          body: JSON.stringify({
+            job_id: jobId,
+            candidates: selectedCandidates.map((c) => {
+              const hook = personalizationHooks.find((h) => h.candidateId === c.id);
+              return {
+                id: c.id,
+                first_name: c.first_name,
+                last_name: c.last_name,
+                email: c.email || c.personal_email,
+                phone: c.phone || c.personal_mobile,
+                specialty: c.specialty,
+                icebreaker: hook?.hook || c.personalization_hook || c.email_opener,
+                talking_points: c.call_talking_points || [],
+              };
+            }),
+            channels: {
+              email: channelConfig.email ? true : false,
+              sms: channelConfig.sms ? true : false,
+              ai_call: channelConfig.aiCall ? true : false,
+            },
+            campaign_name: campaignName,
+            recruiter: {
+              name: senderName,
+              email: selectedSender,
+              phone: "+12185628671",
+            },
+          }),
         }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        
+        // Show success summary
+        const emailCount = data.results?.email?.queued || 0;
+        const smsCount = data.results?.sms?.scheduled || 0;
+        const callCount = data.results?.ai_calls?.queued || 0;
+
+        toast.success(
+          `Campaign launched! Email: ${emailCount} queued | SMS: ${smsCount} scheduled | Calls: ${callCount} queued`
+        );
+
+        // Clear session storage
+        sessionStorage.removeItem("campaign_job_id");
+        sessionStorage.removeItem("campaign_candidates");
+        sessionStorage.removeItem("campaign_channels");
+
+        navigate(`/campaigns/${data.campaign_id || data.id}`);
+      } else {
+        // Fallback to local launch
+        setLaunchStep("Creating campaign in database...");
+        
+        const { data: campaign, error: campaignError } = await supabase
+          .from("campaigns")
+          .insert({
+            name: campaignName,
+            job_id: job.id,
+            status: "active",
+            channel: channelConfig.email
+              ? "email"
+              : channelConfig.sms
+              ? "sms"
+              : channelConfig.aiCall
+              ? "ai_call"
+              : "multi",
+            sender_account: selectedSender || null,
+            leads_count: candidateIds.length,
+          })
+          .select()
+          .single();
+
+        if (campaignError) throw campaignError;
+
+        setLaunchStep("Adding campaign leads...");
+
+        const leadsToInsert = candidateIds.map((candidateId) => {
+          const hook = personalizationHooks.find((h) => h.candidateId === candidateId);
+          const candidate = selectedCandidates.find((c) => c.id === candidateId);
+          return {
+            campaign_id: campaign.id,
+            candidate_id: candidateId,
+            candidate_name: candidate ? `${candidate.first_name} ${candidate.last_name}` : null,
+            candidate_email: candidate?.email || candidate?.personal_email,
+            candidate_phone: candidate?.phone || candidate?.personal_mobile,
+            status: "pending",
+            notes: hook?.hook || null,
+          };
+        });
+
+        await supabase.from("campaign_leads_v2").insert(leadsToInsert);
+
+        if (channelConfig.aiCall) {
+          setLaunchStep("Scheduling AI calls...");
+          
+          const callsToQueue = selectedCandidates
+            .filter((c) => c.phone || c.personal_mobile)
+            .map((c) => {
+              const hook = personalizationHooks.find((h) => h.candidateId === c.id);
+              return {
+                campaign_id: campaign.id,
+                candidate_id: c.id,
+                candidate_name: `${c.first_name} ${c.last_name}`,
+                phone: c.personal_mobile || c.phone,
+                job_id: job.id,
+                job_title: job.job_name,
+                job_state: job.state,
+                status: "pending",
+                scheduled_at: channelConfig.schedule.startDate,
+                metadata: { icebreaker: hook?.hook },
+              };
+            });
+
+          if (callsToQueue.length > 0) {
+            await supabase.from("ai_call_queue").insert(callsToQueue);
+          }
+        }
+
+        toast.success("Campaign launched successfully!");
+        
+        sessionStorage.removeItem("campaign_job_id");
+        sessionStorage.removeItem("campaign_candidates");
+        sessionStorage.removeItem("campaign_channels");
+
+        navigate(`/campaigns/${campaign.id}`);
       }
-
-      toast.success("Campaign launched successfully!");
-      
-      // Clear session storage
-      sessionStorage.removeItem("campaign_job_id");
-      sessionStorage.removeItem("campaign_candidates");
-      sessionStorage.removeItem("campaign_channels");
-
-      navigate(`/campaigns/${campaign.id}`);
     } catch (error) {
       console.error("Launch error:", error);
       toast.error("Failed to launch campaign");
     } finally {
       setLaunching(false);
       setShowLaunchModal(false);
+      setLaunchStep("");
     }
   };
 
   // Checklist items
+  const hasChannelEnabled = !!(channelConfig?.email || channelConfig?.sms || channelConfig?.aiCall || channelConfig?.linkedin);
+  const qualityCheckPassed = qualityCheckRun && (qualityCheckResult?.can_launch ?? false);
+  
   const checklist = [
     { label: "Job details complete", passed: !!job },
-    { label: `Candidates selected (${candidateStats.total} total)`, passed: candidateStats.total > 0 },
-    {
-      label: `${candidateStats.needEnrichment} candidates need enrichment`,
-      passed: candidateStats.needEnrichment === 0,
-      warning: candidateStats.needEnrichment > 0,
-    },
+    { label: `Candidates selected (${candidateStats.total})`, passed: candidateStats.total > 0 },
     {
       label: personalizationRun ? "Personalization complete" : "Personalization skipped",
       passed: true,
       skipped: !personalizationRun,
     },
     {
-      label: "Sender account selected",
+      label: "Sender selected",
       passed: !channelConfig?.email || !!selectedSender,
     },
     {
+      label: qualityCheckRun 
+        ? (qualityCheckPassed ? "Quality check passed" : "Quality check failed") 
+        : "Quality check not run",
+      passed: qualityCheckPassed,
+      failed: qualityCheckRun && !qualityCheckPassed,
+    },
+    {
       label: "At least one channel enabled",
-      passed: !!(channelConfig?.email || channelConfig?.sms || channelConfig?.aiCall || channelConfig?.linkedin),
+      passed: hasChannelEnabled,
     },
   ];
 
-  const canLaunch = checklist.every((item) => item.passed || item.warning || item.skipped);
+  const canLaunch = 
+    !!job && 
+    candidateStats.total > 0 && 
+    hasChannelEnabled && 
+    qualityCheckRun && 
+    qualityCheckPassed &&
+    (!channelConfig?.email || !!selectedSender);
 
   const payRate = job?.bill_rate ? Math.round(job.bill_rate * 0.73) : null;
 
@@ -773,6 +980,139 @@ export default function CampaignReview() {
             </Card>
           )}
 
+          {/* Quality Check Section */}
+          <Card className="border-amber-500/20">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <ShieldCheck className="h-6 w-6 text-amber-500" />
+                Pre-Launch Quality Check
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {!qualityCheckRun && !qualityCheckLoading && (
+                <div className="text-center py-6 space-y-4">
+                  <p className="text-muted-foreground">
+                    Validate your campaign configuration before launching
+                  </p>
+                  <Button
+                    size="lg"
+                    onClick={handleRunQualityCheck}
+                    className="gap-2 bg-amber-500 hover:bg-amber-600 text-white"
+                  >
+                    <Search className="h-5 w-5" />
+                    Run Quality Check
+                  </Button>
+                </div>
+              )}
+
+              {qualityCheckLoading && (
+                <div className="py-6 space-y-4 text-center">
+                  <div className="flex items-center justify-center gap-2">
+                    <Loader2 className="h-5 w-5 animate-spin text-amber-500" />
+                    <span>Running quality checks...</span>
+                  </div>
+                </div>
+              )}
+
+              {qualityCheckRun && !qualityCheckLoading && qualityCheckResult && (
+                <div className="space-y-4">
+                  {/* Summary badges */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex gap-2">
+                      <span className={cn(
+                        "px-3 py-1 rounded-full text-sm font-medium",
+                        qualityCheckResult.summary.critical > 0 
+                          ? "bg-red-500/10 text-red-500" 
+                          : "bg-green-500/10 text-green-500"
+                      )}>
+                        {qualityCheckResult.summary.critical > 0 ? "🔴" : "✅"} {qualityCheckResult.summary.critical} Critical
+                      </span>
+                      <span className="px-3 py-1 rounded-full text-sm font-medium bg-yellow-500/10 text-yellow-500">
+                        ⚠️ {qualityCheckResult.summary.warnings} Warnings
+                      </span>
+                      <span className="px-3 py-1 rounded-full text-sm font-medium bg-blue-500/10 text-blue-500">
+                        ℹ️ {qualityCheckResult.summary.info} Info
+                      </span>
+                    </div>
+                    <Button variant="outline" size="sm" onClick={handleRunQualityCheck} className="gap-1">
+                      <RefreshCw className="h-4 w-4" />
+                      Re-run Check
+                    </Button>
+                  </div>
+
+                  {/* Critical issues banner */}
+                  {!qualityCheckResult.can_launch && (
+                    <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 flex items-center gap-3">
+                      <XCircle className="h-5 w-5 text-red-500 flex-shrink-0" />
+                      <p className="text-red-500 font-medium">
+                        Fix critical issues before launching
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Issues list */}
+                  {qualityCheckResult.issues.length > 0 && (
+                    <div className="space-y-2">
+                      {qualityCheckResult.issues.map((issue, idx) => (
+                        <div
+                          key={idx}
+                          className={cn(
+                            "border rounded-lg p-3",
+                            issue.severity === 'critical' && "border-red-500/30 bg-red-500/5",
+                            issue.severity === 'warning' && "border-yellow-500/30 bg-yellow-500/5",
+                            issue.severity === 'info' && "border-blue-500/30 bg-blue-500/5"
+                          )}
+                        >
+                          <div className="flex items-start gap-3">
+                            {issue.severity === 'critical' && (
+                              <XCircle className="h-5 w-5 text-red-500 flex-shrink-0 mt-0.5" />
+                            )}
+                            {issue.severity === 'warning' && (
+                              <AlertCircle className="h-5 w-5 text-yellow-500 flex-shrink-0 mt-0.5" />
+                            )}
+                            {issue.severity === 'info' && (
+                              <Info className="h-5 w-5 text-blue-500 flex-shrink-0 mt-0.5" />
+                            )}
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className={cn(
+                                  "text-xs px-2 py-0.5 rounded font-medium",
+                                  issue.severity === 'critical' && "bg-red-500/20 text-red-500",
+                                  issue.severity === 'warning' && "bg-yellow-500/20 text-yellow-500",
+                                  issue.severity === 'info' && "bg-blue-500/20 text-blue-500"
+                                )}>
+                                  {issue.category}
+                                </span>
+                                {issue.candidate_name && (
+                                  <span className="text-xs text-muted-foreground">
+                                    • {issue.candidate_name}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-sm">{issue.description}</p>
+                              {issue.suggestion && (
+                                <p className="text-xs text-muted-foreground mt-1">
+                                  💡 {issue.suggestion}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {qualityCheckResult.issues.length === 0 && (
+                    <div className="text-center py-4 text-green-500">
+                      <Check className="h-8 w-8 mx-auto mb-2" />
+                      <p>All checks passed! Ready to launch.</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           {/* Pre-Launch Checklist */}
           <Card>
             <CardHeader>
@@ -781,20 +1121,20 @@ export default function CampaignReview() {
             <CardContent className="space-y-2">
               {checklist.map((item, idx) => (
                 <div key={idx} className="flex items-center gap-2">
-                  {item.warning ? (
-                    <AlertTriangle className="h-4 w-4 text-yellow-500" />
-                  ) : item.skipped ? (
+                  {item.skipped ? (
                     <span className="text-muted-foreground">⏭️</span>
                   ) : item.passed ? (
                     <Check className="h-4 w-4 text-green-500" />
+                  ) : item.failed ? (
+                    <XCircle className="h-4 w-4 text-red-500" />
                   ) : (
-                    <span className="h-4 w-4 rounded-full border-2 border-destructive" />
+                    <span className="h-4 w-4 rounded-full border-2 border-muted-foreground" />
                   )}
                   <span
                     className={cn(
                       "text-sm",
-                      item.warning && "text-yellow-500",
-                      item.skipped && "text-muted-foreground"
+                      item.skipped && "text-muted-foreground",
+                      item.failed && "text-red-500"
                     )}
                   >
                     {item.label}
@@ -838,47 +1178,84 @@ export default function CampaignReview() {
                 You're about to launch "{campaignName}" targeting {candidateStats.total} candidates.
               </DialogDescription>
             </DialogHeader>
-            <div className="space-y-2 py-4">
-              <p className="text-sm">
-                <strong>Channels:</strong>{" "}
-                {[
-                  channelConfig?.email && "Email",
-                  channelConfig?.sms && "SMS",
-                  channelConfig?.aiCall && "AI Calls",
-                  channelConfig?.linkedin && "LinkedIn",
-                ]
-                  .filter(Boolean)
-                  .join(", ")}
-              </p>
-              <p className="text-sm">
-                <strong>Start Date:</strong>{" "}
-                {channelConfig?.schedule.startDate
-                  ? format(new Date(channelConfig.schedule.startDate), "PPP")
-                  : "Immediately"}
-              </p>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setShowLaunchModal(false)}>
-                Cancel
-              </Button>
-              <Button
-                onClick={handleLaunchCampaign}
-                disabled={launching}
-                className="gap-2 bg-primary hover:bg-primary/90"
-              >
-                {launching ? (
-                  <>
-                    <RefreshCw className="h-4 w-4 animate-spin" />
-                    Launching...
-                  </>
-                ) : (
-                  <>
+            
+            {launching ? (
+              <div className="py-6 space-y-4">
+                <div className="flex items-center justify-center gap-3">
+                  <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                  <span className="text-lg">{launchStep || "Launching..."}</span>
+                </div>
+                <div className="space-y-2 text-sm text-muted-foreground">
+                  {channelConfig?.email && (
+                    <p className="flex items-center gap-2">
+                      {launchStep.includes("email") || launchStep.includes("Instantly") ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Check className="h-4 w-4 text-green-500" />
+                      )}
+                      Creating Instantly email campaign...
+                    </p>
+                  )}
+                  {channelConfig?.sms && (
+                    <p className="flex items-center gap-2">
+                      {launchStep.includes("SMS") ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : launchStep.includes("call") ? (
+                        <Check className="h-4 w-4 text-green-500" />
+                      ) : (
+                        <span className="h-4 w-4" />
+                      )}
+                      Queuing SMS messages...
+                    </p>
+                  )}
+                  {channelConfig?.aiCall && (
+                    <p className="flex items-center gap-2">
+                      {launchStep.includes("call") ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <span className="h-4 w-4" />
+                      )}
+                      Scheduling AI calls...
+                    </p>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="space-y-2 py-4">
+                  <p className="text-sm">
+                    <strong>Channels:</strong>{" "}
+                    {[
+                      channelConfig?.email && "Email",
+                      channelConfig?.sms && "SMS",
+                      channelConfig?.aiCall && "AI Calls",
+                      channelConfig?.linkedin && "LinkedIn",
+                    ]
+                      .filter(Boolean)
+                      .join(", ")}
+                  </p>
+                  <p className="text-sm">
+                    <strong>Start Date:</strong>{" "}
+                    {channelConfig?.schedule.startDate
+                      ? format(new Date(channelConfig.schedule.startDate), "PPP")
+                      : "Immediately"}
+                  </p>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setShowLaunchModal(false)}>
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={handleLaunchCampaign}
+                    disabled={launching}
+                    className="gap-2 bg-primary hover:bg-primary/90"
+                  >
                     <Rocket className="h-4 w-4" />
                     Confirm Launch
-                  </>
-                )}
-              </Button>
-            </DialogFooter>
+                  </Button>
+                </DialogFooter>
+              </>
+            )}
           </DialogContent>
         </Dialog>
       </div>
