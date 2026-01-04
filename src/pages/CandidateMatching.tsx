@@ -26,14 +26,27 @@ interface Candidate {
 }
 
 interface SummaryData {
-  total: number;
-  a_tier: number;
-  b_tier: number;
+  total_matched: number;
+  returned: number;
+  tier_breakdown: {
+    a_tier: number;
+    b_tier: number;
+    c_tier: number;
+  };
+  ready_to_contact: number;
   needs_enrichment: number;
 }
 
 interface ApiResponse {
-  success: boolean;
+  job: {
+    id: string;
+    name: string;
+    facility: string;
+    specialty: string;
+    location: string;
+    pay_rate: number;
+    bill_rate: number;
+  };
   summary: SummaryData;
   candidates: Candidate[];
 }
@@ -60,20 +73,15 @@ const CandidateMatching = () => {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    // Load job from session storage
-    const storedJob = sessionStorage.getItem("currentJob");
-    if (storedJob) {
-      setJob(JSON.parse(storedJob));
-    }
+    // Get jobId from URL params or use test ID
+    const searchParams = new URLSearchParams(window.location.search);
+    const urlJobId = searchParams.get('jobId') || jobId;
+    const effectiveJobId = urlJobId || "befd5ba5-4e46-41d9-b144-d4077f750035";
+    
+    console.log('Job ID:', effectiveJobId);
 
     // Fetch candidates from real API
     const fetchCandidates = async () => {
-      if (!jobId) {
-        setError("No job ID provided");
-        setIsLoading(false);
-        return;
-      }
-
       setIsLoading(true);
       setError(null);
 
@@ -86,7 +94,7 @@ const CandidateMatching = () => {
               "Content-Type": "application/json",
             },
             body: JSON.stringify({
-              job_id: jobId,
+              job_id: effectiveJobId,
               limit: 50,
             }),
           }
@@ -97,12 +105,21 @@ const CandidateMatching = () => {
         }
 
         const data: ApiResponse = await response.json();
+        console.log('API Response:', data);
 
-        if (data.success) {
-          setCandidates(data.candidates || []);
-          setSummary(data.summary || null);
-        } else {
-          throw new Error("API returned unsuccessful response");
+        setCandidates(data.candidates || []);
+        setSummary(data.summary || null);
+        
+        // Set job info from API response
+        if (data.job) {
+          setJob({
+            specialty: data.job.specialty,
+            facility: data.job.facility,
+            location: data.job.location,
+            dates: '',
+            billRate: data.job.bill_rate,
+            payRate: data.job.pay_rate,
+          });
         }
       } catch (err) {
         console.error("Error fetching candidates:", err);
@@ -156,10 +173,10 @@ const CandidateMatching = () => {
   };
 
   // Stats - use summary from API or calculate from candidates
-  const aTierCount = summary?.a_tier ?? candidates.filter(c => c.unified_score.startsWith("A")).length;
-  const bTierCount = summary?.b_tier ?? candidates.filter(c => c.unified_score.startsWith("B")).length;
+  const aTierCount = summary?.tier_breakdown?.a_tier ?? candidates.filter(c => c.unified_score.startsWith("A")).length;
+  const bTierCount = summary?.tier_breakdown?.b_tier ?? candidates.filter(c => c.unified_score.startsWith("B")).length;
   const needsEnrichmentCount = summary?.needs_enrichment ?? candidates.filter(c => c.needs_enrichment).length;
-  const totalCount = summary?.total ?? candidates.length;
+  const totalCount = summary?.total_matched ?? candidates.length;
 
   if (isLoading) {
     return (
