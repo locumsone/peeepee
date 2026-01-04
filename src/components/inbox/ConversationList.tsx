@@ -94,9 +94,17 @@ export const ConversationList = ({
                       {formatTimeAgo(conversation.timestamp)}
                     </span>
                   </div>
-                  <p className="text-sm text-muted-foreground truncate mt-0.5">
-                    {conversation.preview}
-                  </p>
+                  <div className="flex items-center justify-between gap-2 mt-0.5">
+                    <p className="text-sm text-muted-foreground truncate">
+                      {conversation.preview}
+                    </p>
+                    {/* Show duration for calls */}
+                    {conversation.channel === "call" && (conversation as any).duration && (
+                      <span className="text-xs text-muted-foreground font-mono flex-shrink-0">
+                        {Math.floor((conversation as any).duration / 60)}:{((conversation as any).duration % 60).toString().padStart(2, '0')}
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 {/* Unread indicator */}

@@ -21,6 +21,8 @@ export interface ConversationItem {
   preview: string;
   timestamp: string;
   unreadCount: number;
+  duration?: number;
+  outcome?: string;
 }
 
 const Communications = () => {
@@ -29,7 +31,7 @@ const Communications = () => {
   const [isNewMessageOpen, setIsNewMessageOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Fetch SMS conversations with candidate data
+  // Fetch SMS conversations with candidate data via proper join
   const { data: smsConversations = [], isLoading: smsLoading } = useQuery({
     queryKey: ["sms-conversations"],
     queryFn: async () => {
@@ -42,7 +44,8 @@ const Communications = () => {
           last_message_at,
           last_message_preview,
           unread_count,
-          candidates!sms_conversations_candidate_id_fkey (
+          candidates (
+            id,
             first_name,
             last_name
           )
@@ -55,13 +58,23 @@ const Communications = () => {
     },
   });
 
-  // Fetch AI call logs
+  // Fetch AI call logs with candidate data via proper join
   const { data: aiCallLogs = [], isLoading: callsLoading } = useQuery({
     queryKey: ["ai-call-logs"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("ai_call_logs")
-        .select("id, candidate_id, candidate_name, phone_number, call_result, created_at, status")
+        .select(`
+          id,
+          candidate_id,
+          candidate_name,
+          phone_number,
+          call_result,
+          created_at,
+          status,
+          duration_seconds,
+          call_type
+        `)
         .order("created_at", { ascending: false })
         .limit(100);
       
@@ -70,31 +83,64 @@ const Communications = () => {
     },
   });
 
+  // Format duration as M:SS
+  const formatDuration = (seconds: number | null) => {
+    if (!seconds) return "0:00";
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  // Get outcome display text
+  const getOutcomePreview = (result: string | null, status: string | null, duration: number | null) => {
+    if (result) {
+      switch (result.toLowerCase()) {
+        case "interested": return "Interested";
+        case "callback_requested": return "Callback Requested";
+        case "not_interested": return "Not Interested";
+        case "voicemail": return "Voicemail Left";
+        case "no_answer": return "No Answer";
+        default: return result;
+      }
+    }
+    if (status) {
+      return status.charAt(0).toUpperCase() + status.slice(1).replace(/_/g, " ");
+    }
+    return `Call ${formatDuration(duration)}`;
+  };
+
   // Transform data into unified conversation items
   const conversations: ConversationItem[] = [
-    // SMS conversations
-    ...smsConversations.map((conv: any) => ({
-      id: conv.id,
-      channel: "sms" as const,
-      candidateId: conv.candidate_id,
-      candidateName: conv.candidates 
-        ? `${conv.candidates.first_name || ""} ${conv.candidates.last_name || ""}`.trim() || "Unknown"
-        : "Unknown",
-      candidatePhone: conv.candidate_phone,
-      preview: conv.last_message_preview || "No messages",
-      timestamp: conv.last_message_at,
-      unreadCount: conv.unread_count || 0,
-    })),
-    // AI Call logs
+    // SMS conversations with proper candidate name
+    ...smsConversations.map((conv: any) => {
+      const candidate = conv.candidates;
+      const candidateName = candidate 
+        ? `${candidate.first_name || ""} ${candidate.last_name || ""}`.trim()
+        : null;
+      
+      return {
+        id: conv.id,
+        channel: "sms" as const,
+        candidateId: conv.candidate_id,
+        candidateName: candidateName || conv.candidate_phone || "Unknown",
+        candidatePhone: conv.candidate_phone,
+        preview: conv.last_message_preview || "No messages",
+        timestamp: conv.last_message_at,
+        unreadCount: conv.unread_count || 0,
+      };
+    }),
+    // AI Call logs with proper candidate name and outcome
     ...aiCallLogs.map((call: any) => ({
       id: call.id,
       channel: "call" as const,
       candidateId: call.candidate_id,
       candidateName: call.candidate_name || "Unknown",
       candidatePhone: call.phone_number,
-      preview: call.call_result || call.status || "Call",
+      preview: getOutcomePreview(call.call_result, call.status, call.duration_seconds),
       timestamp: call.created_at,
       unreadCount: 0,
+      duration: call.duration_seconds,
+      outcome: call.call_result,
     })),
   ];
 
