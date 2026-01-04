@@ -135,7 +135,7 @@ const Campaigns = () => {
         );
       case "completed":
         return (
-          <Badge className="bg-primary/10 text-primary border-primary/20">
+          <Badge className="bg-muted text-muted-foreground border-muted-foreground/20">
             Completed
           </Badge>
         );
@@ -173,7 +173,6 @@ const Campaigns = () => {
     { key: "active", label: "Active" },
     { key: "paused", label: "Paused" },
     { key: "completed", label: "Completed" },
-    { key: "draft", label: "Draft" },
   ];
 
   return (
@@ -184,7 +183,7 @@ const Campaigns = () => {
           <h1 className="font-display text-3xl font-bold text-foreground">
             📊 Campaigns
           </h1>
-          <Button variant="default" onClick={() => navigate("/")}>
+          <Button variant="default" onClick={() => navigate("/jobs")}>
             <Plus className="h-4 w-4 mr-2" />
             New Campaign
           </Button>
@@ -281,10 +280,8 @@ const Campaigns = () => {
                 <TableHead className="font-semibold">Campaign</TableHead>
                 <TableHead className="font-semibold">Job</TableHead>
                 <TableHead className="font-semibold">Status</TableHead>
-                <TableHead className="font-semibold">Channels</TableHead>
                 <TableHead className="font-semibold text-center">Leads</TableHead>
-                <TableHead className="font-semibold text-center">Sent</TableHead>
-                <TableHead className="font-semibold text-center">Replies</TableHead>
+                <TableHead className="font-semibold text-center">Sent | Opened | Replied</TableHead>
                 <TableHead className="font-semibold">Created</TableHead>
                 <TableHead className="font-semibold w-12">Actions</TableHead>
               </TableRow>
@@ -292,7 +289,7 @@ const Campaigns = () => {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center py-12">
+                  <TableCell colSpan={7} className="text-center py-12">
                     <div className="flex items-center justify-center gap-2 text-muted-foreground">
                       <Clock className="h-5 w-5 animate-spin" />
                       Loading campaigns...
@@ -301,12 +298,12 @@ const Campaigns = () => {
                 </TableRow>
               ) : filteredCampaigns.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center py-12">
+                  <TableCell colSpan={7} className="text-center py-12">
                     <p className="text-muted-foreground">No campaigns found</p>
                     <Button 
                       variant="outline" 
                       className="mt-4"
-                      onClick={() => navigate("/")}
+                      onClick={() => navigate("/jobs")}
                     >
                       Create Your First Campaign
                     </Button>
@@ -328,12 +325,12 @@ const Campaigns = () => {
                       {campaign.jobs?.job_name || "—"}
                     </TableCell>
                     <TableCell>{getStatusBadge(campaign.status)}</TableCell>
-                    <TableCell>{getChannelIcons(campaign.channel)}</TableCell>
                     <TableCell className="text-center font-medium">
                       {campaign.leads_count || 0}
                     </TableCell>
-                    <TableCell className="text-center text-muted-foreground">—</TableCell>
-                    <TableCell className="text-center text-muted-foreground">—</TableCell>
+                    <TableCell className="text-center text-muted-foreground">
+                      <span className="font-mono">— | — | —</span>
+                    </TableCell>
                     <TableCell className="text-muted-foreground text-sm">
                       {campaign.created_at
                         ? formatDistanceToNow(new Date(campaign.created_at), { addSuffix: true })
