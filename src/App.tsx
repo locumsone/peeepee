@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Softphone } from "./components/softphone";
 import Dashboard from "./pages/Dashboard";
+import Inbox from "./pages/Inbox";
 import Jobs from "./pages/Jobs";
 import JobDetail from "./pages/JobDetail";
 import JobEntry from "./pages/JobEntry";
@@ -45,6 +46,7 @@ const App = () => (
           <Route path="/campaigns/new" element={<CampaignBuilder />} />
           <Route path="/campaigns/:id" element={<CampaignDetail />} />
           <Route path="/communications" element={<Communications />} />
+          <Route path="/inbox" element={<Inbox />} />
           <Route path="/enrichment" element={<Enrichment />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
