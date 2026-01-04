@@ -22,8 +22,8 @@ const App = () => (
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Jobs />} />
-          <Route path="/jobs/:id" element={<JobDetail />} />
           <Route path="/jobs/new" element={<NewJobEntry />} />
+          <Route path="/jobs/:id" element={<JobDetail />} />
           <Route path="/new-job" element={<JobEntry />} />
           <Route path="/candidates" element={<CandidateMatching />} />
           <Route path="/campaign-builder" element={<CampaignBuilder />} />
