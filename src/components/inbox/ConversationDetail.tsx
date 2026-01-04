@@ -2,10 +2,15 @@ import { useState, useEffect, useRef } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { MessageSquare, Phone, MoreVertical, Check, Send, FileText, Loader2 } from "lucide-react";
+import { MessageSquare, Phone, MoreVertical, Check, Send, FileText, Loader2, Download, Calendar, PhoneCall, MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,6 +21,348 @@ import { cn } from "@/lib/utils";
 import { format, isToday, isYesterday, isSameDay } from "date-fns";
 import { toast } from "sonner";
 import type { ConversationItem } from "@/pages/Communications";
+
+interface CallLog {
+  id: string;
+  candidate_name: string | null;
+  candidate_id: string | null;
+  phone_number: string;
+  from_number: string | null;
+  call_type: string | null;
+  status: string | null;
+  duration_seconds: number | null;
+  created_at: string | null;
+  started_at: string | null;
+  campaign_id?: string | null;
+  call_result: string | null;
+  transcript_text: string | null;
+  recording_url: string | null;
+  call_summary: string | null;
+}
+
+// Call Detail View Component
+const CallDetailView = ({ conversation }: { conversation: ConversationItem }) => {
+  const [notes, setNotes] = useState("");
+  const [isSavingNotes, setIsSavingNotes] = useState(false);
+  const [callbackDate, setCallbackDate] = useState("");
+  const queryClient = useQueryClient();
+
+  // Fetch call data
+  const { data: callData, isLoading: callLoading } = useQuery({
+    queryKey: ["call-detail", conversation.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("ai_call_logs")
+        .select("*")
+        .eq("id", conversation.id)
+        .single();
+
+      if (error) throw error;
+      return data as CallLog;
+    },
+    enabled: !!conversation.id,
+  });
+
+  // Fetch campaign name if campaign_id exists
+  const { data: campaign } = useQuery({
+    queryKey: ["campaign", callData?.campaign_id],
+    queryFn: async () => {
+      if (!callData?.campaign_id) return null;
+      const { data, error } = await supabase
+        .from("campaigns")
+        .select("name")
+        .eq("id", callData.campaign_id)
+        .single();
+      if (error) return null;
+      return data;
+    },
+    enabled: !!callData?.campaign_id,
+  });
+
+  // Initialize notes when call data loads
+  useEffect(() => {
+    if (callData?.call_summary) {
+      setNotes(callData.call_summary);
+    }
+  }, [callData?.call_summary]);
+
+  // Save notes mutation
+  const saveNotesMutation = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase
+        .from("ai_call_logs")
+        .update({ call_summary: notes })
+        .eq("id", conversation.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["call-detail", conversation.id] });
+      toast.success("Notes saved");
+    },
+    onError: () => {
+      toast.error("Failed to save notes");
+    },
+  });
+
+  // Schedule callback
+  const scheduleCallback = async () => {
+    if (!callbackDate) {
+      toast.error("Please select a date and time");
+      return;
+    }
+
+    try {
+      const { error } = await supabase.from("scheduled_callbacks").insert({
+        candidate_id: callData?.candidate_id || undefined,
+        candidate_name: callData?.candidate_name || undefined,
+        phone: callData?.phone_number || undefined,
+        scheduled_time: callbackDate,
+        status: "pending",
+      });
+
+      if (error) throw error;
+      toast.success("Callback scheduled");
+      setCallbackDate("");
+    } catch {
+      toast.error("Failed to schedule callback");
+    }
+  };
+
+  const formatDuration = (seconds: number | null) => {
+    if (!seconds) return "0:00";
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
+  };
+
+  const getStatusBadge = (status: string | null) => {
+    switch (status?.toLowerCase()) {
+      case "completed":
+      case "ended":
+        return <Badge className="bg-success/20 text-success border-0">Completed</Badge>;
+      case "no_answer":
+      case "no-answer":
+        return <Badge className="bg-warning/20 text-warning border-0">No Answer</Badge>;
+      case "failed":
+      case "error":
+        return <Badge className="bg-destructive/20 text-destructive border-0">Failed</Badge>;
+      default:
+        return <Badge variant="outline">{status || "Unknown"}</Badge>;
+    }
+  };
+
+  const getOutcomeLabel = (outcome: string | null) => {
+    switch (outcome?.toLowerCase()) {
+      case "interested":
+        return "Interested";
+      case "callback_requested":
+        return "Callback Requested";
+      case "not_interested":
+        return "Not Interested";
+      case "voicemail":
+        return "Voicemail Left";
+      case "no_answer":
+        return "No Answer";
+      default:
+        return outcome || "—";
+    }
+  };
+
+  if (callLoading) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col h-full w-full overflow-hidden">
+      {/* Header */}
+      <div className="flex-shrink-0 px-6 py-4 border-b border-border bg-card">
+        <div className="flex items-start justify-between">
+          <div>
+            <h2 className="text-xl font-semibold text-foreground">
+              {callData?.candidate_name || conversation.candidateName || "Unknown"}
+            </h2>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              {callData?.phone_number || conversation.candidatePhone || "No phone number"}
+            </p>
+          </div>
+        </div>
+        
+        {/* Badges row */}
+        <div className="flex items-center gap-2 mt-3">
+          {callData?.call_type === "ai" || conversation.id.includes("ai") ? (
+            <Badge className="bg-cyan-500/20 text-cyan-400 border-0">AI Call</Badge>
+          ) : (
+            <Badge variant="secondary">Manual</Badge>
+          )}
+          {getStatusBadge(callData?.status)}
+          <Badge variant="outline" className="font-mono">
+            {formatDuration(callData?.duration_seconds)}
+          </Badge>
+        </div>
+      </div>
+
+      {/* Scrollable content */}
+      <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
+        {/* Info Card */}
+        <Card className="bg-card/50">
+          <CardContent className="pt-4">
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <span className="text-muted-foreground">Date/Time</span>
+                <p className="font-medium">
+                  {callData?.started_at || callData?.created_at
+                    ? format(new Date(callData?.started_at || callData?.created_at || ""), "MMM d, yyyy h:mm a")
+                    : "—"}
+                </p>
+              </div>
+              <div>
+                <span className="text-muted-foreground">From</span>
+                <p className="font-medium font-mono text-xs">
+                  {callData?.from_number || "—"}
+                </p>
+              </div>
+              <div>
+                <span className="text-muted-foreground">To</span>
+                <p className="font-medium font-mono text-xs">
+                  {callData?.phone_number || "—"}
+                </p>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Campaign</span>
+                <p className="font-medium">{campaign?.name || "—"}</p>
+              </div>
+              <div className="col-span-2">
+                <span className="text-muted-foreground">Outcome</span>
+                <p className="font-medium">{getOutcomeLabel(callData?.call_result)}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Transcript Section */}
+        {callData?.transcript_text && (
+          <div>
+            <h3 className="text-sm font-medium text-foreground mb-2">Call Transcript</h3>
+            <div className="bg-muted/30 rounded-lg p-4 max-h-[250px] overflow-y-auto">
+              <div className="space-y-2 text-sm whitespace-pre-wrap">
+                {callData.transcript_text.split("\n").map((line, i) => {
+                  const isAgent = line.toLowerCase().startsWith("agent:") || line.toLowerCase().startsWith("ai:");
+                  const isUser = line.toLowerCase().startsWith("user:") || line.toLowerCase().startsWith("candidate:");
+                  
+                  return (
+                    <div
+                      key={i}
+                      className={cn(
+                        "px-3 py-2 rounded-lg",
+                        isAgent && "bg-primary/10 ml-4",
+                        isUser && "bg-muted mr-4",
+                        !isAgent && !isUser && "text-muted-foreground"
+                      )}
+                    >
+                      {line}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Recording Section */}
+        {callData?.recording_url && (
+          <div>
+            <h3 className="text-sm font-medium text-foreground mb-2">Recording</h3>
+            <div className="flex items-center gap-3">
+              <audio controls className="flex-1 h-10">
+                <source src={callData.recording_url} type="audio/mpeg" />
+                Your browser does not support the audio element.
+              </audio>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => window.open(callData.recording_url!, "_blank")}
+              >
+                <Download className="h-4 w-4 mr-1" />
+                Download
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* Notes Section */}
+        <div>
+          <h3 className="text-sm font-medium text-foreground mb-2">Notes</h3>
+          <Textarea
+            placeholder="Add notes about this call..."
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            className="min-h-[100px]"
+          />
+          <Button
+            onClick={() => saveNotesMutation.mutate()}
+            disabled={saveNotesMutation.isPending}
+            size="sm"
+            className="mt-2"
+          >
+            {saveNotesMutation.isPending ? (
+              <>
+                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              "Save Notes"
+            )}
+          </Button>
+        </div>
+      </div>
+
+      {/* Action buttons */}
+      <div className="flex-shrink-0 border-t border-border bg-card p-4">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            onClick={() => toast.info("Opening dialer...")}
+            className="gradient-primary"
+          >
+            <PhoneCall className="h-4 w-4 mr-1" />
+            Call Back
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => toast.info("Switch to SMS tab to send message")}
+          >
+            <MessageCircle className="h-4 w-4 mr-1" />
+            Send SMS
+          </Button>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline">
+                <Calendar className="h-4 w-4 mr-1" />
+                Schedule Callback
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-80" align="start">
+              <div className="space-y-3">
+                <Label>Select date and time</Label>
+                <Input
+                  type="datetime-local"
+                  value={callbackDate}
+                  onChange={(e) => setCallbackDate(e.target.value)}
+                />
+                <Button onClick={scheduleCallback} className="w-full" size="sm">
+                  Confirm Callback
+                </Button>
+              </div>
+            </PopoverContent>
+          </Popover>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 interface ConversationDetailProps {
   conversation: ConversationItem | null;
@@ -188,30 +535,9 @@ export const ConversationDetail = ({ conversation }: ConversationDetailProps) =>
     );
   }
 
-  // Call conversation placeholder
+  // Call conversation view
   if (conversation.channel === "call") {
-    return (
-      <div className="flex flex-col h-full w-full">
-        <div className="flex-shrink-0 px-6 py-4 border-b border-border bg-card">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full flex items-center justify-center bg-success/20 text-success">
-              <Phone className="h-5 w-5" />
-            </div>
-            <div>
-              <h2 className="font-semibold text-foreground">{conversation.candidateName}</h2>
-              <p className="text-sm text-muted-foreground">
-                {conversation.candidatePhone || "No phone number"}
-              </p>
-            </div>
-          </div>
-        </div>
-        <div className="flex-1 flex items-center justify-center px-6">
-          <div className="text-center">
-            <p className="text-muted-foreground">Call transcript view coming soon</p>
-          </div>
-        </div>
-      </div>
-    );
+    return <CallDetailView conversation={conversation} />;
   }
 
   // SMS conversation view
