@@ -91,7 +91,6 @@ export default function Communications() {
   const [conversations, setConversations] = useState<SMSConversation[]>([]);
   const [callLogs, setCallLogs] = useState<CallLog[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [selectedPhone, setSelectedPhone] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [candidate, setCandidate] = useState<Candidate | null>(null);
   const [campaignLeads, setCampaignLeads] = useState<CampaignLead[]>([]);
@@ -100,6 +99,8 @@ export default function Communications() {
   const [callWidgetMinimized, setCallWidgetMinimized] = useState(false);
   const [loading, setLoading] = useState(true);
   const initialActionHandled = useRef(false);
+  const pendingAction = useRef<{ type: 'call' | 'sms'; phone: string } | null>(null);
+  const replyTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   const twilioDevice = useTwilioDevice('recruiter-1');
 
@@ -112,58 +113,123 @@ export default function Communications() {
     
     if (callPhone || smsPhone) {
       const phone = callPhone || smsPhone;
-      setSelectedPhone(phone);
+      pendingAction.current = {
+        type: callPhone ? 'call' : 'sms',
+        phone: phone!
+      };
       
       if (callPhone) {
         setActiveTab('calls');
-        // Auto-initiate call when device is ready
-        if (twilioDevice.isReady && !twilioDevice.currentCall) {
-          twilioDevice.makeCall(callPhone, '+18001234567');
-          toast.success('Initiating call...');
-          initialActionHandled.current = true;
-          // Clear the query param
-          setSearchParams({});
-        }
-      } else if (smsPhone) {
+      } else {
         setActiveTab('sms');
-        initialActionHandled.current = true;
-        // Clear the query param
-        setSearchParams({});
       }
-    }
-  }, [searchParams, twilioDevice.isReady, twilioDevice.currentCall, twilioDevice, setSearchParams]);
-
-  // Fetch candidate by phone when selectedPhone is set from query params
-  useEffect(() => {
-    if (!selectedPhone) return;
-    
-    const fetchCandidateByPhone = async () => {
-      const { data } = await supabase
-        .from('candidates')
-        .select('*')
-        .or(`phone.eq.${selectedPhone},personal_mobile.eq.${selectedPhone}`)
-        .limit(1)
-        .single();
       
-      if (data) {
-        setCandidate({
-          id: data.id,
-          first_name: data.first_name || '',
-          last_name: data.last_name || '',
-          specialty: data.specialty || '',
-          phone: data.phone || '',
-          email: data.email || '',
-          personal_mobile: data.personal_mobile || '',
-          city: data.city || '',
-          state: data.state || '',
-          licenses: data.licenses || [],
-          enrichment_tier: data.enrichment_tier || ''
-        });
+      // Clear the query params
+      setSearchParams({});
+      initialActionHandled.current = true;
+    }
+  }, [searchParams, setSearchParams]);
+
+  // Process pending action after data is loaded
+  useEffect(() => {
+    if (loading || !pendingAction.current) return;
+    
+    const { type, phone } = pendingAction.current;
+    
+    const handlePendingAction = async () => {
+      // Normalize phone for comparison
+      const normalizePhone = (p: string) => p.replace(/\D/g, '');
+      const normalizedPhone = normalizePhone(phone);
+      
+      // Find existing conversation/call with this phone
+      let existingItem: SMSConversation | CallLog | undefined;
+      
+      if (type === 'sms') {
+        existingItem = conversations.find(c => 
+          normalizePhone(c.phone_number) === normalizedPhone
+        );
+      } else {
+        existingItem = callLogs.find(c => 
+          normalizePhone(c.phone_number) === normalizedPhone
+        );
       }
+      
+      if (existingItem) {
+        // Select existing conversation
+        setSelectedId(existingItem.id);
+      } else {
+        // Fetch candidate by phone and create a new conversation entry
+        const { data: candidateData } = await supabase
+          .from('candidates')
+          .select('*')
+          .or(`phone.eq.${phone},personal_mobile.eq.${phone}`)
+          .limit(1)
+          .single();
+        
+        if (candidateData) {
+          // Create a virtual conversation for the sidebar
+          const newConversation: SMSConversation = {
+            id: `new-${Date.now()}`,
+            candidate_id: candidateData.id,
+            candidate_name: `${candidateData.first_name || ''} ${candidateData.last_name || ''}`.trim() || 'Unknown',
+            phone_number: phone,
+            last_message: 'New conversation',
+            last_message_at: new Date().toISOString(),
+            unread_count: 0
+          };
+          
+          // Add to conversations list and select it
+          setConversations(prev => [newConversation, ...prev]);
+          setSelectedId(newConversation.id);
+          
+          // Set candidate directly
+          setCandidate({
+            id: candidateData.id,
+            first_name: candidateData.first_name || '',
+            last_name: candidateData.last_name || '',
+            specialty: candidateData.specialty || '',
+            phone: candidateData.phone || '',
+            email: candidateData.email || '',
+            personal_mobile: candidateData.personal_mobile || '',
+            city: candidateData.city || '',
+            state: candidateData.state || '',
+            licenses: candidateData.licenses || [],
+            enrichment_tier: candidateData.enrichment_tier || ''
+          });
+        } else {
+          // No candidate found, create with just phone number
+          const newConversation: SMSConversation = {
+            id: `new-${Date.now()}`,
+            candidate_id: '',
+            candidate_name: phone,
+            phone_number: phone,
+            last_message: 'New conversation',
+            last_message_at: new Date().toISOString(),
+            unread_count: 0
+          };
+          
+          setConversations(prev => [newConversation, ...prev]);
+          setSelectedId(newConversation.id);
+        }
+      }
+      
+      // If it's a call action, initiate the call when device is ready
+      if (type === 'call' && twilioDevice.isReady && !twilioDevice.currentCall) {
+        twilioDevice.makeCall(phone, '+18001234567');
+        toast.success('Initiating call...');
+      } else if (type === 'sms') {
+        // Focus the textarea for SMS
+        setTimeout(() => {
+          replyTextareaRef.current?.focus();
+        }, 100);
+      }
+      
+      pendingAction.current = null;
     };
     
-    fetchCandidateByPhone();
-  }, [selectedPhone]);
+    handlePendingAction();
+  }, [loading, conversations, callLogs, twilioDevice.isReady, twilioDevice.currentCall, twilioDevice]);
+
 
   // Fetch conversations/calls
   useEffect(() => {
@@ -613,6 +679,7 @@ export default function Communications() {
                 <div className="flex gap-2">
                   <div className="flex-1 relative">
                     <Textarea
+                      ref={replyTextareaRef}
                       placeholder="Type your message..."
                       value={replyText}
                       onChange={(e) => setReplyText(e.target.value)}
