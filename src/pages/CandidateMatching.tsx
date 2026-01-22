@@ -11,6 +11,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
+import { OperationProgress } from "@/components/ui/operation-progress";
 import {
   Select,
   SelectContent,
@@ -942,6 +943,26 @@ const CandidateMatching = () => {
             description="Missing personal contact"
           />
         </div>
+
+        {/* Active Operations Progress Bars */}
+        {(researchingIds.size > 0 || bulkResearching || searchingAlphaSophia || bulkEnriching) && (
+          <div className="space-y-2">
+            <OperationProgress
+              isActive={researchingIds.size > 0 || bulkResearching}
+              label={`Researching ${researchingIds.size} candidate${researchingIds.size !== 1 ? 's' : ''} (NPI + AI scoring)`}
+              current={candidates.filter(c => c.researched).length}
+              total={candidates.filter(c => c.researched).length + researchingIds.size}
+            />
+            <OperationProgress
+              isActive={searchingAlphaSophia}
+              label="Searching Alpha Sophia for additional candidates..."
+            />
+            <OperationProgress
+              isActive={bulkEnriching}
+              label="Adding candidates to enrichment queue..."
+            />
+          </div>
+        )}
 
         {/* Alpha Sophia Banner */}
         <div className="rounded-xl bg-blue-500/10 border border-blue-500/20 px-6 py-4 flex items-center justify-between">

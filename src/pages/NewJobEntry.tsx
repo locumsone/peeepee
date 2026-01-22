@@ -9,6 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
+import { OperationProgress } from "@/components/ui/operation-progress";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { CalendarIcon, Sparkles, ArrowRight, X } from "lucide-react";
@@ -261,6 +262,12 @@ const NewJobEntry = () => {
                 Example: "Looking for an IR physician at Memorial Hospital, WI. Rate: $250/hr. 
                 Schedule: M-F 8am-5pm. Start date: Feb 01, 2026. On-call required."
               </p>
+              {isParsing && (
+                <OperationProgress
+                  isActive={true}
+                  label="AI parsing job requisition..."
+                />
+              )}
               <Button
                 onClick={handleParse}
                 disabled={!rawText.trim() || isParsing}
