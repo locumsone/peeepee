@@ -386,7 +386,7 @@ const CampaignBuilder = () => {
                         <div className="text-right space-y-1">
                           <div className="flex items-center gap-1 text-sm font-medium text-primary">
                             <DollarSign className="h-3.5 w-3.5" />
-                            ${job.bill_rate || 0}/hr
+                            ${calculatePayRate(job.bill_rate)}/hr
                           </div>
                           <div className="text-xs text-muted-foreground">
                             {formatDate(job.created_at)}
