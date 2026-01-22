@@ -334,21 +334,21 @@ const CampaignCandidates = () => {
               disabled={isSearching}
               className="min-w-[280px]"
             >
-              {isSearching ? (
-                <>
-                  <Loader2 className="h-5 w-5 animate-spin mr-2" />
-                  🔍 Sherlock Meowmes is finding candidates...
-                </>
-              ) : (
-                <>
-                  <Search className="h-5 w-5 mr-2" />
-                  Find Matching Candidates
-                </>
-              )}
+            {isSearching ? (
+              <>
+                <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                Finding matching candidates...
+              </>
+            ) : (
+              <>
+                <Search className="h-5 w-5 mr-2" />
+                Find Matching Candidates
+              </>
+            )}
             </Button>
             {isSearching && (
               <p className="text-muted-foreground text-sm animate-pulse">
-                Analyzing candidate profiles and matching criteria...
+                🤖 AI is analyzing candidate profiles against job requirements...
               </p>
             )}
           </div>
