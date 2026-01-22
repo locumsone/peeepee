@@ -134,8 +134,10 @@ const JobEntry = () => {
           bill_rate: parsedJob.billRate,
           pay_rate: parsedJob.payRate,
           start_date: formattedStartDate,
+          schedule: parsedJob.schedule,
+          requirements: parsedJob.requirements,
+          raw_job_text: parsedJob.description,
           status: 'open',
-          is_urgent: false,
         })
         .select()
         .single();
