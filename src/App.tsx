@@ -26,6 +26,8 @@ import CampaignReview from "./pages/CampaignReview";
 import CampaignDetail from "./pages/CampaignDetail";
 import Communications from "./pages/Communications";
 import Enrichment from "./pages/Enrichment";
+import SMSStudio from "./pages/SMSStudio";
+import EmailStudio from "./pages/EmailStudio";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -66,6 +68,8 @@ const App = () => (
           <Route path="/campaigns/new/review" element={<AuthGuard><CampaignReview /></AuthGuard>} />
           <Route path="/campaigns/:id" element={<AuthGuard><CampaignDetail /></AuthGuard>} />
           <Route path="/communications" element={<AuthGuard><Communications /></AuthGuard>} />
+          <Route path="/sms/studio" element={<AuthGuard><SMSStudio /></AuthGuard>} />
+          <Route path="/email/studio" element={<AuthGuard><EmailStudio /></AuthGuard>} />
           <Route path="/enrichment" element={<AuthGuard><Enrichment /></AuthGuard>} />
           
           <Route path="*" element={<NotFound />} />
