@@ -28,6 +28,7 @@ interface ResearchResult {
   id: string;
   verified_npi: boolean;
   npi_data?: {
+    npi?: string;
     name: string;
     credential: string;
     specialty: string;
@@ -35,12 +36,6 @@ interface ResearchResult {
     licenses: string[];
     address_city?: string;
     address_state?: string;
-  };
-  web_research?: {
-    publications: string[];
-    affiliations: string[];
-    education: string[];
-    notable_info: string[];
   };
   match_analysis: {
     score: number;
@@ -53,6 +48,7 @@ interface ResearchResult {
     talking_points: string[];
   };
   researched_at: string;
+  from_cache?: boolean;
 }
 
 // Check NPPES NPI Registry
@@ -106,30 +102,29 @@ async function verifyNPI(npi: string, firstName: string, lastName: string): Prom
   }
 }
 
+// IMLC member states
+const IMLC_STATES = [
+  'AL', 'AZ', 'AR', 'CO', 'DE', 'DC', 'FL', 'GA', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY',
+  'LA', 'ME', 'MD', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ', 'NC', 'ND',
+  'OH', 'OK', 'PA', 'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY'
+];
+
 // Infer IMLC status based on license count and pattern
 function inferIMLCStatus(licenses: string[], jobState: string): { has_imlc: boolean; reason: string } {
   if (!licenses || licenses.length === 0) {
     return { has_imlc: false, reason: 'No license data' };
   }
   
-  // IMLC member states as of 2024
-  const imlcStates = [
-    'AL', 'AZ', 'AR', 'CO', 'DE', 'DC', 'FL', 'GA', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY',
-    'LA', 'ME', 'MD', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ', 'NC', 'ND',
-    'OH', 'OK', 'PA', 'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY'
-  ];
-  
   const candidateLicenses = licenses.map(l => l.toUpperCase());
   const hasJobState = candidateLicenses.includes(jobState.toUpperCase());
   
   // If they have 10+ licenses AND many are IMLC states, they likely have IMLC
   if (licenses.length >= 10) {
-    const imlcCount = candidateLicenses.filter(l => imlcStates.includes(l)).length;
+    const imlcCount = candidateLicenses.filter(l => IMLC_STATES.includes(l)).length;
     const imlcRatio = imlcCount / licenses.length;
     
     if (imlcRatio >= 0.7) {
-      // If job state is IMLC state and they have 10+ IMLC licenses, they likely can practice
-      if (imlcStates.includes(jobState.toUpperCase())) {
+      if (IMLC_STATES.includes(jobState.toUpperCase())) {
         return { 
           has_imlc: true, 
           reason: `${licenses.length} licenses with ${imlcCount} IMLC states - likely has IMLC compact license`
@@ -139,7 +134,7 @@ function inferIMLCStatus(licenses: string[], jobState: string): { has_imlc: bool
   }
   
   // If they have 10+ licenses but don't have the job state, check if job state is IMLC
-  if (licenses.length >= 10 && !hasJobState && imlcStates.includes(jobState.toUpperCase())) {
+  if (licenses.length >= 10 && !hasJobState && IMLC_STATES.includes(jobState.toUpperCase())) {
     return {
       has_imlc: true,
       reason: `${licenses.length} multi-state licenses and ${jobState} is an IMLC state - can likely practice via IMLC`
@@ -290,7 +285,7 @@ serve(async (req) => {
     
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
     
-    const { candidates, job, skip_research = false } = await req.json();
+    const { candidates, job, skip_research = false, force_refresh = false, user_id } = await req.json();
     
     if (!candidates || !Array.isArray(candidates) || candidates.length === 0) {
       throw new Error('candidates array is required');
@@ -302,24 +297,107 @@ serve(async (req) => {
     console.log(`Researching ${candidates.length} candidates for job ${job.id}`);
     
     const results: ResearchResult[] = [];
+    const candidateIds = candidates.map((c: CandidateToResearch) => c.id);
+    
+    // Check for existing research data (unless force_refresh)
+    let existingResearch: Record<string, any> = {};
+    let existingJobMatches: Record<string, any> = {};
+    
+    if (!force_refresh) {
+      // Fetch existing research
+      const { data: researchData } = await supabase
+        .from('candidate_research')
+        .select('*')
+        .in('candidate_id', candidateIds);
+      
+      if (researchData) {
+        existingResearch = Object.fromEntries(researchData.map(r => [r.candidate_id, r]));
+      }
+      
+      // Fetch existing job matches
+      const { data: matchData } = await supabase
+        .from('candidate_job_matches')
+        .select('*')
+        .in('candidate_id', candidateIds)
+        .eq('job_id', job.id);
+      
+      if (matchData) {
+        existingJobMatches = Object.fromEntries(matchData.map(m => [m.candidate_id, m]));
+      }
+    }
     
     for (const candidate of candidates) {
-      console.log(`Researching: ${candidate.first_name} ${candidate.last_name}`);
+      console.log(`Processing: ${candidate.first_name} ${candidate.last_name}`);
       
-      // Step 1: Verify NPI (unless skipping research)
+      const existingCandidateResearch = existingResearch[candidate.id];
+      const existingMatch = existingJobMatches[candidate.id];
+      
+      // If we have cached match for this job, return it
+      if (existingMatch && !force_refresh && !skip_research) {
+        console.log(`Using cached match for ${candidate.id}`);
+        results.push({
+          id: candidate.id,
+          verified_npi: existingCandidateResearch?.npi_verified || false,
+          npi_data: existingCandidateResearch ? {
+            npi: existingCandidateResearch.npi,
+            name: `${candidate.first_name} ${candidate.last_name}`,
+            credential: '',
+            specialty: existingCandidateResearch.verified_specialty || '',
+            state: candidate.state || '',
+            licenses: existingCandidateResearch.verified_licenses || [],
+            address_city: '',
+            address_state: candidate.state || '',
+          } : undefined,
+          match_analysis: {
+            score: existingMatch.match_score || 0,
+            grade: existingMatch.match_grade || 'C',
+            reasons: existingMatch.match_reasons || [],
+            concerns: existingMatch.match_concerns || [],
+            has_imlc: existingCandidateResearch?.has_imlc || false,
+            license_match: existingMatch.has_required_license || false,
+            icebreaker: existingMatch.icebreaker || '',
+            talking_points: existingMatch.talking_points || [],
+          },
+          researched_at: existingMatch.scored_at || new Date().toISOString(),
+          from_cache: true,
+        });
+        continue;
+      }
+      
+      // Perform research
       let npiData = null;
       if (!skip_research) {
-        npiData = await verifyNPI(
-          candidate.npi || '',
-          candidate.first_name,
-          candidate.last_name
-        );
+        // Use cached NPI data if available and recent (within 30 days)
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        
+        if (existingCandidateResearch?.npi_verified && 
+            new Date(existingCandidateResearch.last_researched_at) > thirtyDaysAgo) {
+          console.log(`Using cached NPI for ${candidate.id}`);
+          npiData = {
+            npi: existingCandidateResearch.npi,
+            name: `${candidate.first_name} ${candidate.last_name}`,
+            credential: '',
+            specialty: existingCandidateResearch.verified_specialty || candidate.specialty,
+            state: candidate.state,
+            licenses: existingCandidateResearch.verified_licenses || [],
+            address_city: '',
+            address_state: candidate.state,
+          };
+        } else {
+          npiData = await verifyNPI(
+            candidate.npi || '',
+            candidate.first_name,
+            candidate.last_name
+          );
+        }
+        
         if (npiData) {
           console.log(`NPI verified: ${npiData.npi} - ${npiData.specialty}`);
         }
       }
       
-      // Step 2: AI analysis with research context
+      // AI analysis
       let matchAnalysis;
       if (LOVABLE_API_KEY && !skip_research) {
         matchAnalysis = await aiResearchAndMatch(
@@ -347,19 +425,67 @@ serve(async (req) => {
         };
       }
       
+      // Save research to database
+      if (!skip_research) {
+        const imlcResult = inferIMLCStatus(npiData?.licenses || candidate.licenses || [], job.state);
+        
+        // Upsert candidate research (job-agnostic)
+        const { data: researchResult, error: researchError } = await supabase.rpc('upsert_candidate_research', {
+          p_candidate_id: candidate.id,
+          p_npi: npiData?.npi || candidate.npi || null,
+          p_npi_verified: !!npiData,
+          p_verified_licenses: npiData?.licenses || candidate.licenses || null,
+          p_has_imlc: imlcResult.has_imlc,
+          p_imlc_reason: imlcResult.has_imlc ? imlcResult.reason : null,
+          p_specialty_verified: !!npiData?.specialty,
+          p_verified_specialty: npiData?.specialty || null,
+          p_credentials_summary: npiData?.credential || null,
+          p_professional_highlights: matchAnalysis.reasons || null,
+          p_research_confidence: npiData ? 'high' : 'medium',
+          p_researched_by: user_id || null,
+        });
+        
+        if (researchError) {
+          console.error('Error saving research:', researchError);
+        } else {
+          console.log(`Saved research for ${candidate.id}: ${researchResult}`);
+        }
+        
+        // Upsert job-specific match
+        const { error: matchError } = await supabase.rpc('upsert_candidate_job_match', {
+          p_candidate_id: candidate.id,
+          p_job_id: job.id,
+          p_research_id: researchResult || null,
+          p_match_score: matchAnalysis.score,
+          p_match_grade: matchAnalysis.grade,
+          p_match_reasons: matchAnalysis.reasons,
+          p_match_concerns: matchAnalysis.concerns,
+          p_talking_points: matchAnalysis.talking_points,
+          p_icebreaker: matchAnalysis.icebreaker,
+          p_has_required_license: matchAnalysis.license_match,
+          p_license_path: matchAnalysis.has_imlc ? 'imlc' : (matchAnalysis.license_match ? 'direct' : 'none'),
+        });
+        
+        if (matchError) {
+          console.error('Error saving job match:', matchError);
+        }
+      }
+      
       results.push({
         id: candidate.id,
         verified_npi: !!npiData,
         npi_data: npiData || undefined,
         match_analysis: matchAnalysis,
         researched_at: new Date().toISOString(),
+        from_cache: false,
       });
     }
     
     return new Response(
       JSON.stringify({ 
         results,
-        researched_count: results.length,
+        researched_count: results.filter(r => !r.from_cache).length,
+        cached_count: results.filter(r => r.from_cache).length,
         skip_research,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
