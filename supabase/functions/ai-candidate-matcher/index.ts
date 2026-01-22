@@ -31,6 +31,7 @@ interface DbCandidate {
   licenses: string[];
   license_count: number;
   enrichment_tier: string;
+  enrichment_source: string | null;
   unified_score: string;
   score_sort: number;
   has_work_contact: boolean;
@@ -70,11 +71,13 @@ interface OutputCandidate {
   licenses: string[];
   licenses_count: number;
   enrichment_tier: string;
+  enrichment_source?: string;
   score_reason: string;
   icebreaker: string;
   talking_points: string[];
   has_personal_contact: boolean;
   needs_enrichment: boolean;
+  is_enriched: boolean;
   work_email?: string;
   work_phone?: string;
   personal_mobile?: string;
@@ -163,30 +166,40 @@ serve(async (req) => {
     const dbCandidates = (localCandidates || []) as DbCandidate[];
     console.log(`Found ${dbCandidates.length} local candidates`);
 
+    // Enriched sources that indicate personal contact info (not just company phones)
+    const ENRICHED_SOURCES = ['Whitepages', 'PDL', 'Apollo', 'Hunter', 'Clearbit', 'ZoomInfo'];
+    
     // Transform database candidates to output format
-    let candidates: OutputCandidate[] = dbCandidates.map((c) => ({
-      id: c.id,
-      first_name: c.first_name || '',
-      last_name: c.last_name || '',
-      specialty: c.specialty || '',
-      state: c.state || '',
-      city: c.city || undefined,
-      unified_score: c.unified_score,
-      match_strength: calculateMatchStrength(c.unified_score, c.score_sort),
-      licenses: c.licenses || [],
-      licenses_count: c.license_count || 0,
-      enrichment_tier: c.enrichment_tier || 'Basic',
-      score_reason: generateScoreReason(c, job),
-      icebreaker: generateIcebreaker(c, job),
-      talking_points: generateTalkingPoints(c, job),
-      has_personal_contact: c.has_personal_contact,
-      needs_enrichment: c.needs_enrichment,
-      work_email: c.email || undefined,
-      work_phone: c.phone || undefined,
-      personal_mobile: c.personal_mobile || undefined,
-      personal_email: c.personal_email || undefined,
-      source: 'database',
-    }));
+    let candidates: OutputCandidate[] = dbCandidates.map((c) => {
+      // Check if this candidate was enriched by a real data provider
+      const isEnriched = !!c.enrichment_source && ENRICHED_SOURCES.includes(c.enrichment_source);
+      
+      return {
+        id: c.id,
+        first_name: c.first_name || '',
+        last_name: c.last_name || '',
+        specialty: c.specialty || '',
+        state: c.state || '',
+        city: c.city || undefined,
+        unified_score: c.unified_score,
+        match_strength: calculateMatchStrength(c.unified_score, c.score_sort),
+        licenses: c.licenses || [],
+        licenses_count: c.license_count || 0,
+        enrichment_tier: c.enrichment_tier || 'Basic',
+        enrichment_source: c.enrichment_source || undefined,
+        score_reason: generateScoreReason(c, job),
+        icebreaker: generateIcebreaker(c, job),
+        talking_points: generateTalkingPoints(c, job),
+        has_personal_contact: c.has_personal_contact,
+        needs_enrichment: c.needs_enrichment,
+        is_enriched: isEnriched,
+        work_email: c.email || undefined,
+        work_phone: c.phone || undefined,
+        personal_mobile: c.personal_mobile || undefined,
+        personal_email: c.personal_email || undefined,
+        source: 'database',
+      };
+    });
 
     let alphaSophiaCount = 0;
     let alphaSophiaSearched = false;
