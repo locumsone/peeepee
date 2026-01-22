@@ -239,7 +239,7 @@ function selectHookPattern(
 
 // Generate personalized hook using AI
 async function generatePersonalizedHook(
-  claudeKey: string,
+  lovableKey: string,
   candidate: Candidate,
   job: JobContext,
   hookPattern: { type: string; pattern: string },
@@ -282,56 +282,57 @@ ${job.raw_job_text ? `\nAdditional Details:\n${job.raw_job_text.substring(0, 150
 Generate the personalized hook, icebreaker, and talking points.`;
 
   try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
+    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
-        "x-api-key": claudeKey,
-        "anthropic-version": "2023-06-01",
+        "Authorization": `Bearer ${lovableKey}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 2048,
-        system: systemPrompt,
+        model: "google/gemini-3-flash-preview",
         messages: [
+          { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
         ],
         tools: [{
-          name: "generate_personalization",
-          description: "Generate personalized outreach content",
-          input_schema: {
-            type: "object",
-            properties: {
-              hook: { 
-                type: "string", 
-                description: "Main personalization hook - specific, compelling, under 100 words" 
+          type: "function",
+          function: {
+            name: "generate_personalization",
+            description: "Generate personalized outreach content",
+            parameters: {
+              type: "object",
+              properties: {
+                hook: { 
+                  type: "string", 
+                  description: "Main personalization hook - specific, compelling, under 100 words" 
+                },
+                icebreaker: { 
+                  type: "string", 
+                  description: "Opening line for email/call - warm, specific reference to their background" 
+                },
+                talking_points: { 
+                  type: "array", 
+                  items: { type: "string" }, 
+                  description: "3-4 key selling points tailored to this candidate" 
+                }
               },
-              icebreaker: { 
-                type: "string", 
-                description: "Opening line for email/call - warm, specific reference to their background" 
-              },
-              talking_points: { 
-                type: "array", 
-                items: { type: "string" }, 
-                description: "3-4 key selling points tailored to this candidate" 
-              }
-            },
-            required: ["hook", "icebreaker", "talking_points"]
+              required: ["hook", "icebreaker", "talking_points"]
+            }
           }
         }],
-        tool_choice: { type: "tool", name: "generate_personalization" }
+        tool_choice: { type: "function", function: { name: "generate_personalization" } }
       }),
     });
 
     if (!response.ok) {
-      throw new Error(`Claude API error: ${response.status}`);
+      throw new Error(`Lovable AI error: ${response.status}`);
     }
 
     const data = await response.json();
-    const toolUse = data.content?.find((block: any) => block.type === 'tool_use');
+    const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
     
-    if (toolUse?.input) {
-      const parsed = toolUse.input;
+    if (toolCall?.function?.arguments) {
+      const parsed = JSON.parse(toolCall.function.arguments);
       return {
         hook: parsed.hook || '',
         icebreaker: parsed.icebreaker || `Hi Dr. ${candidate.last_name},`,
@@ -362,7 +363,7 @@ serve(async (req) => {
   try {
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY');
+    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
     const PERPLEXITY_API_KEY = Deno.env.get('PERPLEXITY_API_KEY');
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
@@ -445,9 +446,9 @@ serve(async (req) => {
       let icebreaker = '';
       let talking_points: string[] = [];
 
-      if (ANTHROPIC_API_KEY) {
+      if (LOVABLE_API_KEY) {
         const generated = await generatePersonalizedHook(
-          ANTHROPIC_API_KEY,
+          LOVABLE_API_KEY,
           candidate,
           job,
           hookPattern,
