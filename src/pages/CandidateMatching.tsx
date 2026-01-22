@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { 
   Users, Loader2, ArrowRight, ArrowLeft, ChevronDown, ChevronUp,
-  AlertCircle, CheckCircle2, Star, Phone, X, Sparkles, Mail, MapPin, Search
+  AlertCircle, CheckCircle2, Star, Phone, X, Sparkles, Mail, MapPin, Search, Globe
 } from "lucide-react";
 import Layout from "@/components/layout/Layout";
 import { Button } from "@/components/ui/button";
@@ -43,6 +43,7 @@ interface Candidate {
   work_phone?: string;
   personal_mobile?: string;
   personal_email?: string;
+  source?: string;
 }
 
 interface SummaryData {
@@ -55,6 +56,7 @@ interface SummaryData {
   };
   ready_to_contact: number;
   needs_enrichment: number;
+  alpha_sophia_count?: number;
 }
 
 interface ApiResponse {
@@ -219,6 +221,8 @@ const CandidateMatching = () => {
   const [hasMore, setHasMore] = useState(true);
   const [enrichingIds, setEnrichingIds] = useState<Set<string>>(new Set());
   const [bulkEnriching, setBulkEnriching] = useState(false);
+  const [searchingAlphaSophia, setSearchingAlphaSophia] = useState(false);
+  const [alphaSophiaSearched, setAlphaSophiaSearched] = useState(false);
 
   const effectiveJobId = jobId || "befd5ba5-4e46-41d9-b144-d4077f750035";
 
@@ -295,6 +299,63 @@ const CandidateMatching = () => {
   const handleLoadMore = () => {
     if (!isLoadingMore && hasMore) {
       fetchCandidates(offset, true);
+    }
+  };
+
+  // Search Alpha Sophia for additional candidates
+  const searchAlphaSophia = async () => {
+    setSearchingAlphaSophia(true);
+    
+    try {
+      const response = await fetch(
+        "https://qpvyzyspwxwtwjhfcuhh.supabase.co/functions/v1/ai-candidate-matcher",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            job_id: effectiveJobId,
+            limit: 50,
+            offset: 0,
+            force_alpha_sophia: true,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`API error: ${response.status}`);
+      }
+
+      const data: ApiResponse = await response.json();
+      console.log('Alpha Sophia Response:', data);
+
+      // Merge with existing candidates, avoiding duplicates
+      const existingIds = new Set(candidates.map(c => c.id));
+      const newCandidates = (data.candidates || []).filter(c => !existingIds.has(c.id));
+      
+      if (newCandidates.length > 0) {
+        setCandidates(prev => [...prev, ...newCandidates].sort((a, b) => b.match_strength - a.match_strength));
+        toast.success(`Found ${newCandidates.length} additional candidates from Alpha Sophia`);
+      } else {
+        toast.info("No additional candidates found in Alpha Sophia");
+      }
+      
+      // Update summary with new counts
+      if (data.summary) {
+        setSummary(prev => ({
+          ...prev,
+          ...data.summary,
+          total_matched: (prev?.total_matched || 0) + newCandidates.length,
+        }));
+      }
+      
+      setAlphaSophiaSearched(true);
+    } catch (err) {
+      console.error("Alpha Sophia search error:", err);
+      toast.error("Failed to search Alpha Sophia");
+    } finally {
+      setSearchingAlphaSophia(false);
     }
   };
 
@@ -463,6 +524,14 @@ const CandidateMatching = () => {
   const getKeyIndicators = (candidate: Candidate) => {
     const indicators: { label: string; className: string }[] = [];
     
+    // Alpha Sophia external source indicator
+    if (candidate.source === 'alpha_sophia' || candidate.enrichment_tier === 'Alpha Sophia') {
+      indicators.push({ 
+        label: "Alpha Sophia", 
+        className: "bg-blue-500/20 text-blue-400 border-blue-500/30" 
+      });
+    }
+    
     // Has job state license
     if (candidate.licenses?.some(l => l.includes(jobState))) {
       indicators.push({ 
@@ -584,6 +653,38 @@ const CandidateMatching = () => {
           <StatCard label="Loaded" value={candidates.length} color="accent" />
           <StatCard label="Contact Ready" value={readyToContactCount} color="success" />
           <StatCard label="Needs Enrichment" value={needsEnrichmentCount} color="warning" />
+        </div>
+
+        {/* Alpha Sophia Search Banner */}
+        <div className="rounded-xl bg-blue-500/10 border border-blue-500/20 px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Globe className="h-5 w-5 text-blue-400" />
+            <div>
+              <p className="text-sm font-medium text-foreground">
+                {alphaSophiaSearched 
+                  ? `Alpha Sophia searched • ${candidates.filter(c => c.source === 'alpha_sophia').length} external candidates added`
+                  : "Search Alpha Sophia for additional healthcare providers"
+                }
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Access external database of verified physicians and specialists
+              </p>
+            </div>
+          </div>
+          <Button
+            variant={alphaSophiaSearched ? "outline" : "default"}
+            size="sm"
+            onClick={searchAlphaSophia}
+            disabled={searchingAlphaSophia}
+            className={alphaSophiaSearched ? "border-blue-500/30 text-blue-400" : "bg-blue-600 hover:bg-blue-700"}
+          >
+            {searchingAlphaSophia ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <Globe className="h-4 w-4 mr-2" />
+            )}
+            {alphaSophiaSearched ? "Search Again" : "Search Alpha Sophia"}
+          </Button>
         </div>
 
         {/* Filter Toggle */}

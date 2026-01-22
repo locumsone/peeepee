@@ -97,13 +97,13 @@ serve(async (req) => {
     
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
     
-    const { job_id, limit = 25, offset = 0 } = await req.json();
+    const { job_id, limit = 25, offset = 0, force_alpha_sophia = false } = await req.json();
     
     if (!job_id) {
       throw new Error('job_id is required');
     }
 
-    console.log(`Matching candidates for job: ${job_id}, limit: ${limit}, offset: ${offset}`);
+    console.log(`Matching candidates for job: ${job_id}, limit: ${limit}, offset: ${offset}, force_alpha_sophia: ${force_alpha_sophia}`);
 
     // Fetch job details
     const { data: jobData, error: jobError } = await supabase
@@ -156,9 +156,13 @@ serve(async (req) => {
       source: 'database',
     }));
 
-    // Supplement with Alpha Sophia if local results are insufficient
-    if (candidates.length < MIN_LOCAL_RESULTS && ALPHA_SOPHIA_API_KEY && offset === 0) {
-      console.log(`Local results (${candidates.length}) below threshold (${MIN_LOCAL_RESULTS}), searching Alpha Sophia...`);
+    // Supplement with Alpha Sophia if:
+    // 1. Force flag is set, OR
+    // 2. Local results are insufficient and this is the first page
+    const shouldSearchAlphaSophia = force_alpha_sophia || (candidates.length < MIN_LOCAL_RESULTS && offset === 0);
+    
+    if (shouldSearchAlphaSophia && ALPHA_SOPHIA_API_KEY) {
+      console.log(`Searching Alpha Sophia (force: ${force_alpha_sophia}, local count: ${candidates.length})...`);
       
       try {
         const alphaSophiaCandidates = await searchAlphaSophia(
