@@ -17,7 +17,7 @@ interface JobData {
   bill_rate: number;
   requirements?: string[];
   start_date?: string;
-  shift_type?: string;
+  schedule?: string;
 }
 
 interface DbCandidate {
@@ -358,11 +358,15 @@ serve(async (req) => {
 
     const { data: jobData, error: jobError } = await supabase
       .from('jobs')
-      .select('id, job_name, facility_name, specialty, city, state, pay_rate, bill_rate, requirements, start_date, shift_type')
+      .select('id, job_name, facility_name, specialty, city, state, pay_rate, bill_rate, requirements, start_date, schedule')
       .eq('id', job_id)
       .single();
 
-    if (jobError || !jobData) throw new Error(`Job not found: ${job_id}`);
+    if (jobError) {
+      console.error('Job query error:', jobError);
+      throw new Error(`Job not found: ${job_id}`);
+    }
+    if (!jobData) throw new Error(`Job not found: ${job_id}`);
     const job = jobData as JobData;
     console.log(`Job: ${job.job_name} - ${job.specialty} in ${job.state}`);
 
