@@ -18,6 +18,7 @@ interface JobData {
   requirements?: string[];
   start_date?: string;
   schedule?: string;
+  raw_job_text?: string;
 }
 
 interface DbCandidate {
@@ -136,28 +137,54 @@ async function getAIMatchScores(
     availability: c.availability_months || [],
   }));
 
-  const systemPrompt = `You are an expert healthcare recruiter AI that evaluates candidate-job fit for locum tenens positions.
+  const systemPrompt = `You are an expert healthcare recruiter AI that evaluates candidate-job fit for locum tenens (temporary physician staffing) positions.
+
+You MUST carefully analyze the full job description to understand:
+- Required procedures and clinical skills
+- License requirements (state license, IMLC, compact)
+- Call/on-call requirements
+- Schedule and availability needs
+- EMR systems experience
+- Specialty and subspecialty requirements
 
 Score candidates considering:
-1. Specialty match (exact match is best)
-2. License status (having the required state license is critical)
-3. Location proximity (local candidates preferred)
-4. Experience level and board certification
-5. Contact availability
-6. Multi-state licensure (10+ licenses = experienced locum traveler)
+1. Specialty match (exact match is critical, subspecialty matters)
+2. License status (having the required state license is critical, IMLC/compact is valuable)
+3. Clinical skills match (procedures mentioned in job vs candidate experience)
+4. Location proximity (local candidates reduce travel costs)
+5. Experience level and board certification
+6. Contact availability (candidates with verified contact info are more actionable)
+7. Multi-state licensure (10+ licenses indicates experienced locum traveler)
 
 Grades: A+ (95-100), A (90-94), A- (85-89), B+ (80-84), B (75-79), B- (70-74), C+ (65-69), C (60-64), D (<60)`;
 
-  const userPrompt = `Evaluate candidates for this job:
-
-JOB: ${job.job_name || job.specialty}
+  // Use raw job text if available for full context
+  const buildJobDetails = () => {
+    if (job.raw_job_text) return job.raw_job_text;
+    
+    const location = job.city ? `${job.city}, ${job.state}` : job.state;
+    const pay = job.pay_rate ? `$${job.pay_rate}/hr` : 'Competitive';
+    const reqs = job.requirements?.length ? `Requirements: ${job.requirements.join(', ')}` : '';
+    
+    return `JOB: ${job.job_name || job.specialty}
 Specialty: ${job.specialty}
 Facility: ${job.facility_name || 'Not specified'}
-Location: ${job.city ? `${job.city}, ${job.state}` : job.state}
-Pay: ${job.pay_rate ? `$${job.pay_rate}/hr` : 'Competitive'}
-${job.requirements?.length ? `Requirements: ${job.requirements.join(', ')}` : ''}
+Location: ${location}
+Pay: ${pay}
+Schedule: ${job.schedule || 'Not specified'}
+Start Date: ${job.start_date || 'ASAP'}
+${reqs}`.trim();
+  };
+  
+  const jobDetails = buildJobDetails();
 
-CANDIDATES:
+  const userPrompt = `Evaluate these candidates for the following locum tenens job:
+
+=== FULL JOB DESCRIPTION ===
+${jobDetails}
+=== END JOB DESCRIPTION ===
+
+CANDIDATES TO EVALUATE:
 ${JSON.stringify(candidateSummaries, null, 2)}`;
 
   try {
@@ -358,7 +385,7 @@ serve(async (req) => {
 
     const { data: jobData, error: jobError } = await supabase
       .from('jobs')
-      .select('id, job_name, facility_name, specialty, city, state, pay_rate, bill_rate, requirements, start_date, schedule')
+      .select('id, job_name, facility_name, specialty, city, state, pay_rate, bill_rate, requirements, start_date, schedule, raw_job_text')
       .eq('id', job_id)
       .single();
 
