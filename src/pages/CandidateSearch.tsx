@@ -8,7 +8,9 @@ import {
   X,
   Download,
   Users,
-  ChevronDown
+  ChevronDown,
+  Globe,
+  Loader2
 } from "lucide-react";
 import Layout from "@/components/layout/Layout";
 import { Button } from "@/components/ui/button";
@@ -57,6 +59,7 @@ interface Candidate {
   state: string | null;
   licenses: string[] | null;
   enrichment_tier: string | null;
+  source?: string;
 }
 
 interface Campaign {
@@ -65,7 +68,9 @@ interface Campaign {
 }
 
 const ITEMS_PER_PAGE = 50;
-const TIERS = ["Platinum", "Gold", "Silver", "Bronze"];
+const TIERS = ["Platinum", "Gold", "Silver", "Bronze", "Alpha Sophia"];
+const SUPABASE_URL = "https://qpvyzyspwxwtwjhfcuhh.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFwdnl6eXNwd3h3dHdqaGZjdWhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjYyNTEyODYsImV4cCI6MjA4MTgyNzI4Nn0.yTePf_4bp6ZkZH_kI2YXlRN69SKGjVEKcdzX2bGW4OA";
 
 const CandidateSearch = () => {
   const { toast } = useToast();
@@ -99,6 +104,10 @@ const CandidateSearch = () => {
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
   const [campaignModalOpen, setCampaignModalOpen] = useState(false);
   const [selectedCampaignId, setSelectedCampaignId] = useState<string>("");
+  
+  // Alpha Sophia integration
+  const [searchingExternal, setSearchingExternal] = useState(false);
+  const [externalSearched, setExternalSearched] = useState(false);
 
   // Load filter options on mount
   useEffect(() => {
@@ -134,6 +143,7 @@ const CandidateSearch = () => {
 
   const loadCandidates = async () => {
     setLoading(true);
+    setExternalSearched(false);
     
     let query = supabase
       .from("candidates")
@@ -155,9 +165,12 @@ const CandidateSearch = () => {
       query = query.in("state", selectedStates);
     }
 
-    // Tier filter
+    // Tier filter - exclude Alpha Sophia from DB query
     if (selectedTiers.length > 0) {
-      query = query.in("enrichment_tier", selectedTiers);
+      const dbTiers = selectedTiers.filter(t => t !== "Alpha Sophia");
+      if (dbTiers.length > 0) {
+        query = query.in("enrichment_tier", dbTiers);
+      }
     }
 
     // Has phone filter
@@ -182,11 +195,93 @@ const CandidateSearch = () => {
       console.error("Error loading candidates:", error);
       toast({ title: "Error loading candidates", variant: "destructive" });
     } else {
-      setCandidates(data || []);
+      setCandidates((data || []).map(c => ({ ...c, source: 'database' })));
       setTotalCount(count || 0);
     }
     
     setLoading(false);
+  };
+
+  // Search Alpha Sophia API for additional candidates
+  const searchAlphaSophia = async () => {
+    setSearchingExternal(true);
+    
+    try {
+      const params: Record<string, unknown> = {
+        pageSize: 25,
+        page: 1,
+      };
+      
+      // Use search query for name search
+      if (searchQuery.trim()) {
+        params.name = searchQuery.trim();
+      }
+      
+      // Use filters for more targeted search
+      if (selectedSpecialties.length > 0) {
+        params.specialty = selectedSpecialties[0]; // API takes single specialty
+      }
+      
+      if (selectedStates.length > 0) {
+        params.state = selectedStates[0]; // API takes single state
+      }
+      
+      if (hasEmail) {
+        params.hasEmail = true;
+      }
+      
+      if (hasPhone) {
+        params.hasPhone = true;
+      }
+      
+      const response = await fetch(
+        `${SUPABASE_URL}/functions/v1/alpha-sophia-search`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+          },
+          body: JSON.stringify(params),
+        }
+      );
+      
+      if (!response.ok) {
+        throw new Error('Failed to search Alpha Sophia');
+      }
+      
+      const data = await response.json();
+      
+      if (data.candidates && data.candidates.length > 0) {
+        // Append Alpha Sophia results to existing candidates
+        setCandidates(prev => {
+          const existingIds = new Set(prev.map(c => c.id));
+          const newCandidates = data.candidates.filter((c: Candidate) => !existingIds.has(c.id));
+          return [...prev, ...newCandidates];
+        });
+        setTotalCount(prev => prev + data.candidates.length);
+        toast({ 
+          title: `Found ${data.candidates.length} additional candidates from Alpha Sophia`,
+          description: "External healthcare provider database results added",
+        });
+      } else {
+        toast({ 
+          title: "No additional candidates found",
+          description: "Alpha Sophia did not return any matching providers",
+        });
+      }
+      
+      setExternalSearched(true);
+    } catch (error) {
+      console.error('Alpha Sophia search error:', error);
+      toast({ 
+        title: "External search failed", 
+        description: "Could not connect to Alpha Sophia API",
+        variant: "destructive" 
+      });
+    } finally {
+      setSearchingExternal(false);
+    }
   };
 
   const totalPages = Math.ceil(totalCount / ITEMS_PER_PAGE);
@@ -256,16 +351,21 @@ const CandidateSearch = () => {
     toast({ title: `Exported ${selectedIds.size} candidates` });
   };
 
-  const getTierBadge = (tier: string | null) => {
+  const getTierBadge = (tier: string | null, source?: string) => {
     if (!tier) return null;
     const colors: Record<string, string> = {
       Platinum: "bg-purple-500/20 text-purple-400 border-purple-500/30",
       Gold: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
       Silver: "bg-gray-400/20 text-gray-300 border-gray-400/30",
       Bronze: "bg-orange-500/20 text-orange-400 border-orange-500/30",
+      "Alpha Sophia": "bg-blue-500/20 text-blue-400 border-blue-500/30",
     };
+    
+    const isExternal = source === 'alpha_sophia' || tier === 'Alpha Sophia';
+    
     return (
-      <Badge variant="outline" className={colors[tier] || ""}>
+      <Badge variant="outline" className={`${colors[tier] || colors["Alpha Sophia"]} ${isExternal ? 'gap-1' : ''}`}>
+        {isExternal && <Globe className="h-3 w-3" />}
         {tier}
       </Badge>
     );
@@ -466,8 +566,44 @@ const CandidateSearch = () => {
                   className="pl-10"
                 />
               </div>
+              
+              {/* Alpha Sophia External Search Button */}
+              <Button
+                variant="outline"
+                onClick={searchAlphaSophia}
+                disabled={searchingExternal || externalSearched}
+                className="whitespace-nowrap"
+              >
+                {searchingExternal ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <Globe className="h-4 w-4 mr-2" />
+                )}
+                {externalSearched ? "External Searched" : "Search Alpha Sophia"}
+              </Button>
             </div>
           </div>
+
+          {/* Alpha Sophia Info Banner */}
+          {!loading && candidates.length < 10 && !externalSearched && (searchQuery || selectedSpecialties.length > 0 || selectedStates.length > 0) && (
+            <div className="px-6 py-3 bg-blue-500/10 border-b border-blue-500/20 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Globe className="h-4 w-4 text-blue-400" />
+                <span className="text-sm text-blue-300">
+                  Limited results from database. Search Alpha Sophia for additional healthcare providers.
+                </span>
+              </div>
+              <Button 
+                size="sm" 
+                variant="outline"
+                className="border-blue-500/30 text-blue-400 hover:bg-blue-500/10"
+                onClick={searchAlphaSophia}
+                disabled={searchingExternal}
+              >
+                {searchingExternal ? <Loader2 className="h-4 w-4 animate-spin" /> : "Search External"}
+              </Button>
+            </div>
+          )}
 
           {/* Bulk Action Bar */}
           {selectedIds.size > 0 && (
@@ -547,7 +683,7 @@ const CandidateSearch = () => {
                       <TableCell>
                         {candidate.licenses?.length || 0}
                       </TableCell>
-                      <TableCell>{getTierBadge(candidate.enrichment_tier)}</TableCell>
+                      <TableCell>{getTierBadge(candidate.enrichment_tier, candidate.source)}</TableCell>
                       <TableCell className="text-center">
                         {candidate.phone ? (
                           <Check className="h-4 w-4 text-green-400 mx-auto" />
