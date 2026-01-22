@@ -1,0 +1,6 @@
+-- Enable RLS on tables that have policies but RLS is disabled
+ALTER TABLE sms_messages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE sms_conversations ENABLE ROW LEVEL SECURITY;
+ALTER TABLE telnyx_numbers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE enrichment_log ENABLE ROW LEVEL SECURITY;

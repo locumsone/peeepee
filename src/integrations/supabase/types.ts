@@ -261,13 +261,6 @@ export type Database = {
             referencedRelation: "ai_call_queue"
             referencedColumns: ["id"]
           },
-          {
-            foreignKeyName: "ai_call_events_queue_id_fkey"
-            columns: ["queue_id"]
-            isOneToOne: false
-            referencedRelation: "v_calls_ready_to_dial"
-            referencedColumns: ["id"]
-          },
         ]
       }
       ai_call_logs: {
@@ -2727,13 +2720,6 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "sms_messages_conversation_id_fkey"
-            columns: ["conversation_id"]
-            isOneToOne: false
-            referencedRelation: "sms_inbox"
-            referencedColumns: ["conversation_id"]
-          },
-          {
             foreignKeyName: "sms_messages_template_id_fkey"
             columns: ["template_id"]
             isOneToOne: false
@@ -3248,26 +3234,6 @@ export type Database = {
       }
     }
     Views: {
-      ai_call_queue_status: {
-        Row: {
-          count: number | null
-          highest_priority: number | null
-          oldest_scheduled: string | null
-          status: string | null
-        }
-        Relationships: []
-      }
-      enrichment_costs: {
-        Row: {
-          emails_found: number | null
-          month: string | null
-          phones_found: number | null
-          source: string | null
-          total_cost: number | null
-          total_enrichments: number | null
-        }
-        Relationships: []
-      }
       mv_available_now: {
         Row: {
           city: string | null
@@ -3387,177 +3353,6 @@ export type Database = {
           work_eligibility: string | null
           years_of_experience: number | null
           zip: string | null
-        }
-        Relationships: []
-      }
-      sms_inbox: {
-        Row: {
-          candidate_first_name: string | null
-          candidate_last_name: string | null
-          candidate_phone: string | null
-          conversation_id: string | null
-          interest_detected: boolean | null
-          job_title: string | null
-          last_message_at: string | null
-          last_message_direction: string | null
-          last_message_preview: string | null
-          recruiter_id: string | null
-          recruiter_name: string | null
-          specialty: string | null
-          status: string | null
-          telnyx_number: string | null
-          unread_count: number | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "sms_conversations_recruiter_id_fkey"
-            columns: ["recruiter_id"]
-            isOneToOne: false
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "sms_conversations_telnyx_number_fkey"
-            columns: ["telnyx_number"]
-            isOneToOne: false
-            referencedRelation: "telnyx_numbers"
-            referencedColumns: ["phone_number"]
-          },
-        ]
-      }
-      v_calls_ready_to_dial: {
-        Row: {
-          attempt_count: number | null
-          campaign_id: string | null
-          candidate_id: string | null
-          candidate_name: string | null
-          created_at: string | null
-          duration_seconds: number | null
-          ended_at: string | null
-          id: string | null
-          job_id: string | null
-          job_pay: string | null
-          job_state: string | null
-          job_title: string | null
-          last_attempt_at: string | null
-          max_attempts: number | null
-          metadata: Json | null
-          next_retry_at: string | null
-          not_after: string | null
-          not_before: string | null
-          outcome: string | null
-          phone: string | null
-          priority: number | null
-          recruiter_id: string | null
-          recruiter_name: string | null
-          recruiter_phone: string | null
-          retell_agent_id: string | null
-          retell_call_id: string | null
-          scheduled_at: string | null
-          source: string | null
-          started_at: string | null
-          status: string | null
-          summary: string | null
-          timezone: string | null
-          transcript: string | null
-          updated_at: string | null
-        }
-        Insert: {
-          attempt_count?: number | null
-          campaign_id?: string | null
-          candidate_id?: string | null
-          candidate_name?: string | null
-          created_at?: string | null
-          duration_seconds?: number | null
-          ended_at?: string | null
-          id?: string | null
-          job_id?: string | null
-          job_pay?: string | null
-          job_state?: string | null
-          job_title?: string | null
-          last_attempt_at?: string | null
-          max_attempts?: number | null
-          metadata?: Json | null
-          next_retry_at?: string | null
-          not_after?: string | null
-          not_before?: string | null
-          outcome?: string | null
-          phone?: string | null
-          priority?: number | null
-          recruiter_id?: string | null
-          recruiter_name?: string | null
-          recruiter_phone?: string | null
-          retell_agent_id?: string | null
-          retell_call_id?: string | null
-          scheduled_at?: string | null
-          source?: string | null
-          started_at?: string | null
-          status?: string | null
-          summary?: string | null
-          timezone?: string | null
-          transcript?: string | null
-          updated_at?: string | null
-        }
-        Update: {
-          attempt_count?: number | null
-          campaign_id?: string | null
-          candidate_id?: string | null
-          candidate_name?: string | null
-          created_at?: string | null
-          duration_seconds?: number | null
-          ended_at?: string | null
-          id?: string | null
-          job_id?: string | null
-          job_pay?: string | null
-          job_state?: string | null
-          job_title?: string | null
-          last_attempt_at?: string | null
-          max_attempts?: number | null
-          metadata?: Json | null
-          next_retry_at?: string | null
-          not_after?: string | null
-          not_before?: string | null
-          outcome?: string | null
-          phone?: string | null
-          priority?: number | null
-          recruiter_id?: string | null
-          recruiter_name?: string | null
-          recruiter_phone?: string | null
-          retell_agent_id?: string | null
-          retell_call_id?: string | null
-          scheduled_at?: string | null
-          source?: string | null
-          started_at?: string | null
-          status?: string | null
-          summary?: string | null
-          timezone?: string | null
-          transcript?: string | null
-          updated_at?: string | null
-        }
-        Relationships: []
-      }
-      v_todays_call_stats: {
-        Row: {
-          avg_duration: number | null
-          callbacks: number | null
-          completed: number | null
-          interested: number | null
-          no_answer: number | null
-          total_calls: number | null
-          voicemails: number | null
-        }
-        Relationships: []
-      }
-      v_upcoming_callbacks: {
-        Row: {
-          candidate_name: string | null
-          id: string | null
-          job_title: string | null
-          phone: string | null
-          recruiter: string | null
-          recruiter_phone: string | null
-          scheduled_time: string | null
-          status: string | null
         }
         Relationships: []
       }
