@@ -690,7 +690,29 @@ const CandidateMatching = () => {
 
   const handleContinue = () => {
     const selected = candidates.filter(c => selectedIds.has(c.id));
+    
+    // Save all required keys for the campaign builder workflow
     sessionStorage.setItem("selectedCandidates", JSON.stringify(selected));
+    sessionStorage.setItem("campaign_candidates", JSON.stringify(selected));
+    sessionStorage.setItem("campaign_candidate_ids", JSON.stringify(Array.from(selectedIds)));
+    
+    // Save job data with required keys
+    if (effectiveJobId) {
+      sessionStorage.setItem("campaign_job_id", effectiveJobId);
+      if (job) {
+        sessionStorage.setItem("campaign_job", JSON.stringify({
+          id: effectiveJobId,
+          job_name: job.specialty,
+          facility_name: job.facility,
+          city: job.location?.split(',')[0]?.trim() || null,
+          state: job.state,
+          specialty: job.specialty,
+          bill_rate: job.billRate,
+        }));
+        sessionStorage.setItem("job", JSON.stringify(job));
+      }
+    }
+    
     navigate("/campaigns/new/channels");
   };
 
