@@ -353,26 +353,17 @@ export default function CampaignReview() {
     }, 500);
 
     try {
-      const response = await fetch(
-        "https://qpvyzyspwxwtwjhfcuhh.supabase.co/functions/v1/personalization-research",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFwdnl6eXNwd3h3dHdqaGZjdWhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzQ3NTA3NDIsImV4cCI6MjA1MDMyNjc0Mn0.5R1H_6tsnp27PN5qYNE-4VdRT1H8kqH-NXQMJQL8sxg`,
-          },
-          body: JSON.stringify({
-            candidate_ids: candidateIds,
-            job_id: jobId,
-          }),
-        }
-      );
+      const { data, error: invokeError } = await supabase.functions.invoke('personalization-research', {
+        body: {
+          candidate_ids: candidateIds,
+          job_id: jobId,
+        },
+      });
 
       clearInterval(progressInterval);
       setPersonalizationProgress(100);
 
-      if (response.ok) {
-        const data = await response.json();
+      if (!invokeError && data) {
         // Map response to hooks
         const hooks: PersonalizationHook[] = data.results?.map((r: any) => ({
           candidateId: r.candidate_id,
@@ -432,39 +423,30 @@ export default function CampaignReview() {
     setQualityCheckLoading(true);
 
     try {
-      const response = await fetch(
-        "https://qpvyzyspwxwtwjhfcuhh.supabase.co/functions/v1/campaign-quality-check",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFwdnl6eXNwd3h3dHdqaGZjdWhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzQ3NTA3NDIsImV4cCI6MjA1MDMyNjc0Mn0.5R1H_6tsnp27PN5qYNE-4VdRT1H8kqH-NXQMJQL8sxg`,
-          },
-          body: JSON.stringify({
-            job_id: jobId,
-            campaign_name: campaignName,
-            candidates: selectedCandidates.map((c) => {
-              const hook = personalizationHooks.find((h) => h.candidateId === c.id);
-              return {
-                id: c.id,
-                first_name: c.first_name,
-                last_name: c.last_name,
-                email: c.email || c.personal_email,
-                phone: c.phone || c.personal_mobile,
-                specialty: c.specialty,
-                personalization_hook: hook?.hook || c.personalization_hook || c.email_opener,
-              };
-            }),
-            channels: channelConfig,
-            sender_email: selectedSender,
-            email_sequence_count: channelConfig?.email?.sequenceLength || 0,
-            sms_sequence_count: channelConfig?.sms?.sequenceLength || 0,
+      const { data, error: invokeError } = await supabase.functions.invoke('campaign-quality-check', {
+        body: {
+          job_id: jobId,
+          campaign_name: campaignName,
+          candidates: selectedCandidates.map((c) => {
+            const hook = personalizationHooks.find((h) => h.candidateId === c.id);
+            return {
+              id: c.id,
+              first_name: c.first_name,
+              last_name: c.last_name,
+              email: c.email || c.personal_email,
+              phone: c.phone || c.personal_mobile,
+              specialty: c.specialty,
+              personalization_hook: hook?.hook || c.personalization_hook || c.email_opener,
+            };
           }),
-        }
-      );
+          channels: channelConfig,
+          sender_email: selectedSender,
+          email_sequence_count: channelConfig?.email?.sequenceLength || 0,
+          sms_sequence_count: channelConfig?.sms?.sequenceLength || 0,
+        },
+      });
 
-      if (response.ok) {
-        const data = await response.json();
+      if (!invokeError && data) {
         setQualityCheckResult(data);
         setQualityCheckRun(true);
         if (data.can_launch) {
@@ -519,47 +501,37 @@ export default function CampaignReview() {
 
       setLaunchStep("🚀 Launching campaign...");
 
-      const response = await fetch(
-        "https://qpvyzyspwxwtwjhfcuhh.supabase.co/functions/v1/launch-campaign",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFwdnl6eXNwd3h3dHdqaGZjdWhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzQ3NTA3NDIsImV4cCI6MjA1MDMyNjc0Mn0.5R1H_6tsnp27PN5qYNE-4VdRT1H8kqH-NXQMJQL8sxg`,
-          },
-          body: JSON.stringify({
-            job_id: jobId,
-            candidates: selectedCandidates.map((c) => {
-              const hook = personalizationHooks.find((h) => h.candidateId === c.id);
-              return {
-                id: c.id,
-                first_name: c.first_name,
-                last_name: c.last_name,
-                email: c.email || c.personal_email,
-                phone: c.phone || c.personal_mobile,
-                specialty: c.specialty,
-                icebreaker: hook?.hook || c.personalization_hook || c.email_opener,
-                talking_points: c.call_talking_points || [],
-              };
-            }),
-            channels: {
-              email: channelConfig.email ? true : false,
-              sms: channelConfig.sms ? true : false,
-              ai_call: channelConfig.aiCall ? true : false,
-            },
-            campaign_name: campaignName,
-            recruiter: {
-              name: senderName,
-              email: selectedSender,
-              phone: "+12185628671",
-            },
+      const { data, error: invokeError } = await supabase.functions.invoke('launch-campaign', {
+        body: {
+          job_id: jobId,
+          candidates: selectedCandidates.map((c) => {
+            const hook = personalizationHooks.find((h) => h.candidateId === c.id);
+            return {
+              id: c.id,
+              first_name: c.first_name,
+              last_name: c.last_name,
+              email: c.email || c.personal_email,
+              phone: c.phone || c.personal_mobile,
+              specialty: c.specialty,
+              icebreaker: hook?.hook || c.personalization_hook || c.email_opener,
+              talking_points: c.call_talking_points || [],
+            };
           }),
-        }
-      );
+          channels: {
+            email: channelConfig.email ? true : false,
+            sms: channelConfig.sms ? true : false,
+            ai_call: channelConfig.aiCall ? true : false,
+          },
+          campaign_name: campaignName,
+          recruiter: {
+            name: senderName,
+            email: selectedSender,
+            phone: "+12185628671",
+          },
+        },
+      });
 
-      if (response.ok) {
-        const data = await response.json();
-        
+      if (!invokeError && data) {
         // Show success summary
         const emailCount = data.results?.email?.queued || 0;
         const smsCount = data.results?.sms?.scheduled || 0;
