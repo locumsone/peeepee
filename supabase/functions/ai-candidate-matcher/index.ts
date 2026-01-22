@@ -278,62 +278,62 @@ CANDIDATES TO EVALUATE:
 ${JSON.stringify(candidateSummaries, null, 2)}`;
 
   try {
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${apiKey}`,
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 4096,
+        system: systemPrompt,
         messages: [
-          { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
         ],
         tools: [{
-          type: "function",
-          function: {
-            name: "score_candidates",
-            description: "Score each candidate's match to the job",
-            parameters: {
-              type: "object",
-              properties: {
-                candidates: {
-                  type: "array",
-                  items: {
-                    type: "object",
-                    properties: {
-                      id: { type: "string" },
-                      match_score: { type: "number", description: "0-100" },
-                      grade: { type: "string", enum: ["A+", "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D"] },
-                      match_reasons: { type: "array", items: { type: "string" } },
-                      concerns: { type: "array", items: { type: "string" } },
-                      icebreaker: { type: "string" },
-                      talking_points: { type: "array", items: { type: "string" } }
-                    },
-                    required: ["id", "match_score", "grade", "match_reasons", "concerns", "icebreaker", "talking_points"]
-                  }
+          name: "score_candidates",
+          description: "Score each candidate's match to the job",
+          input_schema: {
+            type: "object",
+            properties: {
+              candidates: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    id: { type: "string" },
+                    match_score: { type: "number", description: "0-100" },
+                    grade: { type: "string", enum: ["A+", "A", "A-", "B+", "B", "B-", "C+", "C", "C-", "D"] },
+                    match_reasons: { type: "array", items: { type: "string" } },
+                    concerns: { type: "array", items: { type: "string" } },
+                    icebreaker: { type: "string" },
+                    talking_points: { type: "array", items: { type: "string" } }
+                  },
+                  required: ["id", "match_score", "grade", "match_reasons", "concerns", "icebreaker", "talking_points"]
                 }
-              },
-              required: ["candidates"]
-            }
+              }
+            },
+            required: ["candidates"]
           }
         }],
-        tool_choice: { type: "function", function: { name: "score_candidates" } }
+        tool_choice: { type: "tool", name: "score_candidates" }
       }),
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('AI Gateway error:', response.status, errorText);
-      throw new Error(`AI Gateway error: ${response.status}`);
+      console.error('Claude API error:', response.status, errorText);
+      throw new Error(`Claude API error: ${response.status}`);
     }
 
     const data = await response.json();
-    const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
+    // Claude returns tool_use in content array
+    const toolUse = data.content?.find((block: any) => block.type === 'tool_use');
     
-    if (toolCall?.function?.arguments) {
-      const parsed = JSON.parse(toolCall.function.arguments);
+    if (toolUse?.input) {
+      const parsed = toolUse.input;
       for (const candidate of parsed.candidates || []) {
         results.set(candidate.id, {
           id: candidate.id,
@@ -608,7 +608,7 @@ serve(async (req) => {
     const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const ALPHA_SOPHIA_API_KEY = Deno.env.get('ALPHA_SOPHIA_API_KEY');
-    const LOVABLE_API_KEY = Deno.env.get('LOVABLE_API_KEY');
+    const ANTHROPIC_API_KEY = Deno.env.get('ANTHROPIC_API_KEY');
     
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
     
@@ -654,10 +654,10 @@ serve(async (req) => {
     // Use AI to score candidates
     let aiScores: Map<string, AIMatchResult> = new Map();
     
-    if (LOVABLE_API_KEY && dbCandidates.length > 0) {
-      console.log('Using AI for candidate scoring...');
+    if (ANTHROPIC_API_KEY && dbCandidates.length > 0) {
+      console.log('Using Claude for candidate scoring...');
       try {
-        aiScores = await getAIMatchScores(LOVABLE_API_KEY, job, dbCandidates.slice(0, 50));
+        aiScores = await getAIMatchScores(ANTHROPIC_API_KEY, job, dbCandidates.slice(0, 50));
         console.log(`AI scored ${aiScores.size} candidates`);
       } catch (aiError) {
         console.error('AI scoring failed, falling back to rule-based:', aiError);
