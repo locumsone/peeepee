@@ -503,6 +503,135 @@ export type Database = {
         }
         Relationships: []
       }
+      alpha_sophia_config: {
+        Row: {
+          admin_daily_limit: number
+          cost_per_lookup: number
+          daily_limit: number
+          enabled: boolean
+          id: string
+          max_results_per_search: number
+          min_local_threshold: number
+          updated_at: string | null
+          updated_by: string | null
+        }
+        Insert: {
+          admin_daily_limit?: number
+          cost_per_lookup?: number
+          daily_limit?: number
+          enabled?: boolean
+          id?: string
+          max_results_per_search?: number
+          min_local_threshold?: number
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Update: {
+          admin_daily_limit?: number
+          cost_per_lookup?: number
+          daily_limit?: number
+          enabled?: boolean
+          id?: string
+          max_results_per_search?: number
+          min_local_threshold?: number
+          updated_at?: string | null
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
+      alpha_sophia_daily_usage: {
+        Row: {
+          created_at: string
+          id: string
+          total_cost: number
+          total_imports: number
+          total_results: number
+          total_searches: number
+          updated_at: string
+          usage_date: string
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          total_cost?: number
+          total_imports?: number
+          total_results?: number
+          total_searches?: number
+          updated_at?: string
+          usage_date?: string
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          total_cost?: number
+          total_imports?: number
+          total_results?: number
+          total_searches?: number
+          updated_at?: string
+          usage_date?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      alpha_sophia_usage: {
+        Row: {
+          campaign_id: string | null
+          candidates_imported: number
+          created_at: string
+          estimated_cost: number
+          id: string
+          job_id: string | null
+          results_returned: number
+          search_type: string
+          specialty_searched: string | null
+          state_searched: string | null
+          user_id: string | null
+        }
+        Insert: {
+          campaign_id?: string | null
+          candidates_imported?: number
+          created_at?: string
+          estimated_cost?: number
+          id?: string
+          job_id?: string | null
+          results_returned?: number
+          search_type?: string
+          specialty_searched?: string | null
+          state_searched?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          campaign_id?: string | null
+          candidates_imported?: number
+          created_at?: string
+          estimated_cost?: number
+          id?: string
+          job_id?: string | null
+          results_returned?: number
+          search_type?: string
+          specialty_searched?: string | null
+          state_searched?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "alpha_sophia_usage_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "alpha_sophia_usage_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       badge_definitions: {
         Row: {
           category: string | null
@@ -3406,6 +3535,16 @@ export type Database = {
           unified_score: string
         }[]
       }
+      check_alpha_sophia_limit: {
+        Args: { p_user_id: string }
+        Returns: {
+          allowed: boolean
+          daily_limit: number
+          is_admin: boolean
+          remaining: number
+          used_today: number
+        }[]
+      }
       get_available_telnyx_number: { Args: never; Returns: string }
       get_complete_schema: { Args: never; Returns: Json }
       get_user_by_email: {
@@ -3417,6 +3556,21 @@ export type Database = {
           phone: string
           role: string
         }[]
+      }
+      import_alpha_sophia_candidate: {
+        Args: {
+          p_city?: string
+          p_email?: string
+          p_external_id: string
+          p_first_name: string
+          p_last_name: string
+          p_licenses?: string[]
+          p_npi?: string
+          p_phone?: string
+          p_specialty?: string
+          p_state?: string
+        }
+        Returns: string
       }
       increment_campaign_stat: {
         Args: { p_instantly_campaign_id: string; p_stat: string }
@@ -3465,6 +3619,19 @@ export type Database = {
           phone: string
           specialty: string
         }[]
+      }
+      track_alpha_sophia_usage: {
+        Args: {
+          p_campaign_id?: string
+          p_imports_count?: number
+          p_job_id?: string
+          p_results_count?: number
+          p_search_type?: string
+          p_specialty?: string
+          p_state?: string
+          p_user_id: string
+        }
+        Returns: string
       }
     }
     Enums: {

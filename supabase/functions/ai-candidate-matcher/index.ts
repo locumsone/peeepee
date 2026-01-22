@@ -80,10 +80,26 @@ interface OutputCandidate {
   personal_mobile?: string;
   personal_email?: string;
   source?: string;
+  alpha_sophia_id?: string;
+  npi?: string;
 }
 
-// Minimum results before triggering Alpha Sophia supplementation
-const MIN_LOCAL_RESULTS = 15;
+interface AlphaSophiaConfig {
+  min_local_threshold: number;
+  max_results_per_search: number;
+  daily_limit: number;
+  admin_daily_limit: number;
+  cost_per_lookup: number;
+  enabled: boolean;
+}
+
+interface LimitCheck {
+  allowed: boolean;
+  remaining: number;
+  daily_limit: number;
+  used_today: number;
+  is_admin: boolean;
+}
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -97,13 +113,29 @@ serve(async (req) => {
     
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
     
-    const { job_id, limit = 25, offset = 0, force_alpha_sophia = false } = await req.json();
+    const { job_id, limit = 25, offset = 0, force_alpha_sophia = false, user_id = null } = await req.json();
     
     if (!job_id) {
       throw new Error('job_id is required');
     }
 
     console.log(`Matching candidates for job: ${job_id}, limit: ${limit}, offset: ${offset}, force_alpha_sophia: ${force_alpha_sophia}`);
+
+    // Fetch Alpha Sophia config
+    const { data: configData } = await supabase
+      .from('alpha_sophia_config')
+      .select('*')
+      .limit(1)
+      .single();
+    
+    const config: AlphaSophiaConfig = configData || {
+      min_local_threshold: 15,
+      max_results_per_search: 50,
+      daily_limit: 500,
+      admin_daily_limit: 2000,
+      cost_per_lookup: 0.05,
+      enabled: true,
+    };
 
     // Fetch job details
     const { data: jobData, error: jobError } = await supabase
@@ -132,7 +164,7 @@ serve(async (req) => {
     console.log(`Found ${dbCandidates.length} local candidates`);
 
     // Transform database candidates to output format
-    let candidates: OutputCandidate[] = dbCandidates.map((c, index) => ({
+    let candidates: OutputCandidate[] = dbCandidates.map((c) => ({
       id: c.id,
       first_name: c.first_name || '',
       last_name: c.last_name || '',
@@ -156,35 +188,74 @@ serve(async (req) => {
       source: 'database',
     }));
 
-    // Supplement with Alpha Sophia if:
-    // 1. Force flag is set, OR
-    // 2. Local results are insufficient and this is the first page
-    const shouldSearchAlphaSophia = force_alpha_sophia || (candidates.length < MIN_LOCAL_RESULTS && offset === 0);
+    let alphaSophiaCount = 0;
+    let alphaSophiaSearched = false;
+    let limitInfo: LimitCheck | null = null;
+
+    // Check if we should search Alpha Sophia
+    const shouldSearchAlphaSophia = config.enabled && ALPHA_SOPHIA_API_KEY && (
+      force_alpha_sophia || 
+      (candidates.length < config.min_local_threshold && offset === 0)
+    );
     
-    if (shouldSearchAlphaSophia && ALPHA_SOPHIA_API_KEY) {
-      console.log(`Searching Alpha Sophia (force: ${force_alpha_sophia}, local count: ${candidates.length})...`);
-      
-      try {
-        const alphaSophiaCandidates = await searchAlphaSophia(
-          ALPHA_SOPHIA_API_KEY,
-          job.specialty,
-          job.state,
-          Math.min(25, MIN_LOCAL_RESULTS - candidates.length + 10)
-        );
-        
-        if (alphaSophiaCandidates.length > 0) {
-          console.log(`Found ${alphaSophiaCandidates.length} Alpha Sophia candidates`);
-          
-          // Filter out duplicates based on NPI if we have it in database
-          const existingIds = new Set(candidates.map(c => c.id));
-          const newCandidates = alphaSophiaCandidates.filter(c => !existingIds.has(c.id));
-          
-          candidates = [...candidates, ...newCandidates];
-          console.log(`Total candidates after Alpha Sophia: ${candidates.length}`);
+    if (shouldSearchAlphaSophia) {
+      // Check user's daily limit
+      if (user_id) {
+        const { data: limitData } = await supabase.rpc('check_alpha_sophia_limit', { p_user_id: user_id });
+        if (limitData && limitData.length > 0) {
+          limitInfo = limitData[0] as LimitCheck;
         }
-      } catch (asError) {
-        console.error('Alpha Sophia search failed:', asError);
-        // Continue with local results only
+      }
+
+      const canSearch = !user_id || !limitInfo || limitInfo.allowed;
+
+      if (canSearch) {
+        console.log(`Searching Alpha Sophia (force: ${force_alpha_sophia}, local count: ${candidates.length}, threshold: ${config.min_local_threshold})...`);
+        alphaSophiaSearched = true;
+        
+        try {
+          const searchLimit = Math.min(
+            config.max_results_per_search,
+            limitInfo?.remaining || config.max_results_per_search
+          );
+
+          const alphaSophiaCandidates = await searchAlphaSophia(
+            ALPHA_SOPHIA_API_KEY,
+            job.specialty,
+            job.state,
+            searchLimit
+          );
+          
+          if (alphaSophiaCandidates.length > 0) {
+            console.log(`Found ${alphaSophiaCandidates.length} Alpha Sophia candidates`);
+            alphaSophiaCount = alphaSophiaCandidates.length;
+            
+            // Filter out duplicates based on NPI if we have it in database
+            const existingIds = new Set(candidates.map(c => c.id));
+            const newCandidates = alphaSophiaCandidates.filter(c => !existingIds.has(c.id));
+            
+            candidates = [...candidates, ...newCandidates];
+            console.log(`Total candidates after Alpha Sophia: ${candidates.length}`);
+
+            // Track usage
+            if (user_id) {
+              await supabase.rpc('track_alpha_sophia_usage', {
+                p_user_id: user_id,
+                p_job_id: job_id,
+                p_search_type: force_alpha_sophia ? 'manual' : 'auto',
+                p_specialty: job.specialty,
+                p_state: job.state,
+                p_results_count: alphaSophiaCandidates.length,
+                p_imports_count: 0,
+              });
+            }
+          }
+        } catch (asError) {
+          console.error('Alpha Sophia search failed:', asError);
+          // Continue with local results only
+        }
+      } else {
+        console.log(`Alpha Sophia search blocked: daily limit reached (${limitInfo?.used_today}/${limitInfo?.daily_limit})`);
       }
     }
 
@@ -206,6 +277,14 @@ serve(async (req) => {
       ready_to_contact: candidates.filter(c => c.has_personal_contact).length,
       needs_enrichment: candidates.filter(c => c.needs_enrichment).length,
       alpha_sophia_count: candidates.filter(c => c.source === 'alpha_sophia').length,
+      alpha_sophia_searched: alphaSophiaSearched,
+      alpha_sophia_limit: limitInfo ? {
+        allowed: limitInfo.allowed,
+        remaining: limitInfo.remaining,
+        used_today: limitInfo.used_today,
+        daily_limit: limitInfo.daily_limit,
+        is_admin: limitInfo.is_admin,
+      } : null,
     };
 
     return new Response(
@@ -222,6 +301,10 @@ serve(async (req) => {
         },
         summary,
         candidates: paginatedCandidates,
+        config: {
+          min_local_threshold: config.min_local_threshold,
+          max_results_per_search: config.max_results_per_search,
+        },
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
@@ -314,7 +397,7 @@ async function searchAlphaSophia(
   pageSize: number
 ): Promise<OutputCandidate[]> {
   const queryParams = new URLSearchParams();
-  queryParams.set('pageSize', String(pageSize));
+  queryParams.set('pageSize', String(Math.min(pageSize, 100)));
   queryParams.set('page', '1');
   
   if (state) {
@@ -356,6 +439,8 @@ async function searchAlphaSophia(
     
     return {
       id: `as_${hcp.id}`,
+      alpha_sophia_id: hcp.id,
+      npi: hcp.npi,
       first_name: firstName,
       last_name: lastName,
       specialty: hcp.taxonomy?.description || specialty,
