@@ -152,7 +152,7 @@ const getEnrichmentBadgeConfig = (tier: string) => {
   }
 };
 
-// Highlight key phrases in score reason
+// Highlight key phrases in score reason - XSS-safe implementation
 const highlightScoreReason = (reason: string) => {
   if (!reason) return null;
   
@@ -164,12 +164,38 @@ const highlightScoreReason = (reason: string) => {
     { pattern: /\b(Platinum tier|Platinum Tier)\b/gi, className: "text-purple-400 font-semibold" },
   ];
   
-  let result = reason;
+  // Build React elements safely without dangerouslySetInnerHTML
+  type MatchInfo = { index: number; length: number; text: string; className: string };
+  const matches: MatchInfo[] = [];
+  
   highlights.forEach(({ pattern, className }) => {
-    result = result.replace(pattern, (match) => `<span class="${className}">${match}</span>`);
+    pattern.lastIndex = 0;
+    let match;
+    while ((match = pattern.exec(reason)) !== null) {
+      matches.push({ index: match.index, length: match[0].length, text: match[0], className });
+    }
   });
   
-  return <span className="italic text-muted-foreground text-sm" dangerouslySetInnerHTML={{ __html: result }} />;
+  matches.sort((a, b) => a.index - b.index);
+  const filteredMatches: MatchInfo[] = [];
+  let lastEnd = 0;
+  matches.forEach(m => {
+    if (m.index >= lastEnd) {
+      filteredMatches.push(m);
+      lastEnd = m.index + m.length;
+    }
+  });
+  
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+  filteredMatches.forEach((m, i) => {
+    if (m.index > lastIndex) parts.push(reason.substring(lastIndex, m.index));
+    parts.push(<span key={i} className={m.className}>{m.text}</span>);
+    lastIndex = m.index + m.length;
+  });
+  if (lastIndex < reason.length) parts.push(reason.substring(lastIndex));
+  
+  return <span className="italic text-muted-foreground text-sm">{parts}</span>;
 };
 
 const BATCH_SIZE = 25;
