@@ -36,11 +36,13 @@ interface Candidate {
   licenses: string[];
   licenses_count: number;
   enrichment_tier: string;
+  enrichment_source?: string;
   score_reason: string;
   icebreaker: string;
   talking_points: string[];
   has_personal_contact: boolean;
   needs_enrichment: boolean;
+  is_enriched?: boolean;
   work_email?: string;
   work_phone?: string;
   personal_mobile?: string;
@@ -88,8 +90,11 @@ interface ApiResponse {
   };
 }
 
-type SortOption = "contact_first" | "best_match" | "most_licenses" | "local_first" | "score";
-type QuickFilter = "all" | "contact_ready" | "10_plus_licenses" | "5_plus_licenses" | "local" | "needs_enrichment";
+type SortOption = "contact_first" | "enriched_first" | "best_match" | "most_licenses" | "local_first" | "score";
+type QuickFilter = "all" | "contact_ready" | "enriched_personal" | "10_plus_licenses" | "5_plus_licenses" | "local" | "needs_enrichment";
+
+// Enriched sources that indicate verified personal contact info
+const ENRICHED_SOURCES = ['Whitepages', 'PDL', 'Apollo', 'Hunter', 'Clearbit', 'ZoomInfo'];
 
 // Score badge configuration
 const getScoreBadgeConfig = (score: string) => {
@@ -186,7 +191,7 @@ const CandidateMatching = () => {
   const [error, setError] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
-  const [sortBy, setSortBy] = useState<SortOption>("contact_first");
+  const [sortBy, setSortBy] = useState<SortOption>("enriched_first");
   const [quickFilter, setQuickFilter] = useState<QuickFilter>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [offset, setOffset] = useState(0);
@@ -201,15 +206,21 @@ const CandidateMatching = () => {
   const jobState = job?.state || job?.location?.split(', ').pop() || 'TX';
 
   // Helper functions
+  // Check if candidate has verified enriched personal contact (from Whitepages/PDL/etc)
+  const isEnrichedPersonal = (c: Candidate) => 
+    c.is_enriched || (c.enrichment_source && ENRICHED_SOURCES.includes(c.enrichment_source));
+  
+  // Check if candidate has any contact info (personal or work)
   const isContactReady = (c: Candidate) => 
     c.personal_mobile || c.personal_email || c.has_personal_contact || 
-    ['platinum', 'gold'].includes(c.enrichment_tier?.toLowerCase() || '');
+    ['platinum', 'gold'].includes(c.enrichment_tier?.toLowerCase() || '') ||
+    isEnrichedPersonal(c);
   
   const isLocal = (c: Candidate) => c.state === jobState;
   const has10PlusLicenses = (c: Candidate) => c.licenses_count >= 10;
   const has5PlusLicenses = (c: Candidate) => c.licenses_count >= 5;
   const needsEnrichment = (c: Candidate) => 
-    c.needs_enrichment || !['platinum', 'gold'].includes(c.enrichment_tier?.toLowerCase() || '');
+    c.needs_enrichment && !isEnrichedPersonal(c);
 
   const fetchCandidates = async (currentOffset: number, append: boolean = false) => {
     if (append) {
@@ -414,37 +425,34 @@ const CandidateMatching = () => {
     }
   };
 
-  // Filter counts
+  // Filter counts - wrap in useCallback to prevent stale closures
   const filterCounts = useMemo(() => ({
     all: candidates.length,
-    contact_ready: candidates.filter(isContactReady).length,
-    "10_plus_licenses": candidates.filter(has10PlusLicenses).length,
-    "5_plus_licenses": candidates.filter(has5PlusLicenses).length,
-    local: candidates.filter(isLocal).length,
-    needs_enrichment: candidates.filter(needsEnrichment).length,
+    contact_ready: candidates.filter(c => isContactReady(c)).length,
+    enriched_personal: candidates.filter(c => isEnrichedPersonal(c)).length,
+    "10_plus_licenses": candidates.filter(c => has10PlusLicenses(c)).length,
+    "5_plus_licenses": candidates.filter(c => has5PlusLicenses(c)).length,
+    local: candidates.filter(c => isLocal(c)).length,
+    needs_enrichment: candidates.filter(c => needsEnrichment(c)).length,
   }), [candidates, jobState]);
 
-  // Filtered candidates
+  // Filtered candidates - use explicit callbacks to avoid stale closures
   const filteredCandidates = useMemo(() => {
-    let filtered = candidates;
+    let filtered = [...candidates];
     
     // Apply quick filter
-    switch (quickFilter) {
-      case "contact_ready":
-        filtered = filtered.filter(isContactReady);
-        break;
-      case "10_plus_licenses":
-        filtered = filtered.filter(has10PlusLicenses);
-        break;
-      case "5_plus_licenses":
-        filtered = filtered.filter(has5PlusLicenses);
-        break;
-      case "local":
-        filtered = filtered.filter(isLocal);
-        break;
-      case "needs_enrichment":
-        filtered = filtered.filter(needsEnrichment);
-        break;
+    if (quickFilter === "contact_ready") {
+      filtered = filtered.filter(c => isContactReady(c));
+    } else if (quickFilter === "enriched_personal") {
+      filtered = filtered.filter(c => isEnrichedPersonal(c));
+    } else if (quickFilter === "10_plus_licenses") {
+      filtered = filtered.filter(c => has10PlusLicenses(c));
+    } else if (quickFilter === "5_plus_licenses") {
+      filtered = filtered.filter(c => has5PlusLicenses(c));
+    } else if (quickFilter === "local") {
+      filtered = filtered.filter(c => isLocal(c));
+    } else if (quickFilter === "needs_enrichment") {
+      filtered = filtered.filter(c => needsEnrichment(c));
     }
     
     // Apply search query
@@ -466,6 +474,13 @@ const CandidateMatching = () => {
   const sortedCandidates = useMemo(() => {
     const sorted = [...filteredCandidates];
     switch (sortBy) {
+      case "enriched_first":
+        return sorted.sort((a, b) => {
+          const aEnriched = isEnrichedPersonal(a) ? 2 : (isContactReady(a) ? 1 : 0);
+          const bEnriched = isEnrichedPersonal(b) ? 2 : (isContactReady(b) ? 1 : 0);
+          if (aEnriched !== bEnriched) return bEnriched - aEnriched;
+          return b.match_strength - a.match_strength;
+        });
       case "contact_first":
         return sorted.sort((a, b) => {
           const aReady = isContactReady(a) ? 1 : 0;
@@ -538,10 +553,17 @@ const CandidateMatching = () => {
   const getKeyIndicators = (candidate: Candidate) => {
     const indicators: { label: string; className: string; priority: number }[] = [];
     
-    // Contact ready (highest priority)
-    if (isContactReady(candidate)) {
+    // Enriched Personal Contact (highest priority - verified by Whitepages/PDL)
+    if (isEnrichedPersonal(candidate)) {
       indicators.push({ 
-        label: "📞 Contact Ready", 
+        label: `✅ Enriched (${candidate.enrichment_source || 'Verified'})`, 
+        className: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
+        priority: 0
+      });
+    } else if (isContactReady(candidate)) {
+      // Has some contact but not from enrichment provider
+      indicators.push({ 
+        label: "📞 Has Contact", 
         className: "bg-success/20 text-success border-success/30",
         priority: 1
       });
@@ -589,10 +611,19 @@ const CandidateMatching = () => {
       });
     }
     
-    // Needs enrichment (lowest priority)
-    if (needsEnrichment(candidate) && !isContactReady(candidate)) {
+    // Has work contact only (probably company phone)
+    if (!isEnrichedPersonal(candidate) && (candidate.work_phone || candidate.work_email) && !candidate.personal_mobile && !candidate.personal_email) {
       indicators.push({ 
-        label: "Needs Enrichment", 
+        label: "🏢 Work Contact Only", 
+        className: "bg-muted/50 text-muted-foreground border-muted",
+        priority: 8
+      });
+    }
+    
+    // Needs enrichment (lowest priority)
+    if (needsEnrichment(candidate)) {
+      indicators.push({ 
+        label: "🔍 Needs Enrichment", 
         className: "bg-warning/20 text-warning border-warning/30",
         priority: 10
       });
@@ -671,21 +702,31 @@ const CandidateMatching = () => {
         </div>
 
         {/* Quick Filters - Prominent */}
-        <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-7 gap-3">
           <QuickFilterButton 
             active={quickFilter === "all"} 
             onClick={() => setQuickFilter("all")}
             icon={<Users className="h-4 w-4" />}
-            label="All Candidates"
+            label="All"
             count={filterCounts.all}
+          />
+          <QuickFilterButton 
+            active={quickFilter === "enriched_personal"} 
+            onClick={() => setQuickFilter("enriched_personal")}
+            icon={<Sparkles className="h-4 w-4" />}
+            label="Enriched Personal"
+            count={filterCounts.enriched_personal}
+            highlight="success"
+            description="Whitepages/PDL verified"
           />
           <QuickFilterButton 
             active={quickFilter === "contact_ready"} 
             onClick={() => setQuickFilter("contact_ready")}
             icon={<Phone className="h-4 w-4" />}
-            label="Contact Ready"
+            label="Any Contact"
             count={filterCounts.contact_ready}
-            highlight="success"
+            highlight="blue"
+            description="Has any contact info"
           />
           <QuickFilterButton 
             active={quickFilter === "10_plus_licenses"} 
@@ -694,6 +735,7 @@ const CandidateMatching = () => {
             label="10+ Licenses"
             count={filterCounts["10_plus_licenses"]}
             highlight="purple"
+            description="Top locum travelers"
           />
           <QuickFilterButton 
             active={quickFilter === "5_plus_licenses"} 
@@ -701,7 +743,7 @@ const CandidateMatching = () => {
             icon={<Shield className="h-4 w-4" />}
             label="5+ Licenses"
             count={filterCounts["5_plus_licenses"]}
-            highlight="blue"
+            description="Multi-state licensed"
           />
           <QuickFilterButton 
             active={quickFilter === "local"} 
@@ -710,6 +752,7 @@ const CandidateMatching = () => {
             label={`Local (${jobState})`}
             count={filterCounts.local}
             highlight="green"
+            description="In-state candidates"
           />
           <QuickFilterButton 
             active={quickFilter === "needs_enrichment"} 
@@ -718,6 +761,7 @@ const CandidateMatching = () => {
             label="Needs Enrichment"
             count={filterCounts.needs_enrichment}
             highlight="warning"
+            description="Missing personal contact"
           />
         </div>
 
@@ -804,7 +848,8 @@ const CandidateMatching = () => {
                 <SelectValue placeholder="Sort by..." />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="contact_first">📞 Contact Ready First</SelectItem>
+                <SelectItem value="enriched_first">✅ Enriched First</SelectItem>
+                <SelectItem value="contact_first">📞 Any Contact First</SelectItem>
                 <SelectItem value="best_match">🎯 Best Match</SelectItem>
                 <SelectItem value="most_licenses">🏆 Most Licenses</SelectItem>
                 <SelectItem value="local_first">📍 Local First</SelectItem>
@@ -1064,9 +1109,10 @@ interface QuickFilterButtonProps {
   label: string;
   count: number;
   highlight?: "success" | "purple" | "blue" | "green" | "warning";
+  description?: string;
 }
 
-const QuickFilterButton = ({ active, onClick, icon, label, count, highlight }: QuickFilterButtonProps) => {
+const QuickFilterButton = ({ active, onClick, icon, label, count, highlight, description }: QuickFilterButtonProps) => {
   const highlightClasses = {
     success: "border-success/50 bg-success/10",
     purple: "border-purple-500/50 bg-purple-500/10",
@@ -1079,7 +1125,7 @@ const QuickFilterButton = ({ active, onClick, icon, label, count, highlight }: Q
     <button
       onClick={onClick}
       className={cn(
-        "flex flex-col items-center justify-center p-4 rounded-xl border-2 transition-all",
+        "flex flex-col items-center justify-center p-3 rounded-xl border-2 transition-all min-h-[90px]",
         active 
           ? "border-primary bg-primary/10 ring-2 ring-primary/20" 
           : highlight 
@@ -1094,7 +1140,10 @@ const QuickFilterButton = ({ active, onClick, icon, label, count, highlight }: Q
         {icon}
         <span className="text-2xl font-bold">{count}</span>
       </div>
-      <span className="text-xs text-muted-foreground">{label}</span>
+      <span className="text-xs text-muted-foreground font-medium">{label}</span>
+      {description && (
+        <span className="text-[10px] text-muted-foreground/70 mt-0.5">{description}</span>
+      )}
     </button>
   );
 };
