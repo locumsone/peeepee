@@ -21,6 +21,7 @@ import { ParsedJob } from "@/components/jobs/ParsedJobCard";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { useAuth } from "@/hooks/useAuth";
 
 interface Candidate {
   id: string;
@@ -57,6 +58,14 @@ interface SummaryData {
   ready_to_contact: number;
   needs_enrichment: number;
   alpha_sophia_count?: number;
+  alpha_sophia_searched?: boolean;
+  alpha_sophia_limit?: {
+    allowed: boolean;
+    remaining: number;
+    used_today: number;
+    daily_limit: number;
+    is_admin: boolean;
+  } | null;
 }
 
 interface ApiResponse {
@@ -72,6 +81,10 @@ interface ApiResponse {
   };
   summary: SummaryData;
   candidates: Candidate[];
+  config?: {
+    min_local_threshold: number;
+    max_results_per_search: number;
+  };
 }
 
 type SortOption = "best_match" | "score" | "licenses" | "ready_to_contact";
@@ -206,6 +219,7 @@ const CandidateMatching = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const jobId = searchParams.get("jobId");
+  const { user } = useAuth();
   
   const [job, setJob] = useState<(ParsedJob & { state?: string }) | null>(null);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
@@ -223,6 +237,7 @@ const CandidateMatching = () => {
   const [bulkEnriching, setBulkEnriching] = useState(false);
   const [searchingAlphaSophia, setSearchingAlphaSophia] = useState(false);
   const [alphaSophiaSearched, setAlphaSophiaSearched] = useState(false);
+  const [alphaSophiaLimit, setAlphaSophiaLimit] = useState<SummaryData['alpha_sophia_limit']>(null);
 
   const effectiveJobId = jobId || "befd5ba5-4e46-41d9-b144-d4077f750035";
 
@@ -246,6 +261,7 @@ const CandidateMatching = () => {
             job_id: effectiveJobId,
             limit: BATCH_SIZE,
             offset: currentOffset,
+            user_id: user?.id || null,
           }),
         }
       );
@@ -265,6 +281,11 @@ const CandidateMatching = () => {
       } else {
         setCandidates(sortedCandidates);
         setSummary(data.summary || null);
+        
+        // Update Alpha Sophia limit info
+        if (data.summary?.alpha_sophia_limit) {
+          setAlphaSophiaLimit(data.summary.alpha_sophia_limit);
+        }
         
         // Set job info from API response
         if (data.job) {
@@ -304,6 +325,12 @@ const CandidateMatching = () => {
 
   // Search Alpha Sophia for additional candidates
   const searchAlphaSophia = async () => {
+    // Check limit before searching
+    if (alphaSophiaLimit && !alphaSophiaLimit.allowed) {
+      toast.error(`Daily limit reached (${alphaSophiaLimit.used_today}/${alphaSophiaLimit.daily_limit})`);
+      return;
+    }
+
     setSearchingAlphaSophia(true);
     
     try {
@@ -319,6 +346,7 @@ const CandidateMatching = () => {
             limit: 50,
             offset: 0,
             force_alpha_sophia: true,
+            user_id: user?.id || null,
           }),
         }
       );
@@ -329,6 +357,11 @@ const CandidateMatching = () => {
 
       const data: ApiResponse = await response.json();
       console.log('Alpha Sophia Response:', data);
+
+      // Update limit info
+      if (data.summary?.alpha_sophia_limit) {
+        setAlphaSophiaLimit(data.summary.alpha_sophia_limit);
+      }
 
       // Merge with existing candidates, avoiding duplicates
       const existingIds = new Set(candidates.map(c => c.id));
@@ -667,24 +700,39 @@ const CandidateMatching = () => {
                 }
               </p>
               <p className="text-xs text-muted-foreground">
-                Access external database of verified physicians and specialists
+                {alphaSophiaLimit ? (
+                  <>
+                    Daily usage: {alphaSophiaLimit.used_today}/{alphaSophiaLimit.daily_limit} 
+                    {alphaSophiaLimit.is_admin && <span className="text-purple-400 ml-1">(Admin)</span>}
+                    {!alphaSophiaLimit.allowed && <span className="text-destructive ml-1">• Limit reached</span>}
+                  </>
+                ) : (
+                  "Access external database of verified physicians and specialists"
+                )}
               </p>
             </div>
           </div>
-          <Button
-            variant={alphaSophiaSearched ? "outline" : "default"}
-            size="sm"
-            onClick={searchAlphaSophia}
-            disabled={searchingAlphaSophia}
-            className={alphaSophiaSearched ? "border-blue-500/30 text-blue-400" : "bg-blue-600 hover:bg-blue-700"}
-          >
-            {searchingAlphaSophia ? (
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-            ) : (
-              <Globe className="h-4 w-4 mr-2" />
+          <div className="flex items-center gap-2">
+            {alphaSophiaLimit && (
+              <span className="text-xs text-muted-foreground">
+                {alphaSophiaLimit.remaining} remaining
+              </span>
             )}
-            {alphaSophiaSearched ? "Search Again" : "Search Alpha Sophia"}
-          </Button>
+            <Button
+              variant={alphaSophiaSearched ? "outline" : "default"}
+              size="sm"
+              onClick={searchAlphaSophia}
+              disabled={searchingAlphaSophia || (alphaSophiaLimit && !alphaSophiaLimit.allowed)}
+              className={alphaSophiaSearched ? "border-blue-500/30 text-blue-400" : "bg-blue-600 hover:bg-blue-700"}
+            >
+              {searchingAlphaSophia ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Globe className="h-4 w-4 mr-2" />
+              )}
+              {alphaSophiaSearched ? "Search Again" : "Search Alpha Sophia"}
+            </Button>
+          </div>
         </div>
 
         {/* Filter Toggle */}
