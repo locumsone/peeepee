@@ -56,7 +56,10 @@ serve(async (req) => {
         messages: [
           {
             role: 'system',
-            content: `You are a job posting parser. Extract structured data from healthcare job postings. Be precise with locations - extract the actual city name, not random words.`
+            content: `You are a job posting parser for healthcare locum tenens positions. Extract structured data precisely:
+- For requirements: ONLY include license/credential requirements (TX license, IMLC, BC/BE, days to credential). Do NOT include procedures or skills.
+- For schedule: Keep it brief (e.g., "M-F 8a-5p, 5 days/week")
+- Extract the actual city name from the address, not random words`
           },
           {
             role: 'user',
@@ -98,7 +101,7 @@ serve(async (req) => {
                   },
                   billRate: { 
                     type: 'number', 
-                    description: 'Bill rate per hour in dollars (just the number)' 
+                    description: 'Bill rate per hour in dollars (just the number). If a range, use the lower value.' 
                   },
                   payRate: { 
                     type: 'number', 
@@ -106,7 +109,7 @@ serve(async (req) => {
                   },
                   schedule: { 
                     type: 'string', 
-                    description: 'Work schedule (e.g., M-F 8a-5p, 5 days/week). Keep it brief.' 
+                    description: 'Work schedule - keep brief (e.g., M-F 8a-5p, 5 days/week)' 
                   },
                   onCall: { 
                     type: 'boolean', 
@@ -118,7 +121,7 @@ serve(async (req) => {
                   },
                   requirements: { 
                     type: 'string', 
-                    description: 'License and credential requirements, comma-separated' 
+                    description: 'ONLY license and credential requirements (e.g., TX license, IMLC, BC/BE, 90 days to credential). Do NOT include procedures or clinical skills.' 
                   },
                 },
                 required: ['specialty', 'facility', 'city', 'state', 'billRate'],
