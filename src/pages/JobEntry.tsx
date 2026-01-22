@@ -1,29 +1,18 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { FileText, Sparkles, Loader2, ArrowRight, Save } from "lucide-react";
+import { FileText, Sparkles, Loader2, Save } from "lucide-react";
 import Layout from "@/components/layout/Layout";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import ParsedJobCard from "@/components/jobs/ParsedJobCard";
+import ParsedJobCard, { ParsedJob as CardParsedJob } from "@/components/jobs/ParsedJobCard";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 
-interface ParsedJob {
-  id?: string;
-  specialty: string;
-  location: string;
+interface ParsedJob extends CardParsedJob {
   city: string;
   state: string;
-  facility: string;
-  dates: string;
   startDate: string | null;
   endDate: string | null;
-  billRate: number;
-  payRate: number;
-  schedule: string | null;
-  requirements: string | null;
   description: string | null;
   jobTitle: string;
   onCall: boolean;
@@ -37,7 +26,6 @@ const JobEntry = () => {
   const [isParsing, setIsParsing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [parsedJob, setParsedJob] = useState<ParsedJob | null>(null);
-  const [isEditing, setIsEditing] = useState(false);
 
   const parseJobPosting = async () => {
     if (!jobText.trim()) {
@@ -68,7 +56,6 @@ const JobEntry = () => {
       };
 
       setParsedJob(parsed);
-      setIsEditing(false);
 
       toast({
         title: "Job parsed successfully! ✨",
@@ -86,27 +73,30 @@ const JobEntry = () => {
     }
   };
 
-  const handleEdit = () => {
-    setIsEditing(true);
-  };
-
-  const handleCancelEdit = () => {
-    setIsEditing(false);
-  };
-
-  const handleFieldChange = (field: keyof ParsedJob, value: string | number | boolean) => {
+  const handleFieldUpdate = (field: keyof CardParsedJob, value: string | number) => {
     if (!parsedJob) return;
     
     setParsedJob(prev => {
       if (!prev) return prev;
       
-      // Special handling for bill rate - auto-calculate pay rate
+      // Auto-calculate pay rate when bill rate changes
       if (field === 'billRate') {
-        const billRate = typeof value === 'number' ? value : parseFloat(value as string) || 0;
+        const billRate = typeof value === 'number' ? value : parseFloat(String(value)) || 0;
         return {
           ...prev,
           billRate,
           payRate: Math.round(billRate * 0.73),
+        };
+      }
+      
+      // Update location when city/state-like fields change
+      if (field === 'location') {
+        const parts = String(value).split(',').map(s => s.trim());
+        return {
+          ...prev,
+          location: String(value),
+          city: parts[0] || prev.city,
+          state: parts[1] || prev.state,
         };
       }
       
@@ -179,7 +169,6 @@ const JobEntry = () => {
 
   const handleStartOver = () => {
     setParsedJob(null);
-    setIsEditing(false);
     setJobText("");
   };
 
@@ -254,8 +243,8 @@ Seeking a Board-Certified Interventional Radiologist for a locum tenens position
           </div>
         )}
 
-        {/* Parsed Job Result */}
-        {parsedJob && !isParsing && !isEditing && (
+        {/* Parsed Job Result - Inline Editable */}
+        {parsedJob && !isParsing && (
           <ParsedJobCard 
             job={{
               id: parsedJob.id,
@@ -268,118 +257,8 @@ Seeking a Board-Certified Interventional Radiologist for a locum tenens position
               schedule: parsedJob.schedule || undefined,
               requirements: parsedJob.requirements || undefined,
             }} 
-            onEdit={handleEdit} 
+            onUpdate={handleFieldUpdate}
           />
-        )}
-
-        {/* Edit Form */}
-        {parsedJob && isEditing && (
-          <div className="rounded-2xl bg-card shadow-card p-6 space-y-6 animate-fade-in">
-            <div className="flex items-center justify-between">
-              <h2 className="font-semibold text-lg text-foreground">Edit Job Details</h2>
-              <Button variant="ghost" size="sm" onClick={handleCancelEdit}>
-                Cancel
-              </Button>
-            </div>
-
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="specialty">Specialty</Label>
-                <Input
-                  id="specialty"
-                  value={parsedJob.specialty}
-                  onChange={(e) => handleFieldChange('specialty', e.target.value)}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="facility">Facility</Label>
-                <Input
-                  id="facility"
-                  value={parsedJob.facility}
-                  onChange={(e) => handleFieldChange('facility', e.target.value)}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="city">City</Label>
-                <Input
-                  id="city"
-                  value={parsedJob.city}
-                  onChange={(e) => handleFieldChange('city', e.target.value)}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="state">State</Label>
-                <Input
-                  id="state"
-                  value={parsedJob.state}
-                  onChange={(e) => handleFieldChange('state', e.target.value)}
-                  maxLength={2}
-                  placeholder="TX"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="dates">Dates</Label>
-                <Input
-                  id="dates"
-                  value={parsedJob.dates}
-                  onChange={(e) => handleFieldChange('dates', e.target.value)}
-                  placeholder="02/01/2026 - Ongoing"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="schedule">Schedule</Label>
-                <Input
-                  id="schedule"
-                  value={parsedJob.schedule || ''}
-                  onChange={(e) => handleFieldChange('schedule', e.target.value)}
-                  placeholder="M-F 8a-5p"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="billRate">Bill Rate ($/hr)</Label>
-                <Input
-                  id="billRate"
-                  type="number"
-                  value={parsedJob.billRate}
-                  onChange={(e) => handleFieldChange('billRate', parseFloat(e.target.value) || 0)}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="payRate">Pay Rate ($/hr)</Label>
-                <Input
-                  id="payRate"
-                  type="number"
-                  value={parsedJob.payRate}
-                  onChange={(e) => handleFieldChange('payRate', parseFloat(e.target.value) || 0)}
-                />
-              </div>
-
-              <div className="space-y-2 sm:col-span-2">
-                <Label htmlFor="requirements">Requirements</Label>
-                <Input
-                  id="requirements"
-                  value={parsedJob.requirements || ''}
-                  onChange={(e) => handleFieldChange('requirements', e.target.value)}
-                  placeholder="TX License, BC/BE, 90 days to credential"
-                />
-              </div>
-            </div>
-
-            <Button 
-              variant="gradient" 
-              className="w-full"
-              onClick={handleCancelEdit}
-            >
-              Save Changes
-            </Button>
-          </div>
         )}
 
         {/* Footer with Action Buttons */}
@@ -393,7 +272,7 @@ Seeking a Board-Certified Interventional Radiologist for a locum tenens position
             </Button>
           )}
           <div className="flex gap-3 ml-auto">
-            {parsedJob && !isEditing && (
+            {parsedJob && (
               <Button
                 variant="gradient"
                 size="lg"
