@@ -210,6 +210,7 @@ const CandidateMatching = () => {
   const [alphaSophiaLimit, setAlphaSophiaLimit] = useState<SummaryData['alpha_sophia_limit']>(null);
   const [researchingIds, setResearchingIds] = useState<Set<string>>(new Set());
   const [autoResearchDone, setAutoResearchDone] = useState(false);
+  const [bulkResearching, setBulkResearching] = useState(false);
 
   const effectiveJobId = jobId || "befd5ba5-4e46-41d9-b144-d4077f750035";
   const jobState = job?.state || job?.location?.split(', ').pop() || 'TX';
@@ -531,6 +532,35 @@ const CandidateMatching = () => {
   const handleSkipResearch = (candidate: Candidate) => {
     researchCandidates([candidate.id], true);
   };
+
+  // Bulk research selected candidates
+  const handleBulkResearch = async () => {
+    const candidatesToResearch = candidates.filter(c => 
+      selectedIds.has(c.id) && !c.researched
+    );
+
+    if (candidatesToResearch.length === 0) {
+      toast.error("No unresearched candidates selected");
+      return;
+    }
+
+    setBulkResearching(true);
+    
+    try {
+      await researchCandidates(candidatesToResearch.map(c => c.id));
+      toast.success(`Researched ${candidatesToResearch.length} candidates with NPI verification + AI scoring`);
+    } catch (error: any) {
+      console.error("Bulk research error:", error);
+      toast.error(error.message || "Failed to research candidates");
+    } finally {
+      setBulkResearching(false);
+    }
+  };
+
+  // Count selected candidates needing research
+  const selectedNeedingResearch = useMemo(() => 
+    candidates.filter(c => selectedIds.has(c.id) && !c.researched).length
+  , [candidates, selectedIds]);
 
   // Filter counts - wrap in useCallback to prevent stale closures
   const filterCounts = useMemo(() => ({
@@ -969,6 +999,19 @@ const CandidateMatching = () => {
               </Button>
             )}
           </div>
+          
+          {selectedNeedingResearch > 0 && (
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={handleBulkResearch}
+              disabled={bulkResearching || researchingIds.size > 0}
+              className="bg-cyan-500/10 text-cyan-600 border-cyan-500/30 hover:bg-cyan-500/20"
+            >
+              {bulkResearching ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Target className="h-4 w-4 mr-1" />}
+              Research {selectedNeedingResearch} Selected
+            </Button>
+          )}
           
           {selectedNeedingEnrichment > 0 && (
             <Button 
