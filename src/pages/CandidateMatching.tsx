@@ -57,6 +57,14 @@ interface Candidate {
   match_concerns?: string[];
   from_cache?: boolean;
   researched_at?: string;
+  research_depth?: 'quick' | 'deep';
+  deep_researched?: boolean;
+  personalization_hook?: string;
+  hook_type?: string;
+  // New rigorous scoring fields
+  is_local?: boolean;
+  has_job_state_license?: boolean;
+  priority_tier?: string;
 }
 
 interface SummaryData {
@@ -66,6 +74,11 @@ interface SummaryData {
     a_tier: number;
     b_tier: number;
     c_tier: number;
+  };
+  priority_breakdown?: {
+    top_priority: number;
+    high_priority: number;
+    local: number;
   };
   ready_to_contact: number;
   needs_enrichment: number;
@@ -212,8 +225,10 @@ const CandidateMatching = () => {
   const [alphaSophiaSearched, setAlphaSophiaSearched] = useState(false);
   const [alphaSophiaLimit, setAlphaSophiaLimit] = useState<SummaryData['alpha_sophia_limit']>(null);
   const [researchingIds, setResearchingIds] = useState<Set<string>>(new Set());
+  const [deepResearchingIds, setDeepResearchingIds] = useState<Set<string>>(new Set());
   const [autoResearchDone, setAutoResearchDone] = useState(false);
   const [bulkResearching, setBulkResearching] = useState(false);
+  const [bulkDeepResearching, setBulkDeepResearching] = useState(false);
 
   const effectiveJobId = jobId || "befd5ba5-4e46-41d9-b144-d4077f750035";
   const jobState = job?.state || job?.location?.split(', ').pop() || 'TX';
@@ -565,9 +580,113 @@ const CandidateMatching = () => {
     }
   };
 
+  // Deep research via Perplexity for personalization hooks
+  const deepResearchCandidates = async (candidateIds: string[]) => {
+    const candidatesToResearch = candidates.filter(c => candidateIds.includes(c.id));
+    
+    if (candidatesToResearch.length === 0) return;
+    
+    setDeepResearchingIds(prev => new Set([...prev, ...candidateIds]));
+    
+    try {
+      const response = await fetch(
+        "https://qpvyzyspwxwtwjhfcuhh.supabase.co/functions/v1/personalization-research",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            candidates: candidatesToResearch.map(c => ({
+              id: c.id,
+              first_name: c.first_name,
+              last_name: c.last_name,
+              specialty: c.specialty,
+              state: c.state,
+              city: c.city,
+              licenses: c.licenses,
+              npi: c.npi,
+              enrichment_tier: c.enrichment_tier,
+            })),
+            job: {
+              id: effectiveJobId,
+              specialty: job?.specialty,
+              state: jobState,
+              facility_name: job?.facility,
+              bill_rate: job?.billRate,
+            },
+            deep_search: true,
+          }),
+        }
+      );
+
+      if (!response.ok) throw new Error(`Deep research API error: ${response.status}`);
+
+      const data = await response.json();
+      
+      // Update candidates with deep research results
+      setCandidates(prev => prev.map(c => {
+        const result = data.results?.find((r: any) => r.candidate_id === c.id);
+        if (!result) return c;
+        
+        return {
+          ...c,
+          deep_researched: true,
+          research_depth: 'deep' as const,
+          personalization_hook: result.personalization_hook,
+          hook_type: result.hook_type,
+          icebreaker: result.icebreaker || c.icebreaker,
+          talking_points: result.talking_points || c.talking_points,
+        };
+      }));
+      
+      toast.success(`Deep research complete for ${candidatesToResearch.length} candidates 🔮`);
+    } catch (error: any) {
+      console.error("Deep research error:", error);
+      toast.error(error.message || "Failed to deep research candidates");
+    } finally {
+      setDeepResearchingIds(prev => {
+        const next = new Set(prev);
+        candidateIds.forEach(id => next.delete(id));
+        return next;
+      });
+    }
+  };
+
+  // Handle single candidate deep research
+  const handleDeepResearchCandidate = (candidate: Candidate) => {
+    deepResearchCandidates([candidate.id]);
+  };
+
+  // Bulk deep research selected candidates
+  const handleBulkDeepResearch = async () => {
+    const candidatesToResearch = candidates.filter(c => 
+      selectedIds.has(c.id) && !c.deep_researched
+    );
+
+    if (candidatesToResearch.length === 0) {
+      toast.error("No candidates selected for deep research");
+      return;
+    }
+
+    setBulkDeepResearching(true);
+    
+    try {
+      await deepResearchCandidates(candidatesToResearch.map(c => c.id));
+    } catch (error: any) {
+      console.error("Bulk deep research error:", error);
+      toast.error(error.message || "Failed to deep research candidates");
+    } finally {
+      setBulkDeepResearching(false);
+    }
+  };
+
   // Count selected candidates needing research
   const selectedNeedingResearch = useMemo(() => 
     candidates.filter(c => selectedIds.has(c.id) && !c.researched).length
+  , [candidates, selectedIds]);
+
+  // Count selected candidates eligible for deep research
+  const selectedForDeepResearch = useMemo(() => 
+    candidates.filter(c => selectedIds.has(c.id) && !c.deep_researched).length
   , [candidates, selectedIds]);
 
   // Filter counts - wrap in useCallback to prevent stale closures
@@ -870,7 +989,7 @@ const CandidateMatching = () => {
   return (
     <Layout currentStep={2}>
       <div className="mx-auto max-w-7xl space-y-6">
-        {/* Job Summary Header */}
+        {/* Job Summary Header with Priority Breakdown */}
         <div className="rounded-xl bg-gradient-to-r from-primary/10 to-purple-500/10 border border-primary/20 px-6 py-4">
           <div className="flex items-center justify-between">
             <div>
@@ -886,6 +1005,13 @@ const CandidateMatching = () => {
                   AI Scored
                 </div>
               )}
+              {/* Priority breakdown - most important metrics for recruiters */}
+              {summary?.priority_breakdown?.top_priority ? (
+                <div className="text-center">
+                  <p className="text-2xl font-bold text-yellow-400">🏆 {summary.priority_breakdown.top_priority}</p>
+                  <p className="text-xs text-muted-foreground">Top Priority</p>
+                </div>
+              ) : null}
               <div className="text-center">
                 <p className="text-2xl font-bold text-success">{filterCounts.contact_ready}</p>
                 <p className="text-xs text-muted-foreground">Contact Ready</p>
@@ -967,13 +1093,17 @@ const CandidateMatching = () => {
         </div>
 
         {/* Active Operations Progress Bars */}
-        {(researchingIds.size > 0 || bulkResearching || searchingAlphaSophia || bulkEnriching) && (
+        {(researchingIds.size > 0 || deepResearchingIds.size > 0 || bulkResearching || bulkDeepResearching || searchingAlphaSophia || bulkEnriching) && (
           <div className="space-y-2">
             <OperationProgress
               isActive={researchingIds.size > 0 || bulkResearching}
               label={`Researching ${researchingIds.size} candidate${researchingIds.size !== 1 ? 's' : ''} (NPI + AI scoring)`}
               current={candidates.filter(c => c.researched).length}
               total={candidates.filter(c => c.researched).length + researchingIds.size}
+            />
+            <OperationProgress
+              isActive={deepResearchingIds.size > 0 || bulkDeepResearching}
+              label={`🔮 Deep researching ${deepResearchingIds.size} candidate${deepResearchingIds.size !== 1 ? 's' : ''} (Perplexity web search)`}
             />
             <OperationProgress
               isActive={searchingAlphaSophia}
@@ -1073,6 +1203,20 @@ const CandidateMatching = () => {
             >
               {bulkEnriching ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Zap className="h-4 w-4 mr-1" />}
               Enrich {selectedNeedingEnrichment} Selected
+            </Button>
+          )}
+
+          {/* Deep Research button - for personalization hooks */}
+          {selectedForDeepResearch > 0 && (
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={handleBulkDeepResearch}
+              disabled={bulkDeepResearching || deepResearchingIds.size > 0}
+              className="bg-purple-500/10 text-purple-600 border-purple-500/30 hover:bg-purple-500/20"
+            >
+              {bulkDeepResearching ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <>🔮</>}
+              Deep Research {selectedForDeepResearch}
             </Button>
           )}
           
