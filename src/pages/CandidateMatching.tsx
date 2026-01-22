@@ -62,6 +62,7 @@ interface SummaryData {
   needs_enrichment: number;
   alpha_sophia_count?: number;
   alpha_sophia_searched?: boolean;
+  ai_scored?: boolean;
   alpha_sophia_limit?: {
     allowed: boolean;
     remaining: number;
@@ -685,6 +686,12 @@ const CandidateMatching = () => {
               <p className="text-muted-foreground">{job?.location || "Location"} • <span className="text-success font-semibold">${job?.payRate || 0}/hr</span></p>
             </div>
             <div className="flex items-center gap-4 text-sm">
+              {summary?.ai_scored && (
+                <div className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-500/20 text-purple-400 rounded-full text-xs font-medium">
+                  <Sparkles className="h-3.5 w-3.5" />
+                  AI Scored
+                </div>
+              )}
               <div className="text-center">
                 <p className="text-2xl font-bold text-success">{filterCounts.contact_ready}</p>
                 <p className="text-xs text-muted-foreground">Contact Ready</p>
