@@ -51,14 +51,14 @@ interface ResearchResult {
   from_cache?: boolean;
 }
 
-// Specialty keyword mappings for matching
+// Specialty keyword mappings for matching - each key maps to terms that indicate this specialty
 const SPECIALTY_KEYWORDS: Record<string, string[]> = {
-  'radiology': ['radiology', 'radiologist', 'diagnostic radiology', 'interventional radiology', 'vascular', 'neuroradiology'],
-  'interventional radiology': ['interventional', 'vascular', 'ir'],
-  'emergency medicine': ['emergency', 'em', 'urgent care'],
+  'radiology': ['radiology', 'radiologist', 'diagnostic radiology', 'interventional radiology', 'vascular radiology', 'neuroradiology', 'nuclear radiology', 'mammography'],
+  'interventional radiology': ['interventional radiology', 'vascular radiology', 'ir ', 'vascular & interventional'],
+  'emergency medicine': ['emergency', 'em ', 'urgent care'],
   'internal medicine': ['internal medicine', 'internist'],
   'anesthesiology': ['anesthesia', 'anesthesiologist'],
-  'surgery': ['surgeon', 'surgical'],
+  'surgery': ['surgeon', 'surgical', 'general surgery'],
   'cardiology': ['cardiology', 'cardiologist', 'cardiovascular'],
   'oncology': ['oncology', 'oncologist', 'hematology'],
   'psychiatry': ['psychiatry', 'psychiatrist', 'mental health'],
@@ -69,10 +69,52 @@ const SPECIALTY_KEYWORDS: Record<string, string[]> = {
   'hospitalist': ['hospitalist', 'hospital medicine'],
   'family medicine': ['family medicine', 'family practice', 'general practice'],
   'pulmonology': ['pulmonology', 'pulmonologist', 'respiratory'],
-  'gastroenterology': ['gastroenterology', 'gastroenterologist', 'gi'],
+  'gastroenterology': ['gastroenterology', 'gastroenterologist', 'gi '],
   'nephrology': ['nephrology', 'nephrologist', 'kidney'],
   'urology': ['urology', 'urologist'],
+  'dentistry': ['dentist', 'dental', 'periodont', 'orthodont', 'endodont'],
+  'pharmacist': ['pharmacist', 'pharmacy'],
+  'physical therapy': ['physical therap', 'physiotherap'],
+  'occupational therapy': ['occupational therap'],
+  'speech therapy': ['speech-language', 'speech therap'],
 };
+
+// INCOMPATIBLE specialty pairs - these should never match
+const INCOMPATIBLE_SPECIALTIES: string[][] = [
+  ['radiology', 'dentistry'],
+  ['radiology', 'pharmacist'],
+  ['radiology', 'physical therapy'],
+  ['radiology', 'occupational therapy'],
+  ['radiology', 'speech therapy'],
+  ['surgery', 'dentistry'],
+  ['cardiology', 'dentistry'],
+  ['anesthesiology', 'pharmacist'],
+];
+
+// Get specialty category from text
+function getSpecialtyCategory(specialtyText: string): string | null {
+  if (!specialtyText) return null;
+  const lower = specialtyText.toLowerCase();
+  
+  for (const [category, keywords] of Object.entries(SPECIALTY_KEYWORDS)) {
+    if (keywords.some(kw => lower.includes(kw))) {
+      return category;
+    }
+  }
+  return null;
+}
+
+// Check if two specialties are incompatible
+function areSpecialtiesIncompatible(spec1: string, spec2: string): boolean {
+  const cat1 = getSpecialtyCategory(spec1);
+  const cat2 = getSpecialtyCategory(spec2);
+  
+  if (!cat1 || !cat2) return false;
+  
+  return INCOMPATIBLE_SPECIALTIES.some(pair => 
+    (pair.includes(cat1) && pair.includes(cat2))
+  );
+}
 
 // Check if two specialties are related
 function specialtiesMatch(candidateSpecialty: string, npiSpecialty: string): boolean {
@@ -81,14 +123,20 @@ function specialtiesMatch(candidateSpecialty: string, npiSpecialty: string): boo
   const candLower = candidateSpecialty.toLowerCase();
   const npiLower = npiSpecialty.toLowerCase();
   
+  // Check for incompatible specialties first - these should NEVER match
+  if (areSpecialtiesIncompatible(candLower, npiLower)) {
+    return false;
+  }
+  
   // Direct match
   if (npiLower.includes(candLower) || candLower.includes(npiLower)) return true;
   
-  // Check keyword mappings
-  for (const [specialty, keywords] of Object.entries(SPECIALTY_KEYWORDS)) {
-    const candMatches = keywords.some(kw => candLower.includes(kw)) || candLower.includes(specialty);
-    const npiMatches = keywords.some(kw => npiLower.includes(kw)) || npiLower.includes(specialty);
-    if (candMatches && npiMatches) return true;
+  // Check keyword mappings - both must match the SAME category
+  const candCategory = getSpecialtyCategory(candLower);
+  const npiCategory = getSpecialtyCategory(npiLower);
+  
+  if (candCategory && npiCategory && candCategory === npiCategory) {
+    return true;
   }
   
   return false;
@@ -133,9 +181,16 @@ async function verifyNPI(
       const parsed = parseNPIResult(result);
       let score = 0;
       
-      // Specialty match is most important
-      if (candidateSpecialty && specialtiesMatch(candidateSpecialty, parsed.specialty)) {
+      // CRITICAL: Check for INCOMPATIBLE specialties first - heavily penalize
+      if (candidateSpecialty && areSpecialtiesIncompatible(candidateSpecialty, parsed.specialty)) {
+        score -= 500; // Massive penalty - never choose incompatible specialty
+        console.log(`Incompatible specialty: ${candidateSpecialty} vs ${parsed.specialty}`);
+      } else if (candidateSpecialty && specialtiesMatch(candidateSpecialty, parsed.specialty)) {
+        // Specialty match is most important
         score += 100;
+      } else if (candidateSpecialty) {
+        // Specialty provided but no match - penalize
+        score -= 25;
       }
       
       // Location match helps disambiguate
