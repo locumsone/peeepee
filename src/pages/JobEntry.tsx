@@ -155,7 +155,7 @@ const JobEntry = () => {
         id: data.id,
       }));
       
-      navigate(`/jobs/${data.id}/candidates`);
+      navigate(`/candidates/matching?jobId=${data.id}`);
 
     } catch (error) {
       console.error('Save error:', error);
