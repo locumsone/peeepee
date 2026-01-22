@@ -220,7 +220,7 @@ const CampaignBuilder = () => {
   };
 
   return (
-    <Layout>
+    <Layout showSteps={false}>
       <div className="mx-auto max-w-5xl space-y-8 pb-8">
         {/* Step Indicator */}
         <div className="w-full py-6">
