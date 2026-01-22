@@ -1,18 +1,43 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { FileText, Sparkles, Loader2, ArrowRight } from "lucide-react";
+import { FileText, Sparkles, Loader2, ArrowRight, Save } from "lucide-react";
 import Layout from "@/components/layout/Layout";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import ParsedJobCard, { ParsedJob } from "@/components/jobs/ParsedJobCard";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import ParsedJobCard from "@/components/jobs/ParsedJobCard";
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
+
+interface ParsedJob {
+  id?: string;
+  specialty: string;
+  location: string;
+  city: string;
+  state: string;
+  facility: string;
+  dates: string;
+  startDate: string | null;
+  endDate: string | null;
+  billRate: number;
+  payRate: number;
+  schedule: string | null;
+  requirements: string | null;
+  description: string | null;
+  jobTitle: string;
+  onCall: boolean;
+  onCallDetails: string | null;
+}
 
 const JobEntry = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
   const [jobText, setJobText] = useState("");
   const [isParsing, setIsParsing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [parsedJob, setParsedJob] = useState<ParsedJob | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
 
   const parseJobPosting = async () => {
     if (!jobText.trim()) {
@@ -26,40 +51,136 @@ const JobEntry = () => {
 
     setIsParsing(true);
 
-    // Simulate AI parsing with 2 second delay
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    try {
+      const { data, error } = await supabase.functions.invoke('parse-job', {
+        body: { jobText },
+      });
 
-    // Mock parsed data matching the example
-    const parsed: ParsedJob = {
-      id: crypto.randomUUID(),
-      specialty: "Interventional Radiology",
-      location: "Eau Claire, WI",
-      facility: "Chippewa Valley Vein Center",
-      dates: "March 2026",
-      billRate: 725,
-      payRate: Math.round(725 * 0.73), // $529
-      schedule: "Every other week",
-      requirements: "BC/BE, WI license",
-    };
+      if (error) throw error;
 
-    setParsedJob(parsed);
-    setIsParsing(false);
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to parse job');
+      }
 
-    toast({
-      title: "Job parsed successfully! ✨",
-      description: `Found ${parsed.specialty} position at ${parsed.facility}`,
-    });
+      const parsed: ParsedJob = {
+        id: crypto.randomUUID(),
+        ...data.job,
+      };
+
+      setParsedJob(parsed);
+      setIsEditing(false);
+
+      toast({
+        title: "Job parsed successfully! ✨",
+        description: `Found ${parsed.specialty || 'position'} at ${parsed.facility || 'facility'}`,
+      });
+    } catch (error) {
+      console.error('Parse error:', error);
+      toast({
+        title: "Failed to parse job",
+        description: error instanceof Error ? error.message : "Please try again",
+        variant: "destructive",
+      });
+    } finally {
+      setIsParsing(false);
+    }
   };
 
   const handleEdit = () => {
-    setParsedJob(null);
+    setIsEditing(true);
   };
 
-  const handleNext = () => {
-    if (parsedJob) {
-      sessionStorage.setItem("currentJob", JSON.stringify(parsedJob));
-      navigate("/candidates");
+  const handleCancelEdit = () => {
+    setIsEditing(false);
+  };
+
+  const handleFieldChange = (field: keyof ParsedJob, value: string | number | boolean) => {
+    if (!parsedJob) return;
+    
+    setParsedJob(prev => {
+      if (!prev) return prev;
+      
+      // Special handling for bill rate - auto-calculate pay rate
+      if (field === 'billRate') {
+        const billRate = typeof value === 'number' ? value : parseFloat(value as string) || 0;
+        return {
+          ...prev,
+          billRate,
+          payRate: Math.round(billRate * 0.73),
+        };
+      }
+      
+      return {
+        ...prev,
+        [field]: value,
+      };
+    });
+  };
+
+  const handleSaveJob = async () => {
+    if (!parsedJob) return;
+
+    setIsSaving(true);
+
+    try {
+      // Format start date
+      let formattedStartDate = null;
+      if (parsedJob.startDate) {
+        const parts = parsedJob.startDate.split('/');
+        if (parts.length === 3) {
+          const year = parts[2].length === 2 ? `20${parts[2]}` : parts[2];
+          formattedStartDate = `${year}-${parts[0].padStart(2, '0')}-${parts[1].padStart(2, '0')}`;
+        }
+      }
+
+      const { data, error } = await supabase
+        .from('jobs')
+        .insert({
+          job_name: parsedJob.jobTitle || `${parsedJob.specialty} - ${parsedJob.location}`,
+          facility_name: parsedJob.facility,
+          city: parsedJob.city,
+          state: parsedJob.state,
+          specialty: parsedJob.specialty,
+          bill_rate: parsedJob.billRate,
+          pay_rate: parsedJob.payRate,
+          start_date: formattedStartDate,
+          status: 'open',
+          is_urgent: false,
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      toast({
+        title: "Job saved! 🎉",
+        description: "Now let's find candidates for this position.",
+      });
+
+      // Store job data and navigate to candidate matching
+      sessionStorage.setItem("currentJob", JSON.stringify({
+        ...parsedJob,
+        id: data.id,
+      }));
+      
+      navigate(`/jobs/${data.id}/candidates`);
+
+    } catch (error) {
+      console.error('Save error:', error);
+      toast({
+        title: "Failed to save job",
+        description: error instanceof Error ? error.message : "Please try again",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSaving(false);
     }
+  };
+
+  const handleStartOver = () => {
+    setParsedJob(null);
+    setIsEditing(false);
+    setJobText("");
   };
 
   return (
@@ -114,7 +235,7 @@ const JobEntry = () => {
               placeholder="Paste your job posting here...
 
 Example:
-Seeking a Board-Certified Interventional Radiologist for a locum tenens position at Chippewa Valley Vein Center in Eau Claire, WI. Coverage needed March 2026, every other week. Must have WI license. Bill rate: $725/hour."
+Seeking a Board-Certified Interventional Radiologist for a locum tenens position at Memorial Hermann Northeast Hospital in Humble, TX. Coverage needed February 2026. M-F 8a-5p. Bill rate: $625/hour."
               className="min-h-[200px] resize-y text-base leading-relaxed bg-secondary/50 border-border focus:border-primary focus:ring-primary"
               value={jobText}
               onChange={(e) => setJobText(e.target.value)}
@@ -134,22 +255,166 @@ Seeking a Board-Certified Interventional Radiologist for a locum tenens position
         )}
 
         {/* Parsed Job Result */}
-        {parsedJob && !isParsing && (
-          <ParsedJobCard job={parsedJob} onEdit={handleEdit} />
+        {parsedJob && !isParsing && !isEditing && (
+          <ParsedJobCard 
+            job={{
+              id: parsedJob.id,
+              specialty: parsedJob.specialty,
+              location: parsedJob.location,
+              facility: parsedJob.facility,
+              dates: parsedJob.dates,
+              billRate: parsedJob.billRate,
+              payRate: parsedJob.payRate,
+              schedule: parsedJob.schedule || undefined,
+              requirements: parsedJob.requirements || undefined,
+            }} 
+            onEdit={handleEdit} 
+          />
         )}
 
-        {/* Footer with Next Button */}
-        <div className="flex justify-end pt-4">
-          <Button
-            variant="gradient"
-            size="lg"
-            onClick={handleNext}
-            disabled={!parsedJob}
-            className="min-w-[160px]"
-          >
-            Next
-            <ArrowRight className="h-5 w-5" />
-          </Button>
+        {/* Edit Form */}
+        {parsedJob && isEditing && (
+          <div className="rounded-2xl bg-card shadow-card p-6 space-y-6 animate-fade-in">
+            <div className="flex items-center justify-between">
+              <h2 className="font-semibold text-lg text-foreground">Edit Job Details</h2>
+              <Button variant="ghost" size="sm" onClick={handleCancelEdit}>
+                Cancel
+              </Button>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="specialty">Specialty</Label>
+                <Input
+                  id="specialty"
+                  value={parsedJob.specialty}
+                  onChange={(e) => handleFieldChange('specialty', e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="facility">Facility</Label>
+                <Input
+                  id="facility"
+                  value={parsedJob.facility}
+                  onChange={(e) => handleFieldChange('facility', e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="city">City</Label>
+                <Input
+                  id="city"
+                  value={parsedJob.city}
+                  onChange={(e) => handleFieldChange('city', e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="state">State</Label>
+                <Input
+                  id="state"
+                  value={parsedJob.state}
+                  onChange={(e) => handleFieldChange('state', e.target.value)}
+                  maxLength={2}
+                  placeholder="TX"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="dates">Dates</Label>
+                <Input
+                  id="dates"
+                  value={parsedJob.dates}
+                  onChange={(e) => handleFieldChange('dates', e.target.value)}
+                  placeholder="02/01/2026 - Ongoing"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="schedule">Schedule</Label>
+                <Input
+                  id="schedule"
+                  value={parsedJob.schedule || ''}
+                  onChange={(e) => handleFieldChange('schedule', e.target.value)}
+                  placeholder="M-F 8a-5p"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="billRate">Bill Rate ($/hr)</Label>
+                <Input
+                  id="billRate"
+                  type="number"
+                  value={parsedJob.billRate}
+                  onChange={(e) => handleFieldChange('billRate', parseFloat(e.target.value) || 0)}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="payRate">Pay Rate ($/hr)</Label>
+                <Input
+                  id="payRate"
+                  type="number"
+                  value={parsedJob.payRate}
+                  onChange={(e) => handleFieldChange('payRate', parseFloat(e.target.value) || 0)}
+                />
+              </div>
+
+              <div className="space-y-2 sm:col-span-2">
+                <Label htmlFor="requirements">Requirements</Label>
+                <Input
+                  id="requirements"
+                  value={parsedJob.requirements || ''}
+                  onChange={(e) => handleFieldChange('requirements', e.target.value)}
+                  placeholder="TX License, BC/BE, 90 days to credential"
+                />
+              </div>
+            </div>
+
+            <Button 
+              variant="gradient" 
+              className="w-full"
+              onClick={handleCancelEdit}
+            >
+              Save Changes
+            </Button>
+          </div>
+        )}
+
+        {/* Footer with Action Buttons */}
+        <div className="flex justify-between pt-4">
+          {parsedJob && (
+            <Button
+              variant="outline"
+              onClick={handleStartOver}
+            >
+              Start Over
+            </Button>
+          )}
+          <div className="flex gap-3 ml-auto">
+            {parsedJob && !isEditing && (
+              <Button
+                variant="gradient"
+                size="lg"
+                onClick={handleSaveJob}
+                disabled={isSaving}
+                className="min-w-[200px]"
+              >
+                {isSaving ? (
+                  <>
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className="h-5 w-5" />
+                    Save & Find Candidates
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
         </div>
       </div>
     </Layout>
