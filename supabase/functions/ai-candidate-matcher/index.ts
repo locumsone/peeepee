@@ -95,6 +95,10 @@ interface OutputCandidate {
   alpha_sophia_id?: string;
   npi?: string;
   match_concerns?: string[];
+  // New fields for rigorous scoring
+  is_local?: boolean;
+  has_job_state_license?: boolean;
+  priority_tier?: string;
 }
 
 interface AlphaSophiaConfig {
@@ -189,21 +193,58 @@ You MUST carefully analyze the full job description to understand:
 - EMR systems experience
 - Specialty and subspecialty requirements
 
-CRITICAL SCORING RULES (be rigorous!):
-1. License Match: If candidate does NOT have the job state license AND has_imlc is false, score BELOW 70 regardless of other factors
-2. Specialty Match: If specialty doesn't match exactly or isn't a closely related subspecialty, score BELOW 80
-3. Verified Contact: Candidates with has_enriched_contact=true are more actionable (slight bonus)
-4. Company-only contact: has_personal_contact=false means only work/company contact available (slight penalty)
-5. IMLC: If has_imlc=true, treat as if they have the state license
+=== RIGOROUS SCORING HIERARCHY (MOST IMPORTANT - FOLLOW EXACTLY) ===
 
-Score candidates considering:
-1. Specialty match (exact match is critical, subspecialty matters)
-2. License status (having the required state license is critical, IMLC/compact is valuable)
-3. Clinical skills match (procedures mentioned in job vs candidate experience)
-4. Location proximity (local candidates reduce travel costs)
-5. Experience level and board certification
-6. Contact availability (candidates with verified personal contact are more actionable)
-7. Multi-state licensure (10+ licenses indicates experienced locum traveler)
+TIER S (98-100): LOCAL + MOST LICENSES
+- Candidate lives in job state (location matches) AND has 10+ state licenses
+- These are the absolute best candidates - can start immediately, experienced locum travelers
+- Give 100% to local candidates with 15+ licenses, 98% for 10-14 licenses
+
+TIER A+ (95-97): MOST LICENSES + HAS JOB STATE LICENSE (but lives out of state)
+- Candidate has 10+ licenses AND has the job state license (or IMLC eligible)
+- Experienced traveler who can work in this state, just not local
+- Give 97% for 15+ licenses with state license, 95% for 10-14
+
+TIER A (90-94): LOCAL + FEWER LICENSES (but has job state license by default)
+- Candidate lives in job state with 5-9 licenses
+- Local advantage but less traveling experience
+- Give 94% for local with 9 licenses, down to 90% for 5 licenses
+
+TIER A- (85-89): MANY LICENSES + STATE LICENSE (not local, moderate experience)
+- Candidate has 5-9 licenses AND has job state license
+- Not local, but can work in state with decent multi-state experience
+- Give 89% for 9 licenses, down to 85% for 5 licenses
+
+TIER B+ (80-84): LOCAL + FEW LICENSES
+- Candidate lives in job state with only 1-4 licenses
+- Local advantage but limited traveling flexibility
+- Give 84% for local with 4 licenses, down to 80% for 1-2
+
+TIER B (75-79): HAS STATE LICENSE ONLY (not local, few other licenses)
+- Candidate has job state license but is not local, 1-4 total licenses
+- Can work in state but limited flexibility
+- 79% for 4 licenses, 75% for 1-2
+
+TIER B- (70-74): IMLC ELIGIBLE ONLY (no direct state license)
+- Candidate has 10+ licenses with IMLC eligibility but NOT the direct state license
+- Can likely practice via IMLC but needs verification
+- 74% for 15+ IMLC states, 70% for 10-14
+
+TIER C (60-69): NO STATE LICENSE, LIMITED OPTIONS
+- Candidate does NOT have job state license and is NOT IMLC eligible
+- Would need to obtain new license - significant delay
+- Score based on other factors (specialty match, experience) but cap at 69%
+
+TIER D (<60): POOR FIT
+- Specialty mismatch or major concerns
+- Would not recommend contacting
+
+=== SECONDARY FACTORS (tiebreakers within tiers) ===
+- Verified personal contact (has_enriched_contact=true): +2 points
+- Company-only contact (has_personal_contact=false): -2 points
+- Exact specialty match: +3 points within tier
+- Board certified: +1 point
+- Years of experience 10+: +1 point
 
 Grades: A+ (95-100), A (90-94), A- (85-89), B+ (80-84), B (75-79), B- (70-74), C+ (65-69), C (60-64), D (<60)`;
 
@@ -313,8 +354,93 @@ ${JSON.stringify(candidateSummaries, null, 2)}`;
   return results;
 }
 
-// Fallback scoring
-function calculateMatchStrength(unifiedScore: string): number {
+// Rigorous match strength calculation based on hierarchy
+function calculateMatchStrength(
+  candidate: DbCandidate,
+  jobState: string
+): number {
+  const licenses = candidate.licenses || [];
+  const licenseCount = candidate.license_count || licenses.length;
+  const candidateState = (candidate.state || '').toUpperCase();
+  const jobStateUpper = jobState.toUpperCase();
+  const isLocal = candidateState === jobStateUpper;
+  const hasJobStateLicense = licenses.some(l => l.toUpperCase() === jobStateUpper);
+  const imlcResult = inferIMLCStatus(licenses, jobState);
+  
+  let baseScore = 50;
+  
+  // TIER S: Local + Most Licenses (98-100)
+  if (isLocal && licenseCount >= 10) {
+    baseScore = licenseCount >= 15 ? 100 : 98;
+  }
+  // TIER A+: Most Licenses + Has Job State License but not local (95-97)
+  else if (!isLocal && licenseCount >= 10 && hasJobStateLicense) {
+    baseScore = licenseCount >= 15 ? 97 : 95;
+  }
+  // TIER A: Local + Fewer Licenses (90-94)
+  else if (isLocal && licenseCount >= 5) {
+    baseScore = 90 + Math.min(4, licenseCount - 5);
+  }
+  // TIER A-: Many Licenses + State License, not local (85-89)
+  else if (!isLocal && licenseCount >= 5 && hasJobStateLicense) {
+    baseScore = 85 + Math.min(4, licenseCount - 5);
+  }
+  // TIER B+: Local + Few Licenses (80-84)
+  else if (isLocal && licenseCount >= 1) {
+    baseScore = 80 + Math.min(4, licenseCount);
+  }
+  // TIER B: Has State License only, not local, few licenses (75-79)
+  else if (!isLocal && hasJobStateLicense) {
+    baseScore = 75 + Math.min(4, licenseCount);
+  }
+  // TIER B-: IMLC eligible only (70-74)
+  else if (imlcResult.has_imlc) {
+    baseScore = licenseCount >= 15 ? 74 : 70 + Math.min(4, Math.floor((licenseCount - 10) / 2));
+  }
+  // TIER C: No state license, not IMLC eligible (60-69)
+  else {
+    baseScore = 60 + Math.min(9, licenseCount);
+  }
+  
+  // Secondary factors
+  if (candidate.already_enriched) baseScore = Math.min(100, baseScore + 2);
+  if (candidate.has_personal_contact === false) baseScore = Math.max(50, baseScore - 2);
+  
+  return Math.round(baseScore);
+}
+
+// Get letter grade from numeric score
+function getGradeFromScore(score: number): string {
+  if (score >= 95) return 'A+';
+  if (score >= 90) return 'A';
+  if (score >= 85) return 'A-';
+  if (score >= 80) return 'B+';
+  if (score >= 75) return 'B';
+  if (score >= 70) return 'B-';
+  if (score >= 65) return 'C+';
+  if (score >= 60) return 'C';
+  return 'D';
+}
+
+// Get priority tier label for recruiter UX
+function getPriorityTier(candidate: DbCandidate, jobState: string): string {
+  const isLocal = (candidate.state || '').toUpperCase() === jobState.toUpperCase();
+  const hasJobLicense = (candidate.licenses || []).some(l => l.toUpperCase() === jobState.toUpperCase());
+  const licenseCount = candidate.license_count || 0;
+  const imlcResult = inferIMLCStatus(candidate.licenses || [], jobState);
+  
+  if (isLocal && licenseCount >= 10) return '🏆 TOP PRIORITY';
+  if (licenseCount >= 10 && hasJobLicense) return '⭐ HIGH PRIORITY';
+  if (isLocal && licenseCount >= 5) return '📍 LOCAL+';
+  if (hasJobLicense && licenseCount >= 5) return '✓ STRONG';
+  if (isLocal) return '📍 LOCAL';
+  if (hasJobLicense) return '✓ LICENSED';
+  if (imlcResult.has_imlc) return '🏛️ IMLC';
+  return '⏳ NEEDS LICENSE';
+}
+
+// Legacy fallback for simple score mapping
+function calculateMatchStrengthFromGrade(unifiedScore: string): number {
   const scoreMap: Record<string, number> = {
     'A+': 98, 'A': 95, 'A-': 90,
     'B+': 85, 'B': 80, 'B-': 75,
@@ -326,11 +452,23 @@ function calculateMatchStrength(unifiedScore: string): number {
 
 function generateScoreReason(candidate: DbCandidate, job: JobData): string {
   const reasons: string[] = [];
-  if (candidate.licenses?.includes(job.state)) reasons.push(`Licensed in ${job.state}`);
-  if (candidate.license_count >= 10) reasons.push(`${candidate.license_count} state licenses`);
-  else if (candidate.license_count >= 5) reasons.push(`Multi-state licensed (${candidate.license_count})`);
-  if (candidate.enrichment_tier === 'Platinum') reasons.push('Highly engaged candidate');
+  const isLocal = (candidate.state || '').toUpperCase() === job.state.toUpperCase();
+  const hasJobLicense = candidate.licenses?.some(l => l.toUpperCase() === job.state.toUpperCase());
+  
+  // Primary scoring factors
+  if (isLocal && candidate.license_count >= 10) {
+    reasons.push(`🏆 Local + ${candidate.license_count} licenses = TOP PRIORITY`);
+  } else if (isLocal) {
+    reasons.push(`📍 Local (${job.state})`);
+  }
+  
+  if (hasJobLicense) reasons.push(`✓ ${job.state} licensed`);
+  if (candidate.license_count >= 10) reasons.push(`🌟 ${candidate.license_count} state licenses`);
+  else if (candidate.license_count >= 5) reasons.push(`Multi-state (${candidate.license_count})`);
+  
+  if (candidate.enrichment_tier === 'Platinum') reasons.push('💎 Platinum tier');
   if (candidate.specialty?.toLowerCase() === job.specialty?.toLowerCase()) reasons.push(`Exact ${job.specialty} match`);
+  
   return reasons.join(' • ') || 'Matches job requirements';
 }
 
@@ -530,6 +668,9 @@ serve(async (req) => {
       const isEnriched = !!c.enrichment_source && ENRICHED_SOURCES.includes(c.enrichment_source);
       const aiResult = aiScores.get(c.id);
       
+      // Use rigorous hierarchy-based scoring if no AI score
+      const calculatedStrength = calculateMatchStrength(c, job.state);
+      
       return {
         id: c.id,
         first_name: c.first_name || '',
@@ -537,8 +678,8 @@ serve(async (req) => {
         specialty: c.specialty || '',
         state: c.state || '',
         city: c.city || undefined,
-        unified_score: aiResult?.grade || c.unified_score,
-        match_strength: aiResult?.match_score || calculateMatchStrength(c.unified_score),
+        unified_score: aiResult?.grade || c.unified_score || getGradeFromScore(calculatedStrength),
+        match_strength: aiResult?.match_score || calculatedStrength,
         licenses: c.licenses || [],
         licenses_count: c.license_count || 0,
         enrichment_tier: c.enrichment_tier || 'Basic',
@@ -555,6 +696,10 @@ serve(async (req) => {
         personal_email: c.personal_email || undefined,
         source: 'database',
         match_concerns: aiResult?.concerns || [],
+        // New fields for recruiter UX
+        is_local: (c.state || '').toUpperCase() === job.state.toUpperCase(),
+        has_job_state_license: (c.licenses || []).some(l => l.toUpperCase() === job.state.toUpperCase()),
+        priority_tier: getPriorityTier(c, job.state),
       };
     });
 
@@ -601,9 +746,27 @@ serve(async (req) => {
       }
     }
 
-    candidates.sort((a, b) => b.match_strength - a.match_strength);
+    // Sort by rigorous hierarchy: match_strength first, then by priority tier within same score
+    candidates.sort((a, b) => {
+      // Primary: match_strength (our rigorous score)
+      if (b.match_strength !== a.match_strength) {
+        return b.match_strength - a.match_strength;
+      }
+      // Secondary: local candidates first
+      const aLocal = a.is_local ? 1 : 0;
+      const bLocal = b.is_local ? 1 : 0;
+      if (bLocal !== aLocal) return bLocal - aLocal;
+      // Tertiary: more licenses
+      return (b.licenses_count || 0) - (a.licenses_count || 0);
+    });
+    
     const paginatedCandidates = candidates.slice(offset, offset + limit);
 
+    // Enhanced summary with priority breakdown
+    const topPriorityCount = candidates.filter(c => c.is_local && c.licenses_count >= 10).length;
+    const highPriorityCount = candidates.filter(c => !c.is_local && c.licenses_count >= 10 && c.has_job_state_license).length;
+    const localCount = candidates.filter(c => c.is_local).length;
+    
     const summary = {
       total_matched: candidates.length,
       returned: paginatedCandidates.length,
@@ -611,6 +774,11 @@ serve(async (req) => {
         a_tier: candidates.filter(c => c.unified_score.startsWith('A')).length,
         b_tier: candidates.filter(c => c.unified_score.startsWith('B')).length,
         c_tier: candidates.filter(c => c.unified_score.startsWith('C') || c.unified_score === 'D').length,
+      },
+      priority_breakdown: {
+        top_priority: topPriorityCount,
+        high_priority: highPriorityCount,
+        local: localCount,
       },
       ready_to_contact: candidates.filter(c => c.has_personal_contact).length,
       needs_enrichment: candidates.filter(c => c.needs_enrichment).length,
