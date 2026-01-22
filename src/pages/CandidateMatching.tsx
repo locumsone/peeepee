@@ -1106,9 +1106,31 @@ const CandidateMatching = () => {
                               {contactReady && (
                                 <CheckCircle2 className="h-4 w-4 text-success" />
                               )}
+                              {/* Research & NPI verification badges */}
+                              {candidate.researched && (
+                                <Badge 
+                                  variant="outline" 
+                                  className="text-[10px] bg-cyan-500/10 text-cyan-500 border-cyan-500/30 gap-1"
+                                >
+                                  🔬 Researched
+                                </Badge>
+                              )}
+                              {candidate.verified_npi && (
+                                <Badge 
+                                  variant="outline" 
+                                  className="text-[10px] bg-emerald-500/10 text-emerald-500 border-emerald-500/30 gap-1"
+                                >
+                                  <Shield className="h-3 w-3" /> NPI ✓
+                                </Badge>
+                              )}
                             </div>
                             <p className="text-xs text-muted-foreground">{candidate.specialty}</p>
-                            <p className="text-xs text-muted-foreground">{candidate.city}, {candidate.state}</p>
+                            <div className="flex items-center gap-2">
+                              <p className="text-xs text-muted-foreground">{candidate.city}, {candidate.state}</p>
+                              {candidate.npi && (
+                                <span className="text-[10px] text-muted-foreground/70">NPI: {candidate.npi}</span>
+                              )}
+                            </div>
                           </div>
                         </td>
                         <td className="px-4 py-4">
@@ -1192,6 +1214,72 @@ const CandidateMatching = () => {
                         <tr key={`${candidate.id}-expanded`} className="bg-secondary/20">
                           <td colSpan={8} className="px-6 py-4">
                             <div className="space-y-4 animate-fade-in">
+                              {/* Research Status Banner */}
+                              {candidate.researched && (
+                                <div className="rounded-lg bg-cyan-500/10 border border-cyan-500/20 p-4 flex items-center justify-between">
+                                  <div className="flex items-center gap-3">
+                                    <div className="h-10 w-10 rounded-full bg-cyan-500/20 flex items-center justify-center">
+                                      <Target className="h-5 w-5 text-cyan-500" />
+                                    </div>
+                                    <div>
+                                      <p className="text-sm font-medium text-foreground flex items-center gap-2">
+                                        AI Research Complete
+                                        {candidate.verified_npi && (
+                                          <Badge className="bg-emerald-500/20 text-emerald-500 border-emerald-500/30 text-[10px]">
+                                            <Shield className="h-3 w-3 mr-1" /> NPI Verified
+                                          </Badge>
+                                        )}
+                                        {candidate.has_imlc && (
+                                          <Badge className="bg-indigo-500/20 text-indigo-500 border-indigo-500/30 text-[10px]">
+                                            🏛️ IMLC Eligible
+                                          </Badge>
+                                        )}
+                                      </p>
+                                      <p className="text-xs text-muted-foreground">
+                                        Credentials verified via NPI Registry • AI-scored match analysis
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <Badge className={cn("text-sm font-bold", getScoreBadgeConfig(candidate.unified_score).className)}>
+                                      {candidate.unified_score} Match
+                                    </Badge>
+                                    <span className="text-lg font-bold text-foreground">{candidate.match_strength}%</span>
+                                  </div>
+                                </div>
+                              )}
+                              
+                              {/* Not Researched Banner */}
+                              {!candidate.researched && (
+                                <div className="rounded-lg bg-muted/50 border border-border p-4 flex items-center justify-between">
+                                  <div className="flex items-center gap-3">
+                                    <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center">
+                                      <Search className="h-5 w-5 text-muted-foreground" />
+                                    </div>
+                                    <div>
+                                      <p className="text-sm font-medium text-muted-foreground">Not Yet Researched</p>
+                                      <p className="text-xs text-muted-foreground">
+                                        Click research to verify NPI & get AI-powered match analysis
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="text-cyan-600 border-cyan-500/30 hover:bg-cyan-500/10"
+                                    disabled={researchingIds.has(candidate.id)}
+                                    onClick={() => handleResearchCandidate(candidate)}
+                                  >
+                                    {researchingIds.has(candidate.id) ? (
+                                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                    ) : (
+                                      <Target className="h-4 w-4 mr-2" />
+                                    )}
+                                    Research Now
+                                  </Button>
+                                </div>
+                              )}
+
                               {/* Icebreaker */}
                               <div className="rounded-lg bg-primary/10 border border-primary/20 p-4">
                                 <p className="text-xs font-semibold uppercase tracking-wide text-primary mb-2">💡 Icebreaker</p>
