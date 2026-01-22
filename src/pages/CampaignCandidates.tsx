@@ -224,12 +224,15 @@ const CampaignCandidates = () => {
 
   const handleNext = () => {
     const selectedCandidates = candidates.filter(c => selectedIds.has(c.id));
-    // Save all required data to sessionStorage
+    // Save all required data to sessionStorage - sync ALL keys the wizard expects
     sessionStorage.setItem("campaign_candidate_ids", JSON.stringify(Array.from(selectedIds)));
     sessionStorage.setItem("campaign_candidates", JSON.stringify(selectedCandidates));
     sessionStorage.setItem("selectedCandidates", JSON.stringify(selectedCandidates));
     if (job) {
+      // Save in BOTH formats for compatibility across wizard steps
       sessionStorage.setItem("job", JSON.stringify(job));
+      sessionStorage.setItem("campaign_job", JSON.stringify(job));
+      sessionStorage.setItem("campaign_job_id", job.id);
     }
     navigate("/campaigns/new/channels");
   };
