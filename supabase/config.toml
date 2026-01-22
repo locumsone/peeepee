@@ -1,1 +1,10 @@
 project_id = "qpvyzyspwxwtwjhfcuhh"
+
+[functions.campaign-quality-check]
+verify_jwt = false
+
+[functions.personalization-research]
+verify_jwt = false
+
+[functions.launch-campaign]
+verify_jwt = false
