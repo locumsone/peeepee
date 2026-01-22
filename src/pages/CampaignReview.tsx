@@ -702,7 +702,7 @@ export default function CampaignReview() {
   const payRate = job?.bill_rate ? Math.round(job.bill_rate * 0.73) : null;
 
   return (
-    <Layout>
+    <Layout showSteps={false}>
       <div className="min-h-screen bg-background p-6">
         <div className="max-w-5xl mx-auto space-y-6">
           <StepIndicator currentStep={4} steps={steps} />

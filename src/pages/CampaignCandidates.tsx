@@ -250,7 +250,7 @@ const CampaignCandidates = () => {
   };
 
   return (
-    <Layout>
+    <Layout showSteps={false}>
       <div className="mx-auto max-w-6xl space-y-6 pb-24">
         {/* Step Indicator */}
         <div className="w-full py-6">

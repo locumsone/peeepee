@@ -244,7 +244,7 @@ export default function CampaignChannels() {
   };
 
   return (
-    <Layout>
+    <Layout showSteps={false}>
       <div className="min-h-screen bg-background p-6">
         <div className="max-w-4xl mx-auto space-y-6">
           <StepIndicator currentStep={3} steps={steps} />
