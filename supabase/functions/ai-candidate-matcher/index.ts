@@ -349,62 +349,116 @@ function generateTalkingPoints(candidate: DbCandidate, job: JobData): string[] {
   return points.length > 0 ? points : ['Great opportunity matching your specialty'];
 }
 
+// Map common specialty names to Alpha Sophia taxonomy search terms
+function getAlphaSophiaTaxonomyTerms(specialty: string): string[] {
+  const lower = specialty.toLowerCase();
+  
+  // Interventional Radiology variations
+  if (lower.includes('interventional') && lower.includes('radiol')) {
+    return ['Vascular & Interventional Radiology', 'Interventional Radiology', 'Vascular Radiology'];
+  }
+  if (lower.includes('radiol')) {
+    return ['Radiology', 'Diagnostic Radiology'];
+  }
+  if (lower.includes('emergency')) {
+    return ['Emergency Medicine'];
+  }
+  if (lower.includes('hospitalist')) {
+    return ['Hospitalist', 'Internal Medicine'];
+  }
+  if (lower.includes('anesthesi')) {
+    return ['Anesthesiology'];
+  }
+  if (lower.includes('cardio')) {
+    return ['Cardiology', 'Cardiovascular Disease'];
+  }
+  // Default: use the specialty as-is
+  return [specialty];
+}
+
 async function searchAlphaSophia(
   apiKey: string,
   specialty: string,
   state: string,
   pageSize: number
 ): Promise<OutputCandidate[]> {
-  const queryParams = new URLSearchParams();
-  queryParams.set('pageSize', String(Math.min(pageSize, 100)));
-  queryParams.set('page', '1');
-  if (state) queryParams.set('state', `+${state}`);
-  if (specialty) queryParams.set('taxonomy', `+"${specialty}"`);
-  queryParams.set('contact', 'email');
+  const taxonomyTerms = getAlphaSophiaTaxonomyTerms(specialty);
+  const allCandidates: OutputCandidate[] = [];
+  const seenIds = new Set<string>();
   
-  const response = await fetch(
-    `https://api.alphasophia.com/v1/search/hcp?${queryParams.toString()}`,
-    { method: 'GET', headers: { 'Accept': 'application/json', 'x-api-key': apiKey } }
-  );
-  
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error('Alpha Sophia error:', response.status, errorText);
-    throw new Error(`Alpha Sophia API error: ${response.status}`);
+  // Search with each taxonomy term variation
+  for (const taxonomyTerm of taxonomyTerms) {
+    const queryParams = new URLSearchParams();
+    queryParams.set('pageSize', String(Math.min(pageSize, 100)));
+    queryParams.set('page', '1');
+    if (state) queryParams.set('state', `+${state}`);
+    queryParams.set('taxonomy', `+"${taxonomyTerm}"`);
+    // Removed 'contact' filter to get ALL results, not just those with email
+    
+    console.log(`Alpha Sophia search: state=${state}, taxonomy="${taxonomyTerm}"`);
+    
+    const response = await fetch(
+      `https://api.alphasophia.com/v1/search/hcp?${queryParams.toString()}`,
+      { method: 'GET', headers: { 'Accept': 'application/json', 'x-api-key': apiKey } }
+    );
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Alpha Sophia error:', response.status, errorText);
+      continue; // Try next taxonomy term
+    }
+    
+    const data = await response.json();
+    console.log(`Alpha Sophia returned ${data.total || 0} total results for "${taxonomyTerm}" in ${state}`);
+    
+    const candidates = (data.data || []).map((hcp: AlphaSophiaHCP) => {
+      const nameParts = (hcp.name || '').split(',').map((s: string) => s.trim());
+      const lastName = nameParts[0] || '';
+      const firstName = nameParts[1] || '';
+      
+      return {
+        id: `as_${hcp.id}`,
+        alpha_sophia_id: hcp.id,
+        npi: hcp.npi,
+        first_name: firstName,
+        last_name: lastName,
+        specialty: hcp.taxonomy?.description || specialty,
+        state: hcp.location?.state || state,
+        city: hcp.location?.city || undefined,
+        unified_score: 'B',
+        match_strength: 75,
+        licenses: hcp.licensure || [],
+        licenses_count: hcp.licensure?.length || 0,
+        enrichment_tier: 'Alpha Sophia',
+        score_reason: `Alpha Sophia: ${hcp.taxonomy?.description || taxonomyTerm}`,
+        icebreaker: `Hi ${firstName}, I found an opportunity in ${state} that matches your ${hcp.taxonomy?.description || specialty} background.`,
+        talking_points: [
+          `Licensed in ${hcp.licensure?.length || 0} states`,
+          hcp.contact?.email?.length ? 'Email verified' : 'Needs contact enrichment',
+        ],
+        has_personal_contact: !!(hcp.contact?.email?.length || hcp.contact?.phone?.length),
+        needs_enrichment: !(hcp.contact?.email?.length || hcp.contact?.phone?.length),
+        is_enriched: false,
+        work_email: hcp.contact?.email?.[0] || undefined,
+        work_phone: hcp.contact?.phone?.[0] || undefined,
+        source: 'alpha_sophia',
+      };
+    });
+    
+    // Deduplicate across taxonomy searches
+    for (const c of candidates) {
+      if (!seenIds.has(c.id)) {
+        seenIds.add(c.id);
+        allCandidates.push(c);
+      }
+    }
+    
+    // Stop if we have enough
+    if (allCandidates.length >= pageSize) break;
   }
   
-  const data = await response.json();
-  
-  return (data.data || []).map((hcp: AlphaSophiaHCP) => {
-    const nameParts = (hcp.name || '').split(',').map((s: string) => s.trim());
-    const lastName = nameParts[0] || '';
-    const firstName = nameParts[1] || '';
-    
-    return {
-      id: `as_${hcp.id}`,
-      alpha_sophia_id: hcp.id,
-      npi: hcp.npi,
-      first_name: firstName,
-      last_name: lastName,
-      specialty: hcp.taxonomy?.description || specialty,
-      state: hcp.location?.state || state,
-      city: hcp.location?.city || undefined,
-      unified_score: 'B',
-      match_strength: 75,
-      licenses: hcp.licensure || [],
-      licenses_count: hcp.licensure?.length || 0,
-      enrichment_tier: 'Alpha Sophia',
-      score_reason: 'External healthcare provider database match',
-      icebreaker: `Hi ${firstName}, I found your profile and thought you'd be a great fit.`,
-      talking_points: [`Licensed in ${hcp.licensure?.length || 0} states`, 'Contact information verified'],
-      has_personal_contact: !!(hcp.contact?.email?.length || hcp.contact?.phone?.length),
-      needs_enrichment: false,
-      is_enriched: false,
-      work_email: hcp.contact?.email?.[0] || undefined,
-      work_phone: hcp.contact?.phone?.[0] || undefined,
-      source: 'alpha_sophia',
-    };
-  });
+  console.log(`Alpha Sophia total unique candidates found: ${allCandidates.length}`);
+  return allCandidates.slice(0, pageSize);
 }
 
 serve(async (req) => {
