@@ -51,8 +51,57 @@ interface ResearchResult {
   from_cache?: boolean;
 }
 
-// Check NPPES NPI Registry
-async function verifyNPI(npi: string, firstName: string, lastName: string): Promise<any> {
+// Specialty keyword mappings for matching
+const SPECIALTY_KEYWORDS: Record<string, string[]> = {
+  'radiology': ['radiology', 'radiologist', 'diagnostic radiology', 'interventional radiology', 'vascular', 'neuroradiology'],
+  'interventional radiology': ['interventional', 'vascular', 'ir'],
+  'emergency medicine': ['emergency', 'em', 'urgent care'],
+  'internal medicine': ['internal medicine', 'internist'],
+  'anesthesiology': ['anesthesia', 'anesthesiologist'],
+  'surgery': ['surgeon', 'surgical'],
+  'cardiology': ['cardiology', 'cardiologist', 'cardiovascular'],
+  'oncology': ['oncology', 'oncologist', 'hematology'],
+  'psychiatry': ['psychiatry', 'psychiatrist', 'mental health'],
+  'neurology': ['neurology', 'neurologist'],
+  'orthopedics': ['orthopedic', 'orthopaedic', 'musculoskeletal'],
+  'pediatrics': ['pediatric', 'paediatric', 'child'],
+  'ob/gyn': ['obstetrics', 'gynecology', 'obgyn', 'ob-gyn'],
+  'hospitalist': ['hospitalist', 'hospital medicine'],
+  'family medicine': ['family medicine', 'family practice', 'general practice'],
+  'pulmonology': ['pulmonology', 'pulmonologist', 'respiratory'],
+  'gastroenterology': ['gastroenterology', 'gastroenterologist', 'gi'],
+  'nephrology': ['nephrology', 'nephrologist', 'kidney'],
+  'urology': ['urology', 'urologist'],
+};
+
+// Check if two specialties are related
+function specialtiesMatch(candidateSpecialty: string, npiSpecialty: string): boolean {
+  if (!candidateSpecialty || !npiSpecialty) return false;
+  
+  const candLower = candidateSpecialty.toLowerCase();
+  const npiLower = npiSpecialty.toLowerCase();
+  
+  // Direct match
+  if (npiLower.includes(candLower) || candLower.includes(npiLower)) return true;
+  
+  // Check keyword mappings
+  for (const [specialty, keywords] of Object.entries(SPECIALTY_KEYWORDS)) {
+    const candMatches = keywords.some(kw => candLower.includes(kw)) || candLower.includes(specialty);
+    const npiMatches = keywords.some(kw => npiLower.includes(kw)) || npiLower.includes(specialty);
+    if (candMatches && npiMatches) return true;
+  }
+  
+  return false;
+}
+
+// Check NPPES NPI Registry with specialty and location filtering
+async function verifyNPI(
+  npi: string, 
+  firstName: string, 
+  lastName: string,
+  candidateSpecialty?: string,
+  candidateState?: string
+): Promise<any> {
   try {
     const params = new URLSearchParams();
     if (npi) {
@@ -60,6 +109,7 @@ async function verifyNPI(npi: string, firstName: string, lastName: string): Prom
     } else {
       params.set('first_name', firstName);
       params.set('last_name', lastName);
+      params.set('limit', '50'); // Get more results to filter
     }
     params.set('version', '2.1');
     
@@ -73,33 +123,84 @@ async function verifyNPI(npi: string, firstName: string, lastName: string): Prom
     const data = await response.json();
     if (!data.results || data.results.length === 0) return null;
     
-    const result = data.results[0];
-    const taxonomies = result.taxonomies || [];
-    const primaryTaxonomy = taxonomies.find((t: any) => t.primary) || taxonomies[0];
+    // If we have a direct NPI match, use it
+    if (npi && data.results.length === 1) {
+      return parseNPIResult(data.results[0]);
+    }
     
-    const addresses = result.addresses || [];
-    const practiceAddress = addresses.find((a: any) => a.address_purpose === 'LOCATION') || addresses[0];
+    // Score each result by specialty and location match
+    const scoredResults = data.results.map((result: any) => {
+      const parsed = parseNPIResult(result);
+      let score = 0;
+      
+      // Specialty match is most important
+      if (candidateSpecialty && specialtiesMatch(candidateSpecialty, parsed.specialty)) {
+        score += 100;
+      }
+      
+      // Location match helps disambiguate
+      if (candidateState && parsed.address_state) {
+        if (parsed.address_state.toUpperCase() === candidateState.toUpperCase()) {
+          score += 50;
+        }
+        // Also check if they have a license in candidate's state
+        if (parsed.licenses.some((l: string) => l.toUpperCase() === candidateState.toUpperCase())) {
+          score += 25;
+        }
+      }
+      
+      // Prefer providers over students/trainees
+      if (parsed.specialty.toLowerCase().includes('student') || 
+          parsed.specialty.toLowerCase().includes('resident')) {
+        score -= 50;
+      }
+      
+      return { ...parsed, matchScore: score };
+    });
     
-    // Extract all state licenses from taxonomy
-    const licenses = taxonomies
-      .filter((t: any) => t.state)
-      .map((t: any) => t.state);
+    // Sort by score and return best match
+    scoredResults.sort((a: any, b: any) => b.matchScore - a.matchScore);
     
-    return {
-      npi: result.number,
-      name: `${result.basic?.first_name || ''} ${result.basic?.last_name || ''}`.trim(),
-      credential: result.basic?.credential || '',
-      specialty: primaryTaxonomy?.desc || '',
-      taxonomy_code: primaryTaxonomy?.code || '',
-      state: primaryTaxonomy?.state || practiceAddress?.state || '',
-      licenses: [...new Set(licenses)],
-      address_city: practiceAddress?.city || '',
-      address_state: practiceAddress?.state || '',
-    };
+    const bestMatch = scoredResults[0];
+    console.log(`NPI search found ${data.results.length} results, best match score: ${bestMatch.matchScore} - ${bestMatch.specialty}`);
+    
+    // Only return if we have some confidence (specialty match)
+    if (candidateSpecialty && bestMatch.matchScore < 50) {
+      console.log(`No confident NPI match for ${firstName} ${lastName} (${candidateSpecialty})`);
+      return null;
+    }
+    
+    return bestMatch;
   } catch (error) {
     console.error('NPI verification error:', error);
     return null;
   }
+}
+
+// Parse NPI result into our format
+function parseNPIResult(result: any): any {
+  const taxonomies = result.taxonomies || [];
+  const primaryTaxonomy = taxonomies.find((t: any) => t.primary) || taxonomies[0];
+  
+  const addresses = result.addresses || [];
+  const practiceAddress = addresses.find((a: any) => a.address_purpose === 'LOCATION') || addresses[0];
+  
+  // Extract all state licenses from taxonomy
+  const licenses = taxonomies
+    .filter((t: any) => t.state)
+    .map((t: any) => t.state);
+  
+  return {
+    npi: result.number,
+    name: `${result.basic?.first_name || ''} ${result.basic?.last_name || ''}`.trim(),
+    credential: result.basic?.credential || '',
+    specialty: primaryTaxonomy?.desc || '',
+    taxonomy_code: primaryTaxonomy?.code || '',
+    state: primaryTaxonomy?.state || practiceAddress?.state || '',
+    licenses: [...new Set(licenses)],
+    address_city: practiceAddress?.city || '',
+    address_state: practiceAddress?.state || '',
+  };
 }
 
 // IMLC member states
@@ -388,7 +489,9 @@ serve(async (req) => {
           npiData = await verifyNPI(
             candidate.npi || '',
             candidate.first_name,
-            candidate.last_name
+            candidate.last_name,
+            candidate.specialty,
+            candidate.state
           );
         }
         
