@@ -48,6 +48,12 @@ interface Candidate {
   personal_mobile?: string;
   personal_email?: string;
   source?: string;
+  // Research fields
+  researched?: boolean;
+  has_imlc?: boolean;
+  npi?: string;
+  verified_npi?: boolean;
+  match_concerns?: string[];
 }
 
 interface SummaryData {
@@ -202,6 +208,8 @@ const CandidateMatching = () => {
   const [searchingAlphaSophia, setSearchingAlphaSophia] = useState(false);
   const [alphaSophiaSearched, setAlphaSophiaSearched] = useState(false);
   const [alphaSophiaLimit, setAlphaSophiaLimit] = useState<SummaryData['alpha_sophia_limit']>(null);
+  const [researchingIds, setResearchingIds] = useState<Set<string>>(new Set());
+  const [autoResearchDone, setAutoResearchDone] = useState(false);
 
   const effectiveJobId = jobId || "befd5ba5-4e46-41d9-b144-d4077f750035";
   const jobState = job?.state || job?.location?.split(', ').pop() || 'TX';
@@ -426,6 +434,104 @@ const CandidateMatching = () => {
     }
   };
 
+  // Research candidates via NPI + AI
+  const researchCandidates = async (candidateIds: string[], skipResearch = false) => {
+    const candidatesToResearch = candidates.filter(c => candidateIds.includes(c.id));
+    
+    if (candidatesToResearch.length === 0) return;
+    
+    setResearchingIds(prev => new Set([...prev, ...candidateIds]));
+    
+    try {
+      const response = await fetch(
+        "https://qpvyzyspwxwtwjhfcuhh.supabase.co/functions/v1/candidate-research",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            candidates: candidatesToResearch.map(c => ({
+              id: c.id,
+              first_name: c.first_name,
+              last_name: c.last_name,
+              specialty: c.specialty,
+              state: c.state,
+              npi: c.npi,
+              licenses: c.licenses,
+            })),
+            job: {
+              id: effectiveJobId,
+              specialty: job?.specialty,
+              state: jobState,
+              raw_job_text: (job as any)?.raw_job_text,
+            },
+            skip_research: skipResearch,
+          }),
+        }
+      );
+
+      if (!response.ok) throw new Error(`Research API error: ${response.status}`);
+
+      const data = await response.json();
+      
+      // Update candidates with research results
+      setCandidates(prev => prev.map(c => {
+        const result = data.results?.find((r: any) => r.id === c.id);
+        if (!result) return c;
+        
+        return {
+          ...c,
+          researched: true,
+          verified_npi: result.verified_npi,
+          has_imlc: result.match_analysis?.has_imlc,
+          unified_score: result.match_analysis?.grade || c.unified_score,
+          match_strength: result.match_analysis?.score || c.match_strength,
+          score_reason: result.match_analysis?.reasons?.join(' • ') || c.score_reason,
+          icebreaker: result.match_analysis?.icebreaker || c.icebreaker,
+          talking_points: result.match_analysis?.talking_points || c.talking_points,
+          match_concerns: result.match_analysis?.concerns || [],
+        };
+      }));
+      
+      if (!skipResearch) {
+        toast.success(`Researched ${data.researched_count} candidates`);
+      }
+    } catch (error: any) {
+      console.error("Research error:", error);
+      toast.error(error.message || "Failed to research candidates");
+    } finally {
+      setResearchingIds(prev => {
+        const next = new Set(prev);
+        candidateIds.forEach(id => next.delete(id));
+        return next;
+      });
+    }
+  };
+
+  // Auto-research A-tier candidates when loaded
+  useEffect(() => {
+    if (!autoResearchDone && candidates.length > 0 && !isLoading) {
+      const aTierCandidates = candidates.filter(c => 
+        c.unified_score?.startsWith('A') && !c.researched
+      );
+      
+      if (aTierCandidates.length > 0 && aTierCandidates.length <= 10) {
+        console.log(`Auto-researching ${aTierCandidates.length} A-tier candidates`);
+        researchCandidates(aTierCandidates.map(c => c.id));
+      }
+      setAutoResearchDone(true);
+    }
+  }, [candidates, isLoading, autoResearchDone]);
+
+  // Research single candidate
+  const handleResearchCandidate = (candidate: Candidate) => {
+    researchCandidates([candidate.id]);
+  };
+
+  // Skip research (quick score)
+  const handleSkipResearch = (candidate: Candidate) => {
+    researchCandidates([candidate.id], true);
+  };
+
   // Filter counts - wrap in useCallback to prevent stale closures
   const filterCounts = useMemo(() => ({
     all: candidates.length,
@@ -554,39 +660,76 @@ const CandidateMatching = () => {
   const getKeyIndicators = (candidate: Candidate) => {
     const indicators: { label: string; className: string; priority: number }[] = [];
     
-    // Enriched Personal Contact (highest priority - verified by Whitepages/PDL)
-    if (isEnrichedPersonal(candidate)) {
+    // Researched/Verified (highest priority)
+    if (candidate.researched || candidate.verified_npi) {
       indicators.push({ 
-        label: `✅ Enriched (${candidate.enrichment_source || 'Verified'})`, 
-        className: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
-        priority: 0
-      });
-    } else if (isContactReady(candidate)) {
-      // Has some contact but not from enrichment provider
-      indicators.push({ 
-        label: "📞 Has Contact", 
-        className: "bg-success/20 text-success border-success/30",
-        priority: 1
+        label: "🔬 Researched", 
+        className: "bg-cyan-500/20 text-cyan-400 border-cyan-500/30",
+        priority: -1
       });
     }
     
-    // Has job state license
-    if (candidate.licenses?.some(l => l.includes(jobState))) {
+    // Enriched Personal Contact (verified by Whitepages/PDL - PERSONAL info)
+    if (isEnrichedPersonal(candidate) && (candidate.personal_mobile || candidate.personal_email)) {
+      indicators.push({ 
+        label: `✅ Personal Contact (${candidate.enrichment_source || 'Enriched'})`, 
+        className: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
+        priority: 0
+      });
+    } else if (candidate.personal_mobile || candidate.personal_email) {
+      // Has personal contact but source unknown
+      indicators.push({ 
+        label: "📱 Personal Contact", 
+        className: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30",
+        priority: 0
+      });
+    } else if ((candidate.work_phone || candidate.work_email) && !candidate.personal_mobile && !candidate.personal_email) {
+      // ONLY has work/company contact - NOT personal
+      indicators.push({ 
+        label: "🏢 Company Contact Only", 
+        className: "bg-amber-500/20 text-amber-400 border-amber-500/30",
+        priority: 7
+      });
+    } else if (!isContactReady(candidate)) {
+      // No contact at all
+      indicators.push({ 
+        label: "❌ No Contact", 
+        className: "bg-destructive/20 text-destructive border-destructive/30",
+        priority: 9
+      });
+    }
+    
+    // IMLC indicator (for 10+ licenses without job state)
+    if (candidate.has_imlc) {
+      indicators.push({ 
+        label: "🏛️ IMLC Eligible", 
+        className: "bg-indigo-500/20 text-indigo-400 border-indigo-500/30",
+        priority: 2
+      });
+    } else if (candidate.licenses?.some(l => l.toUpperCase().includes(jobState.toUpperCase()))) {
+      // Has job state license
       indicators.push({ 
         label: `${jobState} Licensed ✓`, 
         className: "bg-success/20 text-success border-success/30",
         priority: 2
       });
+    } else if (candidate.licenses_count >= 10) {
+      // 10+ licenses but no explicit job state - likely IMLC
+      indicators.push({ 
+        label: `🏛️ Likely IMLC (${candidate.licenses_count} states)`, 
+        className: "bg-indigo-500/20 text-indigo-400 border-indigo-500/30",
+        priority: 2
+      });
     }
     
-    // Multi-state licenses
-    if (candidate.licenses_count >= 10) {
+    // Multi-state licenses (if not already shown via IMLC)
+    if (candidate.licenses_count >= 10 && !candidate.has_imlc && candidate.licenses?.some(l => l.toUpperCase().includes(jobState.toUpperCase()))) {
       indicators.push({ 
         label: `🌟 ${candidate.licenses_count} States`, 
         className: "bg-purple-500/20 text-purple-400 border-purple-500/30",
         priority: 3
       });
-    } else if (candidate.licenses_count >= 5) {
+    } else if (candidate.licenses_count >= 5 && candidate.licenses_count < 10) {
       indicators.push({ 
         label: `${candidate.licenses_count} States`, 
         className: "bg-blue-500/20 text-blue-400 border-blue-500/30",
@@ -612,17 +755,8 @@ const CandidateMatching = () => {
       });
     }
     
-    // Has work contact only (probably company phone)
-    if (!isEnrichedPersonal(candidate) && (candidate.work_phone || candidate.work_email) && !candidate.personal_mobile && !candidate.personal_email) {
-      indicators.push({ 
-        label: "🏢 Work Contact Only", 
-        className: "bg-muted/50 text-muted-foreground border-muted",
-        priority: 8
-      });
-    }
-    
-    // Needs enrichment (lowest priority)
-    if (needsEnrichment(candidate)) {
+    // Needs enrichment (for candidates with only company contact)
+    if (needsEnrichment(candidate) && !candidate.personal_mobile && !candidate.personal_email) {
       indicators.push({ 
         label: "🔍 Needs Enrichment", 
         className: "bg-warning/20 text-warning border-warning/30",
@@ -966,21 +1100,41 @@ const CandidateMatching = () => {
                           </div>
                         </td>
                         <td className="px-4 py-4" onClick={(e) => e.stopPropagation()}>
-                          {needsEnrichment(candidate) && !contactReady && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="text-orange-600 border-orange-500/30 hover:bg-orange-500/10"
-                              disabled={enrichingIds.has(candidate.id)}
-                              onClick={() => handleEnrichCandidate(candidate)}
-                            >
-                              {enrichingIds.has(candidate.id) ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <>🔍 Enrich</>
-                              )}
-                            </Button>
-                          )}
+                          <div className="flex gap-1">
+                            {/* Research button */}
+                            {!candidate.researched && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-cyan-600 border-cyan-500/30 hover:bg-cyan-500/10"
+                                disabled={researchingIds.has(candidate.id)}
+                                onClick={() => handleResearchCandidate(candidate)}
+                                title="Research via NPI + AI"
+                              >
+                                {researchingIds.has(candidate.id) ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <>🔬</>
+                                )}
+                              </Button>
+                            )}
+                            {/* Enrich button */}
+                            {needsEnrichment(candidate) && !contactReady && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-orange-600 border-orange-500/30 hover:bg-orange-500/10"
+                                disabled={enrichingIds.has(candidate.id)}
+                                onClick={() => handleEnrichCandidate(candidate)}
+                              >
+                                {enrichingIds.has(candidate.id) ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <>🔍</>
+                                )}
+                              </Button>
+                            )}
+                          </div>
                         </td>
                         <td className="px-4 py-4">
                           <button
@@ -1035,6 +1189,16 @@ const CandidateMatching = () => {
                                 </div>
                               </div>
                               
+                              {/* Match Concerns */}
+                              {candidate.match_concerns && candidate.match_concerns.length > 0 && (
+                                <div className="rounded-lg bg-destructive/10 border border-destructive/20 p-3">
+                                  <p className="text-xs font-semibold uppercase tracking-wide text-destructive mb-2">⚠️ Concerns</p>
+                                  <ul className="list-disc list-inside text-sm text-destructive/80 space-y-1">
+                                    {candidate.match_concerns.map((concern, i) => <li key={i}>{concern}</li>)}
+                                  </ul>
+                                </div>
+                              )}
+                              
                               {/* Contact Info */}
                               {(candidate.work_email || candidate.work_phone || candidate.personal_email || candidate.personal_mobile) && (
                                 <div className="flex flex-wrap gap-4 pt-2 border-t border-border">
@@ -1042,26 +1206,28 @@ const CandidateMatching = () => {
                                     <div className="flex items-center gap-2 text-sm">
                                       <Phone className="h-4 w-4 text-success" />
                                       <span className="text-foreground font-medium">{candidate.personal_mobile}</span>
-                                      <Badge className="bg-success/20 text-success text-[10px]">Personal</Badge>
+                                      <Badge className="bg-success/20 text-success text-[10px]">✅ Personal (Enriched)</Badge>
                                     </div>
                                   )}
                                   {candidate.personal_email && (
                                     <div className="flex items-center gap-2 text-sm">
                                       <Mail className="h-4 w-4 text-success" />
                                       <span className="text-foreground">{candidate.personal_email}</span>
-                                      <Badge className="bg-success/20 text-success text-[10px]">Personal</Badge>
+                                      <Badge className="bg-success/20 text-success text-[10px]">✅ Personal (Enriched)</Badge>
                                     </div>
                                   )}
-                                  {candidate.work_phone && (
+                                  {candidate.work_phone && !candidate.personal_mobile && (
                                     <div className="flex items-center gap-2 text-sm">
-                                      <Phone className="h-4 w-4 text-muted-foreground" />
+                                      <Phone className="h-4 w-4 text-amber-500" />
                                       <span className="text-foreground">{candidate.work_phone}</span>
+                                      <Badge className="bg-amber-500/20 text-amber-600 text-[10px]">🏢 Company</Badge>
                                     </div>
                                   )}
-                                  {candidate.work_email && (
+                                  {candidate.work_email && !candidate.personal_email && (
                                     <div className="flex items-center gap-2 text-sm">
-                                      <Mail className="h-4 w-4 text-muted-foreground" />
+                                      <Mail className="h-4 w-4 text-amber-500" />
                                       <span className="text-foreground">{candidate.work_email}</span>
+                                      <Badge className="bg-amber-500/20 text-amber-600 text-[10px]">🏢 Company</Badge>
                                     </div>
                                   )}
                                 </div>

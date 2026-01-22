@@ -114,6 +114,41 @@ interface LimitCheck {
   is_admin: boolean;
 }
 
+// Infer IMLC status for candidates with 10+ licenses
+function inferIMLCStatus(licenses: string[], jobState: string): { has_imlc: boolean; reason: string } {
+  if (!licenses || licenses.length === 0) {
+    return { has_imlc: false, reason: 'No license data' };
+  }
+  
+  // IMLC member states as of 2024
+  const imlcStates = [
+    'AL', 'AZ', 'AR', 'CO', 'DE', 'DC', 'FL', 'GA', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY',
+    'LA', 'ME', 'MD', 'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ', 'NC', 'ND',
+    'OH', 'OK', 'PA', 'RI', 'SC', 'SD', 'TN', 'TX', 'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY'
+  ];
+  
+  const candidateLicenses = licenses.map(l => l.toUpperCase());
+  const hasJobState = candidateLicenses.includes(jobState.toUpperCase());
+  
+  // If they have the job state, no need for IMLC inference
+  if (hasJobState) {
+    return { has_imlc: false, reason: `Licensed in ${jobState}` };
+  }
+  
+  // If 10+ licenses and job state is IMLC, they likely can practice via IMLC
+  if (licenses.length >= 10 && imlcStates.includes(jobState.toUpperCase())) {
+    const imlcCount = candidateLicenses.filter(l => imlcStates.includes(l)).length;
+    if (imlcCount >= 8) {
+      return { 
+        has_imlc: true, 
+        reason: `${licenses.length} licenses with ${imlcCount} IMLC states - can likely practice in ${jobState} via IMLC`
+      };
+    }
+  }
+  
+  return { has_imlc: false, reason: 'No IMLC detected' };
+}
+
 // Use AI to calculate accurate match scores
 async function getAIMatchScores(
   apiKey: string,
@@ -122,20 +157,27 @@ async function getAIMatchScores(
 ): Promise<Map<string, AIMatchResult>> {
   const results = new Map<string, AIMatchResult>();
   
-  const candidateSummaries = candidates.map(c => ({
-    id: c.id,
-    name: `${c.first_name} ${c.last_name}`,
-    specialty: c.specialty,
-    location: c.city && c.state ? `${c.city}, ${c.state}` : c.state || 'Unknown',
-    licenses: c.licenses || [],
-    license_count: c.license_count || 0,
-    years_experience: c.years_of_experience || null,
-    board_certified: c.board_certified || false,
-    compact_license: c.compact_license || false,
-    enrichment_tier: c.enrichment_tier,
-    has_contact: c.has_personal_contact,
-    availability: c.availability_months || [],
-  }));
+  const candidateSummaries = candidates.map(c => {
+    const imlcResult = inferIMLCStatus(c.licenses || [], job.state);
+    return {
+      id: c.id,
+      name: `${c.first_name} ${c.last_name}`,
+      specialty: c.specialty,
+      location: c.city && c.state ? `${c.city}, ${c.state}` : c.state || 'Unknown',
+      licenses: c.licenses || [],
+      license_count: c.license_count || 0,
+      has_job_state_license: (c.licenses || []).some(l => l.toUpperCase() === job.state.toUpperCase()),
+      has_imlc: imlcResult.has_imlc,
+      imlc_note: imlcResult.reason,
+      years_experience: c.years_of_experience || null,
+      board_certified: c.board_certified || false,
+      compact_license: c.compact_license || false,
+      enrichment_tier: c.enrichment_tier,
+      has_personal_contact: c.has_personal_contact,
+      has_enriched_contact: c.already_enriched,
+      availability: c.availability_months || [],
+    };
+  });
 
   const systemPrompt = `You are an expert healthcare recruiter AI that evaluates candidate-job fit for locum tenens (temporary physician staffing) positions.
 
@@ -147,13 +189,20 @@ You MUST carefully analyze the full job description to understand:
 - EMR systems experience
 - Specialty and subspecialty requirements
 
+CRITICAL SCORING RULES (be rigorous!):
+1. License Match: If candidate does NOT have the job state license AND has_imlc is false, score BELOW 70 regardless of other factors
+2. Specialty Match: If specialty doesn't match exactly or isn't a closely related subspecialty, score BELOW 80
+3. Verified Contact: Candidates with has_enriched_contact=true are more actionable (slight bonus)
+4. Company-only contact: has_personal_contact=false means only work/company contact available (slight penalty)
+5. IMLC: If has_imlc=true, treat as if they have the state license
+
 Score candidates considering:
 1. Specialty match (exact match is critical, subspecialty matters)
 2. License status (having the required state license is critical, IMLC/compact is valuable)
 3. Clinical skills match (procedures mentioned in job vs candidate experience)
 4. Location proximity (local candidates reduce travel costs)
 5. Experience level and board certification
-6. Contact availability (candidates with verified contact info are more actionable)
+6. Contact availability (candidates with verified personal contact are more actionable)
 7. Multi-state licensure (10+ licenses indicates experienced locum traveler)
 
 Grades: A+ (95-100), A (90-94), A- (85-89), B+ (80-84), B (75-79), B- (70-74), C+ (65-69), C (60-64), D (<60)`;
@@ -178,7 +227,7 @@ ${reqs}`.trim();
   
   const jobDetails = buildJobDetails();
 
-  const userPrompt = `Evaluate these candidates for the following locum tenens job:
+  const userPrompt = `Evaluate these candidates for the following locum tenens job. Be RIGOROUS with scoring - only A-tier candidates should have direct license match AND exact specialty match.
 
 === FULL JOB DESCRIPTION ===
 ${jobDetails}
