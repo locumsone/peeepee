@@ -185,7 +185,7 @@ const highlightScoreReason = (reason: string) => {
   return <span className="italic text-muted-foreground text-sm">{parts}</span>;
 };
 
-const BATCH_SIZE = 25;
+const BATCH_SIZE = 50;
 
 const CandidateMatching = () => {
   const navigate = useNavigate();
@@ -1072,9 +1072,14 @@ const CandidateMatching = () => {
         </div>
 
         {/* Results Summary */}
-        <div className="text-sm text-muted-foreground">
-          Showing {sortedCandidates.length} of {totalCount} candidates
-          {quickFilter !== "all" && ` • Filtered: ${quickFilter.replace(/_/g, ' ')}`}
+        <div className="flex items-center justify-between text-sm text-muted-foreground">
+          <span>
+            Showing {sortedCandidates.length} of {candidates.length} loaded ({totalCount} total in database)
+            {quickFilter !== "all" && ` • Filtered: ${quickFilter.replace(/_/g, ' ')}`}
+          </span>
+          {summary?.alpha_sophia_count && summary.alpha_sophia_count > 0 && (
+            <span className="text-purple-400">+{summary.alpha_sophia_count} from Alpha Sophia</span>
+          )}
         </div>
 
         {/* Candidates Table */}
@@ -1446,11 +1451,25 @@ const CandidateMatching = () => {
         </div>
 
         {/* Load More */}
-        <div className="flex items-center justify-center gap-4 py-4">
+        <div className="flex flex-col items-center justify-center gap-2 py-4">
           {hasMore && (
-            <Button variant="outline" onClick={handleLoadMore} disabled={isLoadingMore}>
-              {isLoadingMore ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Loading...</> : <>Load {BATCH_SIZE} More</>}
-            </Button>
+            <>
+              <Button variant="outline" onClick={handleLoadMore} disabled={isLoadingMore}>
+                {isLoadingMore ? (
+                  <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Loading...</>
+                ) : (
+                  <>Load More ({Math.min(BATCH_SIZE, totalCount - candidates.length)} remaining of {totalCount})</>
+                )}
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                Showing {candidates.length} of {totalCount} total matches
+              </p>
+            </>
+          )}
+          {!hasMore && candidates.length > 0 && (
+            <p className="text-xs text-muted-foreground">
+              ✓ All {candidates.length} candidates loaded
+            </p>
           )}
         </div>
 
