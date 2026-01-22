@@ -595,25 +595,9 @@ const CandidateMatching = () => {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            candidates: candidatesToResearch.map(c => ({
-              id: c.id,
-              first_name: c.first_name,
-              last_name: c.last_name,
-              specialty: c.specialty,
-              state: c.state,
-              city: c.city,
-              licenses: c.licenses,
-              npi: c.npi,
-              enrichment_tier: c.enrichment_tier,
-            })),
-            job: {
-              id: effectiveJobId,
-              specialty: job?.specialty,
-              state: jobState,
-              facility_name: job?.facility,
-              bill_rate: job?.billRate,
-            },
-            deep_search: true,
+            candidate_ids: candidatesToResearch.map(c => c.id),
+            job_id: effectiveJobId,
+            deep_research: true,
           }),
         }
       );
