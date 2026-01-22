@@ -54,8 +54,12 @@ import {
   AlertCircle,
   Info,
   Loader2,
+  Globe,
+  Sparkles,
+  Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Switch } from "@/components/ui/switch";
 
 const steps = [
   { number: 1, label: "Job" },
@@ -142,7 +146,12 @@ interface PersonalizationHook {
   candidateId: string;
   candidateName: string;
   hook: string;
-  confidence?: string;
+  confidence?: 'high' | 'medium' | 'low';
+  hookType?: string;
+  talkingPoints?: string[];
+  icebreaker?: string;
+  researchSummary?: string;
+  researchSources?: string[];
   isEditing?: boolean;
 }
 
@@ -203,6 +212,9 @@ export default function CampaignReview() {
   const [personalizationProgress, setPersonalizationProgress] = useState(0);
   const [personalizationHooks, setPersonalizationHooks] = useState<PersonalizationHook[]>([]);
   const [hooksExpanded, setHooksExpanded] = useState(false);
+  const [deepResearchEnabled, setDeepResearchEnabled] = useState(false);
+  const [deepResearchUsed, setDeepResearchUsed] = useState(false);
+  const [researchStats, setResearchStats] = useState({ high: 0, medium: 0, low: 0 });
 
   // Quality check state
   const [qualityCheckRun, setQualityCheckRun] = useState(false);
@@ -347,9 +359,10 @@ export default function CampaignReview() {
     setPersonalizationLoading(true);
     setPersonalizationProgress(0);
 
-    // Simulate progress
+    // Progress simulation - slower for deep research
+    const progressRate = deepResearchEnabled ? 2 : 5;
     const progressInterval = setInterval(() => {
-      setPersonalizationProgress((prev) => Math.min(prev + 5, 90));
+      setPersonalizationProgress((prev) => Math.min(prev + progressRate, 90));
     }, 500);
 
     try {
@@ -357,46 +370,74 @@ export default function CampaignReview() {
         body: {
           candidate_ids: candidateIds,
           job_id: jobId,
+          deep_research: deepResearchEnabled,
         },
       });
 
       clearInterval(progressInterval);
       setPersonalizationProgress(100);
 
-      if (!invokeError && data) {
-        // Map response to hooks
+      if (!invokeError && data?.success) {
+        // Map response to hooks with full details
         const hooks: PersonalizationHook[] = data.results?.map((r: any) => ({
           candidateId: r.candidate_id,
           candidateName: r.candidate_name || "Unknown",
           hook: r.personalization_hook || "No hook generated",
           confidence: r.confidence || "medium",
+          hookType: r.hook_type,
+          talkingPoints: r.talking_points || [],
+          icebreaker: r.icebreaker,
+          researchSummary: r.research_summary,
+          researchSources: r.research_sources || [],
         })) || [];
 
         setPersonalizationHooks(hooks);
         setPersonalizationRun(true);
-        toast.success(`Research complete for ${hooks.length} candidates`);
+        setDeepResearchUsed(data.deep_research_used || false);
+        setResearchStats({
+          high: data.high_confidence || 0,
+          medium: data.medium_confidence || 0,
+          low: data.low_confidence || 0,
+        });
+        
+        const researchType = data.deep_research_used ? "Deep research" : "Quick research";
+        toast.success(`${researchType} complete for ${hooks.length} candidates`);
       } else {
         // Generate mock hooks for demo
         const { data: candidates } = await supabase
           .from("candidates")
-          .select("id, first_name, last_name, specialty, company_name")
+          .select("id, first_name, last_name, specialty, company_name, board_certifications")
           .in("id", candidateIds.slice(0, 10));
 
         const mockHooks: PersonalizationHook[] = (candidates || []).map((c) => ({
           candidateId: c.id,
           candidateName: `Dr. ${c.first_name} ${c.last_name}`,
           hook: c.company_name
-            ? `Your experience at ${c.company_name} makes you an excellent fit...`
-            : `Your background in ${c.specialty || "medicine"} caught our attention...`,
-          confidence: c.company_name ? "high" : "medium",
+            ? `Your experience at ${c.company_name} makes you an excellent fit for this ${job?.specialty || ''} opportunity at ${job?.facility_name || 'our facility'}. We're offering $${job?.bill_rate || '500'}/hour for long-term coverage.`
+            : `Your background in ${c.specialty || "medicine"} aligns with our ${job?.specialty || ''} need at ${job?.facility_name || 'our facility'}. This is a ${job?.bill_rate ? `$${job.bill_rate}/hour` : 'competitive rate'} opportunity.`,
+          confidence: c.company_name || c.board_certifications?.length ? "high" : "medium",
+          hookType: c.company_name ? "employer_match" : "specialty_match",
+          talkingPoints: [
+            `${job?.bill_rate ? `$${job.bill_rate}/hour` : 'Competitive'} compensation`,
+            `${job?.facility_name || 'Excellent facility'}`,
+            "Long-term stability with locums flexibility"
+          ],
+          icebreaker: `Hi Dr. ${c.last_name},`,
         }));
 
         setPersonalizationHooks(mockHooks);
         setPersonalizationRun(true);
+        setDeepResearchUsed(false);
+        setResearchStats({
+          high: mockHooks.filter(h => h.confidence === 'high').length,
+          medium: mockHooks.filter(h => h.confidence === 'medium').length,
+          low: mockHooks.filter(h => h.confidence === 'low').length,
+        });
         toast.success(`Research complete for ${mockHooks.length} candidates`);
       }
     } catch (error) {
       clearInterval(progressInterval);
+      console.error("Sherlock error:", error);
       toast.error("Error running personalization research");
     } finally {
       setPersonalizationLoading(false);
@@ -851,58 +892,175 @@ export default function CampaignReview() {
           {/* Personalization Section */}
           <Card className="border-primary/20">
             <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Cat className="h-6 w-6 text-primary" />
-                Sherlock Meowmes Research
-              </CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <Cat className="h-6 w-6 text-primary" />
+                  Sherlock Meowmes Research
+                  <span className="text-xs font-normal text-muted-foreground">(Optional)</span>
+                </CardTitle>
+                {!personalizationRun && !personalizationLoading && (
+                  <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        id="deep-research"
+                        checked={deepResearchEnabled}
+                        onCheckedChange={setDeepResearchEnabled}
+                      />
+                      <Label htmlFor="deep-research" className="text-sm flex items-center gap-1.5 cursor-pointer">
+                        <Globe className="h-4 w-4 text-blue-500" />
+                        Deep Research
+                      </Label>
+                    </div>
+                  </div>
+                )}
+              </div>
             </CardHeader>
             <CardContent>
               {!personalizationRun && !personalizationLoading && (
-                <div className="text-center py-6 space-y-4">
-                  <p className="text-muted-foreground">
-                    Personalize outreach for better response rates
-                  </p>
-                  <Button
-                    size="lg"
-                    onClick={handleRunSherlock}
-                    className="gap-2 bg-primary hover:bg-primary/90"
-                  >
-                    <Search className="h-5 w-5" />
-                    Run Sherlock on Selected Candidates
-                  </Button>
-                  <p className="text-xs text-muted-foreground">
-                    Researches LinkedIn, publications, and background for personalized hooks
-                  </p>
+                <div className="space-y-6">
+                  {/* Research Mode Selector */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div 
+                      className={cn(
+                        "p-4 rounded-lg border-2 cursor-pointer transition-all",
+                        !deepResearchEnabled 
+                          ? "border-primary bg-primary/5" 
+                          : "border-border hover:border-primary/50"
+                      )}
+                      onClick={() => setDeepResearchEnabled(false)}
+                    >
+                      <div className="flex items-center gap-2 mb-2">
+                        <Zap className="h-5 w-5 text-yellow-500" />
+                        <span className="font-semibold">Quick Research</span>
+                        <span className="text-xs px-2 py-0.5 rounded bg-muted text-muted-foreground">Fast</span>
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        Uses candidate profile data, NPI registry, and AI to generate personalized hooks. 
+                        Best for large batches or time-sensitive campaigns.
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-2">⚡ ~2 seconds per candidate</p>
+                    </div>
+                    
+                    <div 
+                      className={cn(
+                        "p-4 rounded-lg border-2 cursor-pointer transition-all",
+                        deepResearchEnabled 
+                          ? "border-blue-500 bg-blue-500/5" 
+                          : "border-border hover:border-blue-500/50"
+                      )}
+                      onClick={() => setDeepResearchEnabled(true)}
+                    >
+                      <div className="flex items-center gap-2 mb-2">
+                        <Globe className="h-5 w-5 text-blue-500" />
+                        <span className="font-semibold">Deep Research</span>
+                        <span className="text-xs px-2 py-0.5 rounded bg-blue-500/10 text-blue-500">Premium</span>
+                      </div>
+                      <p className="text-sm text-muted-foreground">
+                        Searches the web for fellowship info, publications, employer history, and professional accomplishments. 
+                        Creates highly specific, compelling outreach hooks.
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-2">🔍 ~10 seconds per candidate</p>
+                    </div>
+                  </div>
+
+                  <div className="text-center space-y-3">
+                    <Button
+                      size="lg"
+                      onClick={handleRunSherlock}
+                      className={cn(
+                        "gap-2",
+                        deepResearchEnabled 
+                          ? "bg-blue-500 hover:bg-blue-600" 
+                          : "bg-primary hover:bg-primary/90"
+                      )}
+                    >
+                      {deepResearchEnabled ? (
+                        <>
+                          <Globe className="h-5 w-5" />
+                          Run Deep Research on {candidateIds.length} Candidates
+                        </>
+                      ) : (
+                        <>
+                          <Search className="h-5 w-5" />
+                          Run Quick Research on {candidateIds.length} Candidates
+                        </>
+                      )}
+                    </Button>
+                    <p className="text-xs text-muted-foreground">
+                      {deepResearchEnabled 
+                        ? "Searches LinkedIn, publications, hospital affiliations for personalized hooks based on your recruitment playbook"
+                        : "Uses profile data and AI to generate targeted outreach hooks"
+                      }
+                    </p>
+                  </div>
                 </div>
               )}
 
               {personalizationLoading && (
                 <div className="py-6 space-y-4">
                   <div className="flex items-center justify-center gap-2">
-                    <Search className="h-5 w-5 animate-pulse text-primary" />
-                    <span>Sherlock is investigating {candidateIds.length} candidates...</span>
+                    {deepResearchEnabled ? (
+                      <>
+                        <Globe className="h-5 w-5 animate-pulse text-blue-500" />
+                        <span>Deep researching {candidateIds.length} candidates online...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Zap className="h-5 w-5 animate-pulse text-primary" />
+                        <span>Quick researching {candidateIds.length} candidates...</span>
+                      </>
+                    )}
                   </div>
-                  <Progress value={personalizationProgress} className="h-2" />
+                  <Progress 
+                    value={personalizationProgress} 
+                    className={cn("h-2", deepResearchEnabled && "[&>div]:bg-blue-500")} 
+                  />
+                  {deepResearchEnabled && (
+                    <p className="text-xs text-center text-muted-foreground">
+                      Searching for fellowship training, publications, employer history...
+                    </p>
+                  )}
                 </div>
               )}
 
               {personalizationRun && !personalizationLoading && (
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <p className="flex items-center gap-2 text-green-500">
-                      <Check className="h-5 w-5" />
-                      Research complete for {personalizationHooks.length} candidates
-                    </p>
-                    <Button variant="outline" size="sm" onClick={handleRunSherlock} className="gap-1">
-                      <RefreshCw className="h-4 w-4" />
-                      Re-run
-                    </Button>
+                  {/* Research Summary */}
+                  <div className="flex items-center justify-between flex-wrap gap-3">
+                    <div className="flex items-center gap-3">
+                      <p className="flex items-center gap-2 text-green-500">
+                        <Check className="h-5 w-5" />
+                        Research complete
+                      </p>
+                      {deepResearchUsed && (
+                        <span className="text-xs px-2 py-0.5 rounded bg-blue-500/10 text-blue-500 flex items-center gap-1">
+                          <Globe className="h-3 w-3" />
+                          Deep Research
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs px-2 py-0.5 rounded bg-green-500/10 text-green-500">
+                        <Sparkles className="h-3 w-3 inline mr-1" />
+                        {researchStats.high} high
+                      </span>
+                      <span className="text-xs px-2 py-0.5 rounded bg-yellow-500/10 text-yellow-500">
+                        {researchStats.medium} medium
+                      </span>
+                      <span className="text-xs px-2 py-0.5 rounded bg-muted text-muted-foreground">
+                        {researchStats.low} low
+                      </span>
+                      <Button variant="outline" size="sm" onClick={handleRunSherlock} className="gap-1 ml-2">
+                        <RefreshCw className="h-4 w-4" />
+                        Re-run
+                      </Button>
+                    </div>
                   </div>
 
                   <Collapsible open={hooksExpanded} onOpenChange={setHooksExpanded}>
                     <CollapsibleTrigger asChild>
                       <Button variant="ghost" className="w-full justify-between">
-                        View personalization hooks
+                        View {personalizationHooks.length} personalization hooks
                         <ChevronDown
                           className={cn(
                             "h-4 w-4 transition-transform",
@@ -917,16 +1075,23 @@ export default function CampaignReview() {
                           <thead className="bg-muted/50">
                             <tr>
                               <th className="text-left px-3 py-2 font-medium">Candidate</th>
-                              <th className="text-left px-3 py-2 font-medium">Hook Preview</th>
-                              <th className="text-center px-3 py-2 font-medium">Confidence</th>
+                              <th className="text-left px-3 py-2 font-medium">Personalization Hook</th>
+                              <th className="text-center px-3 py-2 font-medium w-24">Quality</th>
                               <th className="w-12"></th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-border">
-                            {personalizationHooks.slice(0, 10).map((hook) => (
+                            {personalizationHooks.slice(0, 15).map((hook) => (
                               <tr key={hook.candidateId} className="hover:bg-muted/30">
-                                <td className="px-3 py-2 font-medium whitespace-nowrap">
-                                  {hook.candidateName}
+                                <td className="px-3 py-2">
+                                  <div>
+                                    <p className="font-medium whitespace-nowrap">{hook.candidateName}</p>
+                                    {hook.hookType && (
+                                      <p className="text-xs text-muted-foreground">
+                                        {hook.hookType.replace(/_/g, ' ')}
+                                      </p>
+                                    )}
+                                  </div>
                                 </td>
                                 <td className="px-3 py-2">
                                   {hook.isEditing ? (
@@ -953,9 +1118,20 @@ export default function CampaignReview() {
                                       </Button>
                                     </div>
                                   ) : (
-                                    <p className="text-muted-foreground italic line-clamp-2">
-                                      "{hook.hook}"
-                                    </p>
+                                    <div>
+                                      <p className="text-muted-foreground line-clamp-2">
+                                        "{hook.hook}"
+                                      </p>
+                                      {hook.talkingPoints && hook.talkingPoints.length > 0 && (
+                                        <div className="flex gap-1 mt-1 flex-wrap">
+                                          {hook.talkingPoints.slice(0, 2).map((tp, i) => (
+                                            <span key={i} className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+                                              {tp.length > 30 ? tp.substring(0, 30) + '...' : tp}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
                                   )}
                                 </td>
                                 <td className="px-3 py-2 text-center">
@@ -990,9 +1166,9 @@ export default function CampaignReview() {
                           </tbody>
                         </table>
                       </div>
-                      {personalizationHooks.length > 10 && (
-                        <p className="text-sm text-muted-foreground text-center">
-                          +{personalizationHooks.length - 10} more hooks
+                      {personalizationHooks.length > 15 && (
+                        <p className="text-sm text-muted-foreground text-center mt-2">
+                          +{personalizationHooks.length - 15} more hooks
                         </p>
                       )}
                     </CollapsibleContent>
