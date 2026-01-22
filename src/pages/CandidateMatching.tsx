@@ -54,6 +54,8 @@ interface Candidate {
   npi?: string;
   verified_npi?: boolean;
   match_concerns?: string[];
+  from_cache?: boolean;
+  researched_at?: string;
 }
 
 interface SummaryData {
@@ -435,8 +437,8 @@ const CandidateMatching = () => {
     }
   };
 
-  // Research candidates via NPI + AI
-  const researchCandidates = async (candidateIds: string[], skipResearch = false) => {
+  // Research candidates via NPI + AI (with database persistence)
+  const researchCandidates = async (candidateIds: string[], skipResearch = false, forceRefresh = false) => {
     const candidatesToResearch = candidates.filter(c => candidateIds.includes(c.id));
     
     if (candidatesToResearch.length === 0) return;
@@ -466,6 +468,8 @@ const CandidateMatching = () => {
               raw_job_text: (job as any)?.raw_job_text,
             },
             skip_research: skipResearch,
+            force_refresh: forceRefresh,
+            user_id: user?.id || null,
           }),
         }
       );
@@ -483,6 +487,7 @@ const CandidateMatching = () => {
           ...c,
           researched: true,
           verified_npi: result.verified_npi,
+          npi: result.npi_data?.npi || c.npi,
           has_imlc: result.match_analysis?.has_imlc,
           unified_score: result.match_analysis?.grade || c.unified_score,
           match_strength: result.match_analysis?.score || c.match_strength,
@@ -490,11 +495,13 @@ const CandidateMatching = () => {
           icebreaker: result.match_analysis?.icebreaker || c.icebreaker,
           talking_points: result.match_analysis?.talking_points || c.talking_points,
           match_concerns: result.match_analysis?.concerns || [],
+          from_cache: result.from_cache || false,
         };
       }));
       
       if (!skipResearch) {
-        toast.success(`Researched ${data.researched_count} candidates`);
+        const cacheMsg = data.cached_count > 0 ? ` (${data.cached_count} from cache)` : '';
+        toast.success(`Researched ${data.researched_count} candidates${cacheMsg}`);
       }
     } catch (error: any) {
       console.error("Research error:", error);
@@ -1110,9 +1117,14 @@ const CandidateMatching = () => {
                               {candidate.researched && (
                                 <Badge 
                                   variant="outline" 
-                                  className="text-[10px] bg-cyan-500/10 text-cyan-500 border-cyan-500/30 gap-1"
+                                  className={cn(
+                                    "text-[10px] gap-1",
+                                    candidate.from_cache 
+                                      ? "bg-blue-500/10 text-blue-500 border-blue-500/30"
+                                      : "bg-cyan-500/10 text-cyan-500 border-cyan-500/30"
+                                  )}
                                 >
-                                  🔬 Researched
+                                  {candidate.from_cache ? '📦 Saved' : '🔬 Researched'}
                                 </Badge>
                               )}
                               {candidate.verified_npi && (
@@ -1216,14 +1228,22 @@ const CandidateMatching = () => {
                             <div className="space-y-4 animate-fade-in">
                               {/* Research Status Banner */}
                               {candidate.researched && (
-                                <div className="rounded-lg bg-cyan-500/10 border border-cyan-500/20 p-4 flex items-center justify-between">
+                                <div className={cn(
+                                  "rounded-lg p-4 flex items-center justify-between",
+                                  candidate.from_cache 
+                                    ? "bg-blue-500/10 border border-blue-500/20" 
+                                    : "bg-cyan-500/10 border border-cyan-500/20"
+                                )}>
                                   <div className="flex items-center gap-3">
-                                    <div className="h-10 w-10 rounded-full bg-cyan-500/20 flex items-center justify-center">
-                                      <Target className="h-5 w-5 text-cyan-500" />
+                                    <div className={cn(
+                                      "h-10 w-10 rounded-full flex items-center justify-center",
+                                      candidate.from_cache ? "bg-blue-500/20" : "bg-cyan-500/20"
+                                    )}>
+                                      <Target className={cn("h-5 w-5", candidate.from_cache ? "text-blue-500" : "text-cyan-500")} />
                                     </div>
                                     <div>
                                       <p className="text-sm font-medium text-foreground flex items-center gap-2">
-                                        AI Research Complete
+                                        {candidate.from_cache ? '📦 Research Loaded' : 'AI Research Complete'}
                                         {candidate.verified_npi && (
                                           <Badge className="bg-emerald-500/20 text-emerald-500 border-emerald-500/30 text-[10px]">
                                             <Shield className="h-3 w-3 mr-1" /> NPI Verified
@@ -1234,17 +1254,46 @@ const CandidateMatching = () => {
                                             🏛️ IMLC Eligible
                                           </Badge>
                                         )}
+                                        {candidate.from_cache && (
+                                          <Badge variant="outline" className="text-[10px] text-blue-500 border-blue-500/30">
+                                            Cached
+                                          </Badge>
+                                        )}
                                       </p>
                                       <p className="text-xs text-muted-foreground">
-                                        Credentials verified via NPI Registry • AI-scored match analysis
+                                        {candidate.from_cache 
+                                          ? 'Previously researched • Data saved to database'
+                                          : 'Credentials verified via NPI Registry • AI-scored match analysis'
+                                        }
                                       </p>
                                     </div>
                                   </div>
-                                  <div className="flex items-center gap-2">
-                                    <Badge className={cn("text-sm font-bold", getScoreBadgeConfig(candidate.unified_score).className)}>
-                                      {candidate.unified_score} Match
-                                    </Badge>
-                                    <span className="text-lg font-bold text-foreground">{candidate.match_strength}%</span>
+                                  <div className="flex items-center gap-3">
+                                    <div className="flex items-center gap-2">
+                                      <Badge className={cn("text-sm font-bold", getScoreBadgeConfig(candidate.unified_score).className)}>
+                                        {candidate.unified_score} Match
+                                      </Badge>
+                                      <span className="text-lg font-bold text-foreground">{candidate.match_strength}%</span>
+                                    </div>
+                                    {candidate.from_cache && (
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        className="text-blue-600 hover:bg-blue-500/10"
+                                        disabled={researchingIds.has(candidate.id)}
+                                        onClick={(e) => { 
+                                          e.stopPropagation(); 
+                                          researchCandidates([candidate.id], false, true); 
+                                        }}
+                                        title="Refresh research data"
+                                      >
+                                        {researchingIds.has(candidate.id) ? (
+                                          <Loader2 className="h-4 w-4 animate-spin" />
+                                        ) : (
+                                          <>🔄 Refresh</>
+                                        )}
+                                      </Button>
+                                    )}
                                   </div>
                                 </div>
                               )}

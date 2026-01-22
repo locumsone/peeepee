@@ -1151,6 +1151,96 @@ export type Database = {
           },
         ]
       }
+      candidate_job_matches: {
+        Row: {
+          candidate_id: string
+          created_at: string | null
+          has_required_license: boolean | null
+          icebreaker: string | null
+          id: string
+          job_id: string
+          license_path: string | null
+          match_concerns: string[] | null
+          match_grade: string | null
+          match_reasons: string[] | null
+          match_score: number | null
+          research_id: string | null
+          scored_at: string | null
+          talking_points: string[] | null
+          updated_at: string | null
+        }
+        Insert: {
+          candidate_id: string
+          created_at?: string | null
+          has_required_license?: boolean | null
+          icebreaker?: string | null
+          id?: string
+          job_id: string
+          license_path?: string | null
+          match_concerns?: string[] | null
+          match_grade?: string | null
+          match_reasons?: string[] | null
+          match_score?: number | null
+          research_id?: string | null
+          scored_at?: string | null
+          talking_points?: string[] | null
+          updated_at?: string | null
+        }
+        Update: {
+          candidate_id?: string
+          created_at?: string | null
+          has_required_license?: boolean | null
+          icebreaker?: string | null
+          id?: string
+          job_id?: string
+          license_path?: string | null
+          match_concerns?: string[] | null
+          match_grade?: string | null
+          match_reasons?: string[] | null
+          match_score?: number | null
+          research_id?: string | null
+          scored_at?: string | null
+          talking_points?: string[] | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "candidate_job_matches_candidate_id_fkey"
+            columns: ["candidate_id"]
+            isOneToOne: false
+            referencedRelation: "candidates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "candidate_job_matches_candidate_id_fkey"
+            columns: ["candidate_id"]
+            isOneToOne: false
+            referencedRelation: "mv_available_now"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "candidate_job_matches_candidate_id_fkey"
+            columns: ["candidate_id"]
+            isOneToOne: false
+            referencedRelation: "mv_platinum_tier"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "candidate_job_matches_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "jobs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "candidate_job_matches_research_id_fkey"
+            columns: ["research_id"]
+            isOneToOne: false
+            referencedRelation: "candidate_research"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       candidate_outreach_log: {
         Row: {
           campaign_id: string | null
@@ -1300,6 +1390,94 @@ export type Database = {
             columns: ["job_id"]
             isOneToOne: false
             referencedRelation: "jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      candidate_research: {
+        Row: {
+          candidate_id: string
+          created_at: string | null
+          credentials_summary: string | null
+          has_imlc: boolean | null
+          id: string
+          imlc_inference_reason: string | null
+          last_researched_at: string | null
+          license_count: number | null
+          npi: string | null
+          npi_verification_date: string | null
+          npi_verified: boolean | null
+          professional_highlights: string[] | null
+          research_confidence: string | null
+          research_source: string | null
+          researched_by: string | null
+          specialty_verified: boolean | null
+          updated_at: string | null
+          verified_licenses: string[] | null
+          verified_specialty: string | null
+        }
+        Insert: {
+          candidate_id: string
+          created_at?: string | null
+          credentials_summary?: string | null
+          has_imlc?: boolean | null
+          id?: string
+          imlc_inference_reason?: string | null
+          last_researched_at?: string | null
+          license_count?: number | null
+          npi?: string | null
+          npi_verification_date?: string | null
+          npi_verified?: boolean | null
+          professional_highlights?: string[] | null
+          research_confidence?: string | null
+          research_source?: string | null
+          researched_by?: string | null
+          specialty_verified?: boolean | null
+          updated_at?: string | null
+          verified_licenses?: string[] | null
+          verified_specialty?: string | null
+        }
+        Update: {
+          candidate_id?: string
+          created_at?: string | null
+          credentials_summary?: string | null
+          has_imlc?: boolean | null
+          id?: string
+          imlc_inference_reason?: string | null
+          last_researched_at?: string | null
+          license_count?: number | null
+          npi?: string | null
+          npi_verification_date?: string | null
+          npi_verified?: boolean | null
+          professional_highlights?: string[] | null
+          research_confidence?: string | null
+          research_source?: string | null
+          researched_by?: string | null
+          specialty_verified?: boolean | null
+          updated_at?: string | null
+          verified_licenses?: string[] | null
+          verified_specialty?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "candidate_research_candidate_id_fkey"
+            columns: ["candidate_id"]
+            isOneToOne: true
+            referencedRelation: "candidates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "candidate_research_candidate_id_fkey"
+            columns: ["candidate_id"]
+            isOneToOne: true
+            referencedRelation: "mv_available_now"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "candidate_research_candidate_id_fkey"
+            columns: ["candidate_id"]
+            isOneToOne: true
+            referencedRelation: "mv_platinum_tier"
             referencedColumns: ["id"]
           },
         ]
@@ -3630,6 +3808,39 @@ export type Database = {
           p_specialty?: string
           p_state?: string
           p_user_id: string
+        }
+        Returns: string
+      }
+      upsert_candidate_job_match: {
+        Args: {
+          p_candidate_id: string
+          p_has_required_license?: boolean
+          p_icebreaker?: string
+          p_job_id: string
+          p_license_path?: string
+          p_match_concerns?: string[]
+          p_match_grade?: string
+          p_match_reasons?: string[]
+          p_match_score?: number
+          p_research_id?: string
+          p_talking_points?: string[]
+        }
+        Returns: string
+      }
+      upsert_candidate_research: {
+        Args: {
+          p_candidate_id: string
+          p_credentials_summary?: string
+          p_has_imlc?: boolean
+          p_imlc_reason?: string
+          p_npi?: string
+          p_npi_verified?: boolean
+          p_professional_highlights?: string[]
+          p_research_confidence?: string
+          p_researched_by?: string
+          p_specialty_verified?: boolean
+          p_verified_licenses?: string[]
+          p_verified_specialty?: string
         }
         Returns: string
       }
