@@ -232,9 +232,11 @@ async function generatePersonalizedHook(
   if (researchSummary && researchSummary.length > 50 && !researchSummary.includes("No specific info")) {
     // Fast path: Use research findings directly to build hook
     const hook = buildQuickHook(candidate, job, researchSummary, hookPattern.type);
+    // Generate a proper icebreaker from research, not just a greeting
+    const icebreaker = buildQuickIcebreaker(candidate, job, researchSummary);
     return {
       hook,
-      icebreaker: `Hi Dr. ${candidate.last_name},`,
+      icebreaker,
       talking_points: buildQuickTalkingPoints(candidate, job, researchSummary)
     };
   }
@@ -291,7 +293,7 @@ async function generatePersonalizedHook(
   // Fallback
   return {
     hook: buildQuickHook(candidate, job, researchSummary, hookPattern.type),
-    icebreaker: `Hi Dr. ${candidate.last_name},`,
+    icebreaker: buildQuickIcebreaker(candidate, job, researchSummary),
     talking_points: buildQuickTalkingPoints(candidate, job, researchSummary)
   };
 }
@@ -316,6 +318,40 @@ function buildQuickHook(candidate: Candidate, job: JobContext, research: string,
   }
   
   return `Your ${candidate.specialty || 'medical'} background aligns with our ${job.specialty} opportunity at ${job.facility_name}. ${rate}, ${job.city}, ${job.state}.`;
+}
+
+// Build a proper icebreaker sentence (not just a greeting) - uses research insights
+function buildQuickIcebreaker(candidate: Candidate, job: JobContext, research: string): string {
+  const hasStateLicense = candidate.licenses?.some(l => l.toUpperCase() === job.state?.toUpperCase());
+  const candidateRate = job.pay_rate || (job.bill_rate ? Math.round(job.bill_rate * 0.73) : null);
+  
+  // Extract key details from research to personalize
+  if (research && research.length > 30 && !research.includes("No specific")) {
+    // Look for hospital/institution mentions
+    const hospitalMatch = research.match(/(at|from|with)\s+([A-Z][A-Za-z\s]+(?:Hospital|Medical Center|Health|Clinic))/i);
+    if (hospitalMatch) {
+      return `Dr. ${candidate.last_name}, I noticed your work at ${hospitalMatch[2].trim()} and wanted to reach out about a ${job.specialty} opportunity in ${job.state} that could be a great fit.`;
+    }
+    
+    // Look for specialty/subspecialty mentions
+    const specialtyMatch = research.match(/(expertise|experience|specializ\w+|focus\w*)\s+(in|on)\s+([A-Za-z\s,&]+)/i);
+    if (specialtyMatch) {
+      return `Dr. ${candidate.last_name}, your ${specialtyMatch[3].trim().substring(0, 50)} caught my attention - I have a ${job.specialty} role at ${job.facility_name} that matches your background.`;
+    }
+  }
+  
+  // License-based icebreaker
+  if (hasStateLicense) {
+    return `Dr. ${candidate.last_name}, I noticed you're already licensed in ${job.state} and wanted to share a ${job.specialty} opportunity at ${job.facility_name}${candidateRate ? ` paying $${candidateRate}/hr` : ''}.`;
+  }
+  
+  // Multi-state license holder
+  if ((candidate.licenses?.length || 0) >= 5) {
+    return `Dr. ${candidate.last_name}, with your multi-state licensure, I thought you'd be interested in a ${job.specialty} opportunity in ${job.city}, ${job.state}${candidateRate ? ` at $${candidateRate}/hr` : ''}.`;
+  }
+  
+  // Default fallback - still a full sentence, not just "Hi Dr. X"
+  return `Dr. ${candidate.last_name}, I'm reaching out about a ${job.specialty} opportunity at ${job.facility_name} in ${job.city}, ${job.state}${candidateRate ? ` - $${candidateRate}/hr` : ''} that aligns with your background.`;
 }
 
 // Fast talking points without AI - uses PAY RATE (what candidate receives)
