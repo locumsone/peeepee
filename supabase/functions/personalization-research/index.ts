@@ -43,6 +43,16 @@ interface PersonalizationResult {
   talking_points: string[];
   icebreaker: string;
   research_summary?: string;
+  // Structured research for database persistence
+  structured_research?: {
+    employer?: string;
+    training?: string;
+    credentials?: string;
+    notable?: string;
+  } | null;
+  employer_researched?: string | null;
+  training_researched?: string | null;
+  credentials_researched?: string | null;
 }
 
 // Default playbook patterns - used when job doesn't have custom playbook
@@ -156,12 +166,17 @@ Be SPECIFIC - name institutions, dates, and achievements. If you cannot find spe
     const content = data.choices?.[0]?.message?.content || '';
     const citations = data.citations || [];
 
-    // Quick parse - just look for key info
+    // Parse the structured format from Perplexity
+    const parsed = parseStructuredResearch(content);
+    
+    // Build details object from parsed content
     const details = {
-      fellowship: extractSection(content, ['fellowship', 'training', 'residency']),
-      employer: extractSection(content, ['hospital', 'employer', 'works at', 'affiliated', 'practicing at']),
-      certifications: extractSection(content, ['board certified', 'certification', 'diplomate']),
-      publications: extractSection(content, ['published', 'research', 'author']),
+      fellowship: parsed.training || extractSection(content, ['fellowship', 'training', 'residency']),
+      employer: parsed.employer || extractSection(content, ['hospital', 'employer', 'works at', 'affiliated', 'practicing at']),
+      certifications: parsed.credentials || extractSection(content, ['board certified', 'certification', 'diplomate']),
+      publications: parsed.notable || extractSection(content, ['published', 'research', 'author']),
+      // Store the structured data for saving to DB
+      structured: parsed,
     };
 
     return {
@@ -173,6 +188,41 @@ Be SPECIFIC - name institutions, dates, and achievements. If you cannot find spe
     console.error('Deep research error:', error);
     return { summary: '', sources: [], details: {} };
   }
+}
+
+// Parse the structured research format: 1. **EMPLOYER**: ... 2. **TRAINING**: ...
+function parseStructuredResearch(summary: string): {
+  employer?: string;
+  training?: string;
+  credentials?: string;
+  notable?: string;
+} {
+  const result: { employer?: string; training?: string; credentials?: string; notable?: string } = {};
+  
+  if (!summary) return result;
+  
+  const patterns = [
+    { key: 'employer' as const, regex: /\*\*EMPLOYER\*\*:?\s*([^*]+?)(?=\d+\.\s*\*\*|$)/i },
+    { key: 'training' as const, regex: /\*\*TRAINING\*\*:?\s*([^*]+?)(?=\d+\.\s*\*\*|$)/i },
+    { key: 'credentials' as const, regex: /\*\*CREDENTIALS\*\*:?\s*([^*]+?)(?=\d+\.\s*\*\*|$)/i },
+    { key: 'notable' as const, regex: /\*\*NOTABLE\*\*:?\s*([^*]+?)(?=\d+\.\s*\*\*|$)/i },
+  ];
+  
+  for (const { key, regex } of patterns) {
+    const match = summary.match(regex);
+    if (match && match[1]) {
+      let value = match[1].trim();
+      // Remove citation markers like [1][2][3]
+      value = value.replace(/\[\d+\]/g, '').trim();
+      // Remove leading numbers
+      value = value.replace(/^\d+\.\s*/, '');
+      if (value.length > 10) {
+        result[key] = value;
+      }
+    }
+  }
+  
+  return result;
 }
 
 function extractSection(text: string, keywords: string[]): string | null {
@@ -467,7 +517,12 @@ async function processCandidate(
     research_sources: researchSources,
     talking_points,
     icebreaker,
-    research_summary: researchSummary || undefined
+    research_summary: researchSummary || undefined,
+    // Include structured research for saving to candidate_research table
+    structured_research: researchDetails?.structured || null,
+    employer_researched: researchDetails?.employer || null,
+    training_researched: researchDetails?.fellowship || null,
+    credentials_researched: researchDetails?.certifications || null,
   };
 }
 
@@ -722,10 +777,12 @@ serve(async (req) => {
     // Combine new results with cached results
     const allResults = [...newResults, ...cachedResults];
 
-    // Store only NEW results in candidate_job_matches (in parallel)
+    // Store only NEW results in candidate_job_matches AND candidate_research (in parallel)
     const upsertPromises = newResults.map(async (result: PersonalizationResult) => {
       try {
         console.log(`Saving deep research for candidate ${result.candidate_id}: icebreaker="${result.icebreaker?.substring(0, 30)}...", talking_points=${result.talking_points?.length || 0}`);
+        
+        // 1. Save to candidate_job_matches (existing behavior)
         const { data, error } = await supabase.rpc('upsert_candidate_job_match', {
           p_candidate_id: result.candidate_id,
           p_job_id: job_id,
@@ -742,7 +799,40 @@ serve(async (req) => {
         if (error) {
           console.error(`RPC error for ${result.candidate_id}:`, error);
         } else {
-          console.log(`Successfully saved research for ${result.candidate_id}, match_id: ${data}`);
+          console.log(`Successfully saved to candidate_job_matches for ${result.candidate_id}, match_id: ${data}`);
+        }
+        
+        // 2. Save structured research to candidate_research table (NEW)
+        if (result.structured_research || result.research_summary) {
+          const structured = result.structured_research || {};
+          
+          // Build professional_highlights array from structured data
+          const highlights: string[] = [];
+          if (structured.employer) highlights.push(structured.employer);
+          if (structured.training) highlights.push(structured.training);
+          if (structured.credentials) highlights.push(structured.credentials);
+          if (structured.notable) highlights.push(structured.notable);
+          
+          // Upsert to candidate_research
+          const { error: researchError } = await supabase
+            .from('candidate_research')
+            .upsert({
+              candidate_id: result.candidate_id,
+              credentials_summary: structured.credentials || null,
+              professional_highlights: highlights.length > 0 ? highlights : null,
+              research_source: 'perplexity_deep',
+              research_confidence: result.confidence,
+              last_researched_at: new Date().toISOString(),
+            }, {
+              onConflict: 'candidate_id',
+              ignoreDuplicates: false
+            });
+          
+          if (researchError) {
+            console.error(`Failed to save to candidate_research for ${result.candidate_id}:`, researchError);
+          } else {
+            console.log(`Successfully saved to candidate_research for ${result.candidate_id} with ${highlights.length} highlights`);
+          }
         }
       } catch (e) {
         console.error('Failed to upsert match:', e);
