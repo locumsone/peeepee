@@ -589,9 +589,21 @@ const CandidateMatching = () => {
 
   // Deep research via Perplexity for personalization hooks - processes in batches with live progress
   const deepResearchCandidates = async (candidateIds: string[]) => {
-    const candidatesToResearch = candidates.filter(c => candidateIds.includes(c.id));
+    // Filter out already deep-researched candidates to avoid wasting API calls
+    const candidatesToResearch = candidates.filter(c => 
+      candidateIds.includes(c.id) && !c.deep_researched
+    );
     
-    if (candidatesToResearch.length === 0) return;
+    if (candidatesToResearch.length === 0) {
+      toast.info("All selected candidates already have deep research");
+      return;
+    }
+    
+    // Notify user if some were skipped
+    const skippedCount = candidateIds.length - candidatesToResearch.length;
+    if (skippedCount > 0) {
+      toast.info(`Skipping ${skippedCount} already deep-researched candidates`);
+    }
     
     setDeepResearchingIds(prev => new Set([...prev, ...candidateIds]));
     setDeepResearchProgress({ current: 0, total: candidatesToResearch.length });
@@ -684,6 +696,10 @@ const CandidateMatching = () => {
 
   // Handle single candidate deep research
   const handleDeepResearchCandidate = (candidate: Candidate) => {
+    if (candidate.deep_researched) {
+      toast.info("This candidate already has deep research");
+      return;
+    }
     deepResearchCandidates([candidate.id]);
   };
 
