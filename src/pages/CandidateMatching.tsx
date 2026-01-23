@@ -580,30 +580,42 @@ const CandidateMatching = () => {
     }
   };
 
-  // Deep research via Perplexity for personalization hooks - processes in batches
+  // Deep research progress state
+  const [deepResearchProgress, setDeepResearchProgress] = useState<{
+    current: number;
+    total: number;
+    currentName?: string;
+  } | null>(null);
+
+  // Deep research via Perplexity for personalization hooks - processes in batches with live progress
   const deepResearchCandidates = async (candidateIds: string[]) => {
     const candidatesToResearch = candidates.filter(c => candidateIds.includes(c.id));
     
     if (candidatesToResearch.length === 0) return;
     
     setDeepResearchingIds(prev => new Set([...prev, ...candidateIds]));
+    setDeepResearchProgress({ current: 0, total: candidatesToResearch.length });
     
-    const BATCH_SIZE = 15; // Keep under backend limit of 20 for safety
-    const batches: string[][] = [];
+    const BATCH_SIZE = 10; // Slightly smaller for faster feedback
+    const batches: Candidate[][] = [];
     
     for (let i = 0; i < candidatesToResearch.length; i += BATCH_SIZE) {
-      batches.push(candidatesToResearch.slice(i, i + BATCH_SIZE).map(c => c.id));
+      batches.push(candidatesToResearch.slice(i, i + BATCH_SIZE));
     }
     
     try {
       let processedCount = 0;
       
       for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
-        const batchIds = batches[batchIndex];
+        const batch = batches[batchIndex];
+        const batchIds = batch.map(c => c.id);
         
-        if (batches.length > 1) {
-          toast.info(`Processing batch ${batchIndex + 1}/${batches.length} (${batchIds.length} candidates)`);
-        }
+        // Update progress with current batch info
+        setDeepResearchProgress({
+          current: processedCount,
+          total: candidatesToResearch.length,
+          currentName: batch[0] ? `${batch[0].first_name} ${batch[0].last_name}` : undefined
+        });
         
         const response = await fetch(
           "https://qpvyzyspwxwtwjhfcuhh.supabase.co/functions/v1/personalization-research",
@@ -614,15 +626,15 @@ const CandidateMatching = () => {
               candidate_ids: batchIds,
               job_id: effectiveJobId,
               deep_research: true,
-              batch_size: 3, // Smaller internal batch for parallel API calls
+              batch_size: 5, // Larger internal batch since API calls are faster now
             }),
           }
         );
 
         if (!response.ok) {
-          const errorText = await response.text();
-          console.error(`Batch ${batchIndex + 1} error:`, errorText);
-          toast.error(`Batch ${batchIndex + 1} failed - continuing with next batch`);
+          console.error(`Batch ${batchIndex + 1} error:`, await response.text());
+          // Continue with next batch
+          processedCount += batch.length;
           continue;
         }
 
@@ -644,7 +656,13 @@ const CandidateMatching = () => {
           };
         }));
         
-        processedCount += data.results?.length || 0;
+        processedCount += data.results?.length || batch.length;
+        
+        // Update progress
+        setDeepResearchProgress({
+          current: processedCount,
+          total: candidatesToResearch.length,
+        });
         
         // Clear completed batch from deepResearchingIds
         setDeepResearchingIds(prev => {
@@ -659,7 +677,8 @@ const CandidateMatching = () => {
       console.error("Deep research error:", error);
       toast.error(error.message || "Failed to deep research candidates");
     } finally {
-      setDeepResearchingIds(new Set()); // Clear all remaining
+      setDeepResearchingIds(new Set());
+      setDeepResearchProgress(null);
     }
   };
 
@@ -1115,7 +1134,12 @@ const CandidateMatching = () => {
             />
             <OperationProgress
               isActive={deepResearchingIds.size > 0 || bulkDeepResearching}
-              label={`🔮 Deep researching ${deepResearchingIds.size} candidate${deepResearchingIds.size !== 1 ? 's' : ''} (Perplexity web search)`}
+              label={deepResearchProgress 
+                ? `🔮 Deep researching ${deepResearchProgress.currentName ? `"${deepResearchProgress.currentName}"` : ''} (${deepResearchProgress.current}/${deepResearchProgress.total})`
+                : `🔮 Deep researching ${deepResearchingIds.size} candidate${deepResearchingIds.size !== 1 ? 's' : ''}`
+              }
+              current={deepResearchProgress?.current}
+              total={deepResearchProgress?.total}
             />
             <OperationProgress
               isActive={searchingAlphaSophia}
