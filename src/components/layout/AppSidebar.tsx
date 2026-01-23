@@ -12,6 +12,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { Link } from "react-router-dom";
+import logoImage from "@/assets/logo.png";
 
 const navItems = [
   { title: "Dashboard", url: "/dashboard", icon: Home, emoji: "🏠" },
@@ -31,9 +32,11 @@ export function AppSidebar() {
     <Sidebar className="border-r border-border/50 bg-card">
       <SidebarHeader className="border-b border-border/50 p-4">
         <Link to="/dashboard" className="flex items-center gap-3 group">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl gradient-primary shadow-md group-hover:shadow-glow transition-shadow duration-300 shrink-0">
-            <span className="text-xl">🐱</span>
-          </div>
+          <img 
+            src={logoImage} 
+            alt="Locums One" 
+            className="h-10 w-10 rounded-xl shadow-md group-hover:shadow-glow transition-shadow duration-300 shrink-0"
+          />
           {!collapsed && (
             <div className="flex flex-col">
               <span className="font-display text-xl font-bold text-gradient">
