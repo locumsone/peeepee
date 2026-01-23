@@ -879,7 +879,7 @@ const CandidateMatching = () => {
       }
     }
     
-    navigate("/campaigns/new/channels");
+    navigate("/campaigns/new/personalize");
   };
 
   // Key indicators for a candidate

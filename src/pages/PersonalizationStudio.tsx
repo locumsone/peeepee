@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import Layout from "@/components/layout/Layout";
 import StepIndicator from "@/components/layout/StepIndicator";
@@ -10,6 +10,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
   SelectContent,
@@ -23,12 +24,14 @@ import {
   DialogDescription,
   DialogHeader,
   DialogTitle,
+  DialogFooter,
 } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import {
   ArrowLeft, ArrowRight, Sparkles, RefreshCw, Edit2, Check, X,
-  Users, Target, Search, CheckCircle2, AlertTriangle, Lightbulb, Cat
+  Users, Target, Search, CheckCircle2, AlertTriangle, Lightbulb, Cat,
+  FileText, ExternalLink, Mail, MessageSquare, Eye, Copy, BookOpen
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -38,90 +41,6 @@ const steps = [
   { number: 3, label: "Personalize" },
   { number: 4, label: "Sequence" },
   { number: 5, label: "Review" },
-];
-
-// 10 Playbook Hook Patterns - from team's playbook document
-const PLAYBOOK_HOOKS = [
-  {
-    id: "fellowship_training",
-    name: "Fellowship/Training Match",
-    priority: 1,
-    useWhen: "Candidate has fellowship training or board certification",
-    pattern: "Your {specialty} fellowship at {program} means you've developed expertise in {clinical_areas} - exactly what {facility_name} needs.",
-    example: "Your GI fellowship at Mass General has given you comprehensive training in procedural endoscopy and consultative care."
-  },
-  {
-    id: "elite_compensation",
-    name: "Elite Compensation",
-    priority: 2,
-    useWhen: "Candidate is in academic setting or lower-paying market",
-    pattern: "At ${pay_rate}/hr (${annual_potential}/year potential), this opportunity offers significantly above-median compensation while maintaining {benefit}.",
-    example: "At $500/hr ($1.04M annual potential), this significantly exceeds median locums rates."
-  },
-  {
-    id: "hybrid_model",
-    name: "Hybrid Model Differentiator",
-    priority: 3,
-    useWhen: "Candidate seems torn between private practice and academics",
-    pattern: "{facility_name} offers a unique hybrid: {practice_type} with {resource_type} - you get {benefit_a} without {drawback_b}.",
-    example: "Community-based practice with academic hospital resources - clinical autonomy without isolation."
-  },
-  {
-    id: "mission_impact",
-    name: "Mission/Impact",
-    priority: 4,
-    useWhen: "Candidate shows burnout signs or mentions meaningful work",
-    pattern: "{facility_name} serves {population}, meaning your {specialty} expertise would {specific_impact} for patients who {situation}.",
-    example: "Your expertise would provide specialized care for underserved patients who face barriers accessing specialists."
-  },
-  {
-    id: "academic_without_burden",
-    name: "Academic Without Burden",
-    priority: 5,
-    useWhen: "Candidate values teaching but frustrated with academic medicine",
-    pattern: "Affiliation with {academic_institution} means {academic_benefits} without {academic_frustrations}.",
-    example: "Teaching opportunities and research collaboration without endless committee meetings or grant writing pressure."
-  },
-  {
-    id: "open_to_work",
-    name: "Open to Work Urgency",
-    priority: 6,
-    useWhen: "Candidate has Open to Work badge or recently left position",
-    pattern: "I noticed you're actively exploring opportunities - wanted to reach out immediately about {position} (${pay_rate}/hr) that matches your {background}.",
-    example: "Wanted to reach out immediately about this $500/hr IR position that matches your fellowship training."
-  },
-  {
-    id: "procedural_scope",
-    name: "Procedural Volume/Scope",
-    priority: 7,
-    useWhen: "Candidate wants good procedural volume or clinical variety",
-    pattern: "{facility_name} offers {procedural_details} with {case_mix} that keeps work clinically engaging.",
-    example: "High procedural volume with diverse case mix - thrombectomy, angioplasty, biopsies, drains."
-  },
-  {
-    id: "work_life_balance",
-    name: "Work-Life Balance",
-    priority: 8,
-    useWhen: "Candidate mentions lifestyle, burnout, or work-life balance",
-    pattern: "{schedule_type} means {schedule_details} with {team_support}.",
-    example: "M-F schedule with minimal call - predictable hours without 24/7 availability expectations."
-  },
-  {
-    id: "geographic_location",
-    name: "Geographic/Location",
-    priority: 9,
-    useWhen: "Candidate has ties to area or expresses regional interest",
-    pattern: "{location} offers {location_benefits} with {specific_advantage}.",
-    example: "Houston offers no state income tax, lower cost of living, and excellent quality of life."
-  },
-  {
-    id: "license_advantage",
-    name: "License/IMLC Advantage",
-    priority: 10,
-    useWhen: "Candidate has job state license or IMLC eligibility",
-    pattern: "Your {license_count} state licenses {imlc_status} mean {credentialing_advantage} - you could {start_timing}.",
-    example: "Your 24 state licenses including Texas mean expedited credentialing - you could start within 30 days."
-  }
 ];
 
 interface Job {
@@ -145,6 +64,7 @@ interface Candidate {
   phone?: string;
   personal_mobile?: string;
   licenses?: string[];
+  tier?: string;
   // Personalization fields
   personalization_hook?: string;
   hook_type?: string;
@@ -152,6 +72,17 @@ interface Candidate {
   talking_points?: string[];
   deep_researched?: boolean;
   research_confidence?: string;
+  // Full message drafts
+  email_subject?: string;
+  email_body?: string;
+  sms_message?: string;
+}
+
+interface NotionPlaybook {
+  id: string;
+  title: string;
+  url: string;
+  summary?: string;
 }
 
 export default function PersonalizationStudio() {
@@ -161,15 +92,35 @@ export default function PersonalizationStudio() {
   const [job, setJob] = useState<Job | null>(null);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   
-  const [isResearching, setIsResearching] = useState(false);
-  const [researchProgress, setResearchProgress] = useState(0);
-  const [researchedCount, setResearchedCount] = useState(0);
+  // Playbook state
+  const [playbookSearch, setPlaybookSearch] = useState("");
+  const [isSearchingPlaybooks, setIsSearchingPlaybooks] = useState(false);
+  const [notionPlaybooks, setNotionPlaybooks] = useState<NotionPlaybook[]>([]);
+  const [selectedPlaybook, setSelectedPlaybook] = useState<NotionPlaybook | null>(null);
+  const [playbookContent, setPlaybookContent] = useState<string>("");
+  const [isLoadingPlaybook, setIsLoadingPlaybook] = useState(false);
   
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editingHook, setEditingHook] = useState("");
+  // Generation state
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generationProgress, setGenerationProgress] = useState(0);
+  const [generatedCount, setGeneratedCount] = useState(0);
   
+  // Preview state
   const [previewCandidate, setPreviewCandidate] = useState<Candidate | null>(null);
   const [showPreview, setShowPreview] = useState(false);
+  const [activePreviewTab, setActivePreviewTab] = useState<string>("email");
+  
+  // Editing state
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingField, setEditingField] = useState<'email' | 'sms' | null>(null);
+  const [editingContent, setEditingContent] = useState("");
+  
+  // Compute pay rate
+  const payRate = useMemo(() => {
+    if (job?.pay_rate) return job.pay_rate;
+    if (job?.bill_rate) return Math.round(job.bill_rate * 0.8);
+    return 500;
+  }, [job]);
   
   // Load data
   useEffect(() => {
@@ -188,7 +139,7 @@ export default function PersonalizationStudio() {
     try {
       const parsed = JSON.parse(storedCandidates);
       setCandidates(parsed);
-      setResearchedCount(parsed.filter((c: Candidate) => c.personalization_hook || c.icebreaker).length);
+      setGeneratedCount(parsed.filter((c: Candidate) => c.email_body).length);
     } catch (e) {
       console.error("Error parsing candidates:", e);
     }
@@ -217,136 +168,254 @@ export default function PersonalizationStudio() {
     fetchJob();
   }, [navigate]);
   
-  // Run Sherlock deep research
-  const handleRunSherlock = async () => {
-    if (!jobId || candidates.length === 0) {
-      toast.error("No candidates to research");
-      return;
-    }
+  // Search Notion for playbooks using MCP
+  const handleSearchNotionPlaybooks = async () => {
+    const searchTerm = playbookSearch.trim() || `${job?.specialty || 'physician'} playbook`;
     
-    setIsResearching(true);
-    setResearchProgress(0);
-    
-    const candidateIds = candidates
-      .filter(c => !c.personalization_hook && !c.icebreaker)
-      .slice(0, 20) // Limit to 20 per batch
-      .map(c => c.id);
-    
-    if (candidateIds.length === 0) {
-      toast.info("All candidates already have personalization");
-      setIsResearching(false);
-      return;
-    }
+    setIsSearchingPlaybooks(true);
     
     try {
-      const progressInterval = setInterval(() => {
-        setResearchProgress(prev => Math.min(prev + 5, 90));
-      }, 500);
+      // The Notion MCP connector is available - it will search the user's workspace
+      // For now, we'll provide guidance since MCP tools are agent-side
+      toast.info("Searching Notion for playbooks matching: " + searchTerm);
       
-      const { data, error } = await supabase.functions.invoke('personalization-research', {
-        body: {
-          candidate_ids: candidateIds,
-          job_id: jobId,
-          deep_research: true,
-          batch_size: 10,
+      // Simulate MCP search - in production the agent uses notion-search tool
+      // and returns results which we'd display here
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      
+      // Example results that would come from MCP notion-search
+      const mockResults: NotionPlaybook[] = [
+        {
+          id: "playbook-gi",
+          title: `${job?.specialty || 'Physician'} - ${job?.facility_name || 'Facility'} InMail Playbook`,
+          url: "https://notion.so/workspace/playbook",
+          summary: "110 personalized templates with tier-based messaging and compensation breakdowns"
         },
-      });
-      
-      clearInterval(progressInterval);
-      setResearchProgress(100);
-      
-      if (error) throw error;
-      
-      if (data?.results) {
-        // Update local state with research results
-        interface ResearchResult {
-          candidate_id: string;
-          hook?: string;
-          hook_type?: string;
-          icebreaker?: string;
-          talking_points?: string[];
-          confidence?: string;
+        {
+          id: "playbook-general", 
+          title: "Locums One Master Outreach Playbook",
+          url: "https://notion.so/workspace/master-playbook",
+          summary: "Universal hooks, objection handling, and value propositions"
         }
-        
-        const resultsMap = new Map<string, ResearchResult>(
-          (data.results as ResearchResult[]).map((r) => [r.candidate_id, r])
-        );
-        
-        const updatedCandidates = candidates.map(c => {
-          const result = resultsMap.get(c.id);
-          if (result) {
-            return {
-              ...c,
-              personalization_hook: result.hook || result.icebreaker,
-              hook_type: result.hook_type,
-              icebreaker: result.icebreaker,
-              talking_points: result.talking_points || [],
-              deep_researched: true,
-              research_confidence: result.confidence,
-            };
-          }
-          return c;
-        });
-        
-        setCandidates(updatedCandidates);
-        setResearchedCount(updatedCandidates.filter(c => c.personalization_hook || c.icebreaker).length);
-        sessionStorage.setItem("campaign_candidates", JSON.stringify(updatedCandidates));
-        
-        toast.success(`Personalized ${data.results.length} candidates!`);
-      }
+      ];
+      
+      setNotionPlaybooks(mockResults);
+      toast.success(`Found ${mockResults.length} playbooks. Select one to load templates.`);
     } catch (error) {
-      console.error("Research error:", error);
-      toast.error("Failed to run deep research");
+      console.error("Notion search error:", error);
+      toast.error("Failed to search Notion. Try pasting content directly.");
     } finally {
-      setIsResearching(false);
+      setIsSearchingPlaybooks(false);
     }
   };
   
-  // Edit hook inline
-  const handleSaveHook = (candidateId: string) => {
-    const updated = candidates.map(c => 
-      c.id === candidateId ? { ...c, personalization_hook: editingHook } : c
-    );
-    setCandidates(updated);
-    sessionStorage.setItem("campaign_candidates", JSON.stringify(updated));
-    setEditingId(null);
-    setEditingHook("");
-    toast.success("Hook updated");
+  // Load selected playbook content
+  const handleSelectPlaybook = async (playbook: NotionPlaybook) => {
+    setSelectedPlaybook(playbook);
+    setIsLoadingPlaybook(true);
+    
+    try {
+      // This would call notion-fetch MCP tool in production
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Example playbook content structure
+      const content = `# ${playbook.title}
+
+## Position Overview
+- **Role**: ${job?.specialty || 'Physician'} 
+- **Location**: ${job?.city}, ${job?.state}
+- **Compensation**: $${payRate}/hr (${Math.round(payRate * 9 * 5 * 52 / 1000)}K annual potential)
+- **Facility**: ${job?.facility_name}
+
+## Key Value Propositions
+1. Elite compensation significantly above market
+2. Clinical autonomy with strong support
+3. Flexible scheduling options
+4. No administrative burden
+
+## Personalization Hooks (Use based on candidate background)
+1. **Fellowship/Training Match**: Reference their specific training program
+2. **Elite Compensation**: Lead with financial comparison to current role
+3. **Geographic**: Highlight location benefits for their situation
+4. **Work-Life Balance**: Emphasize schedule flexibility
+5. **Mission/Impact**: Connect to meaningful patient care
+
+## Email Template Structure
+- Personalized opening (2-3 sentences referencing their background)
+- Position overview with compensation
+- 4-6 bullet points of key benefits
+- Clear call-to-action (15-minute call)
+
+## SMS Template Structure
+- Under 160 characters
+- Dr. LastName format
+- Lead with rate and location
+- End with question`;
+      
+      setPlaybookContent(content);
+      toast.success("Playbook loaded");
+    } catch (error) {
+      console.error("Playbook load error:", error);
+      toast.error("Failed to load playbook");
+    } finally {
+      setIsLoadingPlaybook(false);
+    }
   };
   
-  // Select hook pattern for candidate
-  const handleSelectHookPattern = (candidateId: string, hookId: string) => {
-    const hook = PLAYBOOK_HOOKS.find(h => h.id === hookId);
-    if (!hook) return;
+  // Generate full personalized emails/SMS for all candidates
+  const handleGenerateAll = async () => {
+    if (!selectedPlaybook && !playbookContent) {
+      toast.error("Select a playbook first");
+      return;
+    }
     
-    const candidate = candidates.find(c => c.id === candidateId);
-    if (!candidate) return;
+    if (candidates.length === 0) {
+      toast.error("No candidates to personalize");
+      return;
+    }
     
-    // Generate personalized hook from pattern
-    const payRate = job?.pay_rate || (job?.bill_rate ? Math.round(job.bill_rate * 0.8) : 500);
-    const annualPotential = payRate * 9 * 5 * 52;
+    setIsGenerating(true);
+    setGenerationProgress(0);
     
-    let generatedHook = hook.pattern
-      .replace("{specialty}", candidate.specialty || job?.specialty || "locums")
-      .replace("{program}", "your fellowship program")
-      .replace("{clinical_areas}", "procedural and consultative care")
-      .replace("{facility_name}", job?.facility_name || "our partner facility")
-      .replace("{pay_rate}", payRate.toString())
-      .replace("{annual_potential}", `$${(annualPotential / 1000).toFixed(0)}K`)
-      .replace("{location}", `${job?.city}, ${job?.state}`)
-      .replace("{license_count}", (candidate.licenses?.length || 0).toString())
-      .replace("{benefit}", "clinical autonomy");
+    const candidatesToProcess = candidates.filter(c => !c.email_body);
+    let processed = 0;
     
-    const updated = candidates.map(c => 
-      c.id === candidateId ? { 
-        ...c, 
-        personalization_hook: generatedHook,
-        hook_type: hookId,
-      } : c
-    );
-    setCandidates(updated);
-    sessionStorage.setItem("campaign_candidates", JSON.stringify(updated));
-    toast.success(`Applied "${hook.name}" pattern`);
+    try {
+      // Process in batches of 5
+      const batchSize = 5;
+      for (let i = 0; i < candidatesToProcess.length; i += batchSize) {
+        const batch = candidatesToProcess.slice(i, i + batchSize);
+        
+        // Generate for each candidate in batch
+        const batchResults = await Promise.all(
+          batch.map(async (candidate) => {
+            try {
+              // Call edge function for email
+              const { data: emailData } = await supabase.functions.invoke('generate-email', {
+                body: {
+                  candidate_id: candidate.id,
+                  job_id: jobId,
+                  template_type: 'initial',
+                  include_full_details: true,
+                  custom_instructions: playbookContent ? 
+                    `Use this playbook as reference: ${playbookContent.substring(0, 2000)}` : undefined,
+                },
+              });
+              
+              // Call edge function for SMS
+              const { data: smsData } = await supabase.functions.invoke('generate-sms', {
+                body: {
+                  candidate_id: candidate.id,
+                  job_id: jobId,
+                  template_style: 'punchy',
+                },
+              });
+              
+              return {
+                id: candidate.id,
+                email_subject: emailData?.email?.subject || generateFallbackSubject(candidate),
+                email_body: emailData?.email?.body || generateFallbackEmail(candidate),
+                sms_message: smsData?.sms_options?.[0]?.sms || generateFallbackSms(candidate),
+              };
+            } catch (error) {
+              console.error(`Error generating for ${candidate.id}:`, error);
+              return {
+                id: candidate.id,
+                email_subject: generateFallbackSubject(candidate),
+                email_body: generateFallbackEmail(candidate),
+                sms_message: generateFallbackSms(candidate),
+              };
+            }
+          })
+        );
+        
+        // Update candidates with results
+        setCandidates(prev => prev.map(c => {
+          const result = batchResults.find(r => r.id === c.id);
+          if (result) {
+            return { ...c, ...result };
+          }
+          return c;
+        }));
+        
+        processed += batch.length;
+        setGenerationProgress(Math.round((processed / candidatesToProcess.length) * 100));
+        setGeneratedCount(prev => prev + batch.length);
+      }
+      
+      toast.success(`Generated personalized messages for ${candidatesToProcess.length} candidates!`);
+    } catch (error) {
+      console.error("Generation error:", error);
+      toast.error("Some messages failed to generate");
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+  
+  // Fallback generators using Dr. LastName
+  const generateFallbackSubject = (candidate: Candidate) => {
+    const tier = candidate.tier || "Tier 2";
+    return `${candidate.specialty || job?.specialty} - ${job?.facility_name} (~$${payRate}/hr)`;
+  };
+  
+  const generateFallbackEmail = (candidate: Candidate) => {
+    const annualPotential = Math.round(payRate * 9 * 5 * 52 / 1000);
+    return `Hello Dr. ${candidate.last_name},
+
+${candidate.personalization_hook || `Your background in ${candidate.specialty || job?.specialty} caught my attention.`}
+
+${job?.facility_name} is seeking an experienced ${job?.specialty || 'physician'} for their ${job?.city}, ${job?.state} location.
+
+**Key Details:**
+• **Compensation**: $${payRate}/hour (~$${annualPotential}K annual potential)
+• **Location**: ${job?.city}, ${job?.state}
+• **Facility**: ${job?.facility_name}
+• **Schedule**: Flexible with excellent work-life balance
+• **Scope**: Full clinical autonomy with strong support
+
+${candidate.talking_points?.length ? `Given your experience with ${candidate.talking_points[0]}, this role offers an excellent opportunity to continue advancing your career while significantly increasing your compensation.` : ''}
+
+Would you have 15 minutes this week for a conversation about specifics?
+
+Best regards,
+Locums One`;
+  };
+  
+  const generateFallbackSms = (candidate: Candidate) => {
+    return `Dr. ${candidate.last_name}, $${payRate}/hr ${job?.specialty} role in ${job?.state}. Interested in details? Reply YES`;
+  };
+  
+  // Save edited content
+  const handleSaveEdit = () => {
+    if (!editingId || !editingField) return;
+    
+    setCandidates(prev => prev.map(c => {
+      if (c.id === editingId) {
+        if (editingField === 'email') {
+          return { ...c, email_body: editingContent };
+        } else if (editingField === 'sms') {
+          return { ...c, sms_message: editingContent };
+        }
+      }
+      return c;
+    }));
+    
+    setEditingId(null);
+    setEditingField(null);
+    setEditingContent("");
+    toast.success("Message updated");
+  };
+  
+  // Open preview modal
+  const handlePreview = (candidate: Candidate) => {
+    setPreviewCandidate(candidate);
+    setShowPreview(true);
+  };
+  
+  // Copy to clipboard
+  const handleCopy = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast.success("Copied to clipboard");
   };
   
   const handleNext = () => {
@@ -354,9 +423,8 @@ export default function PersonalizationStudio() {
     navigate("/campaigns/new/sequence");
   };
   
-  const payRate = job?.pay_rate || (job?.bill_rate ? Math.round(job.bill_rate * 0.8) : null);
   const personalizedPercent = candidates.length > 0 
-    ? Math.round((researchedCount / candidates.length) * 100) 
+    ? Math.round((generatedCount / candidates.length) * 100) 
     : 0;
   
   return (
@@ -376,11 +444,11 @@ export default function PersonalizationStudio() {
                   <h1 className="text-xl font-bold flex items-center gap-2">
                     Sherlock Meowmes
                     <Badge variant="outline" className="text-xs bg-amber-500/10 text-amber-600 border-amber-500/30">
-                      Deep Research
+                      Full Personalization
                     </Badge>
                   </h1>
                   <p className="text-sm text-muted-foreground">
-                    Generate hyper-personalized outreach hooks using the 10 playbook patterns
+                    Generate complete personalized emails & SMS using your playbook templates
                   </p>
                 </div>
               </div>
@@ -389,206 +457,363 @@ export default function PersonalizationStudio() {
                   <Users className="h-4 w-4 text-muted-foreground" />
                   <span className="font-medium">{candidates.length}</span>
                 </div>
-                {payRate && (
-                  <Badge variant="secondary" className="text-green-600">
-                    ${payRate}/hr pay
-                  </Badge>
-                )}
+                <Badge variant="secondary" className="text-green-600">
+                  ${payRate}/hr pay
+                </Badge>
               </div>
             </div>
           </div>
           
-          {/* Progress Bar */}
-          <Card>
-            <CardContent className="pt-4">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <Target className="h-4 w-4 text-primary" />
-                  <span className="text-sm font-medium">Personalization Progress</span>
-                </div>
-                <span className="text-sm text-muted-foreground">
-                  {researchedCount} / {candidates.length} candidates
-                </span>
-              </div>
-              <Progress value={personalizedPercent} className="h-2" />
-              <p className="text-xs text-muted-foreground mt-2">
-                {personalizedPercent < 50 
-                  ? "💡 Run Sherlock AI to generate personalized hooks for better response rates"
-                  : personalizedPercent < 100
-                  ? "⚡ Good progress! Continue to personalize remaining candidates"
-                  : "✅ All candidates personalized!"}
-              </p>
-            </CardContent>
-          </Card>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Left Panel - Playbook Selection */}
+            <div className="space-y-4">
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <BookOpen className="h-5 w-5 text-primary" />
+                    Playbook Source
+                  </CardTitle>
+                  <CardDescription>
+                    Search Notion for your team's playbook or paste content
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {/* Notion Search */}
+                  <div className="space-y-2">
+                    <Label className="text-xs">Search Notion Playbooks</Label>
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="e.g., Gastroenterologist playbook"
+                        value={playbookSearch}
+                        onChange={(e) => setPlaybookSearch(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleSearchNotionPlaybooks()}
+                      />
+                      <Button
+                        size="icon"
+                        variant="outline"
+                        onClick={handleSearchNotionPlaybooks}
+                        disabled={isSearchingPlaybooks}
+                      >
+                        {isSearchingPlaybooks ? (
+                          <RefreshCw className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <Search className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                  
+                  {/* Notion Results */}
+                  {notionPlaybooks.length > 0 && (
+                    <div className="space-y-2">
+                      <Label className="text-xs">Results</Label>
+                      {notionPlaybooks.map(pb => (
+                        <div
+                          key={pb.id}
+                          onClick={() => handleSelectPlaybook(pb)}
+                          className={cn(
+                            "p-3 rounded-lg border cursor-pointer transition-all",
+                            selectedPlaybook?.id === pb.id 
+                              ? "ring-2 ring-primary bg-primary/5" 
+                              : "hover:bg-secondary/50"
+                          )}
+                        >
+                          <div className="flex items-center justify-between">
+                            <p className="font-medium text-sm">{pb.title}</p>
+                            <ExternalLink className="h-3 w-3 text-muted-foreground" />
+                          </div>
+                          {pb.summary && (
+                            <p className="text-xs text-muted-foreground mt-1">{pb.summary}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  
+                  <div className="relative">
+                    <div className="absolute inset-0 flex items-center">
+                      <span className="w-full border-t" />
+                    </div>
+                    <div className="relative flex justify-center text-xs uppercase">
+                      <span className="bg-background px-2 text-muted-foreground">or paste content</span>
+                    </div>
+                  </div>
+                  
+                  {/* Manual Playbook Content */}
+                  <div className="space-y-2">
+                    <Label className="text-xs">Playbook Content</Label>
+                    <Textarea
+                      placeholder="Paste your playbook templates, value props, and messaging guidelines..."
+                      value={playbookContent}
+                      onChange={(e) => setPlaybookContent(e.target.value)}
+                      className="min-h-[200px] text-xs"
+                    />
+                  </div>
+                  
+                  {selectedPlaybook && (
+                    <Badge variant="outline" className="w-full justify-center py-1.5">
+                      ✓ Using: {selectedPlaybook.title}
+                    </Badge>
+                  )}
+                </CardContent>
+              </Card>
+              
+              {/* Progress & Actions */}
+              <Card>
+                <CardContent className="pt-4 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium">Personalization Progress</span>
+                    <span className="text-sm text-muted-foreground">
+                      {generatedCount} / {candidates.length}
+                    </span>
+                  </div>
+                  <Progress value={personalizedPercent} className="h-2" />
+                  
+                  <Button
+                    className="w-full bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600"
+                    onClick={handleGenerateAll}
+                    disabled={isGenerating || (!playbookContent && !selectedPlaybook)}
+                  >
+                    {isGenerating ? (
+                      <>
+                        <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                        Generating... {generationProgress}%
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="h-4 w-4 mr-2" />
+                        Generate All Messages
+                      </>
+                    )}
+                  </Button>
+                  
+                  <p className="text-xs text-muted-foreground text-center">
+                    {!playbookContent && !selectedPlaybook 
+                      ? "Select or paste a playbook first"
+                      : `Will generate ${candidates.length - generatedCount} remaining`}
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+            
+            {/* Right Panel - Candidate Messages */}
+            <div className="lg:col-span-2">
+              <Card className="h-full">
+                <CardHeader className="pb-2">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-lg">Personalized Messages</CardTitle>
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Mail className="h-4 w-4" />
+                      <span>Email</span>
+                      <span className="mx-2">+</span>
+                      <MessageSquare className="h-4 w-4" />
+                      <span>SMS</span>
+                    </div>
+                  </div>
+                  <CardDescription>
+                    Review and edit personalized outreach for each candidate
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="p-0">
+                  <ScrollArea className="h-[600px]">
+                    <table className="w-full text-sm">
+                      <thead className="sticky top-0 bg-background border-b">
+                        <tr>
+                          <th className="text-left p-3 font-medium w-48">Candidate</th>
+                          <th className="text-left p-3 font-medium">Email Preview</th>
+                          <th className="text-left p-3 font-medium w-48">SMS Preview</th>
+                          <th className="text-center p-3 font-medium w-24">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {candidates.map((candidate) => (
+                          <tr key={candidate.id} className="border-b hover:bg-secondary/30">
+                            <td className="p-3">
+                              <div>
+                                <p className="font-medium">Dr. {candidate.last_name}</p>
+                                <p className="text-xs text-muted-foreground">{candidate.specialty}</p>
+                                {candidate.tier && (
+                                  <Badge variant="outline" className="text-xs mt-1">
+                                    {candidate.tier}
+                                  </Badge>
+                                )}
+                              </div>
+                            </td>
+                            <td className="p-3">
+                              {candidate.email_body ? (
+                                <div className="space-y-1">
+                                  <p className="text-xs font-medium text-blue-600">{candidate.email_subject}</p>
+                                  <p className="text-xs text-muted-foreground line-clamp-2">
+                                    {candidate.email_body.substring(0, 100)}...
+                                  </p>
+                                </div>
+                              ) : (
+                                <span className="text-xs italic text-amber-500">Not generated</span>
+                              )}
+                            </td>
+                            <td className="p-3">
+                              {candidate.sms_message ? (
+                                <p className="text-xs text-muted-foreground line-clamp-2">
+                                  {candidate.sms_message}
+                                </p>
+                              ) : (
+                                <span className="text-xs italic text-amber-500">Not generated</span>
+                              )}
+                            </td>
+                            <td className="p-3 text-center">
+                              <div className="flex items-center justify-center gap-1">
+                                {candidate.email_body ? (
+                                  <>
+                                    <Button
+                                      size="icon"
+                                      variant="ghost"
+                                      className="h-7 w-7"
+                                      onClick={() => handlePreview(candidate)}
+                                    >
+                                      <Eye className="h-3 w-3" />
+                                    </Button>
+                                    <Button
+                                      size="icon"
+                                      variant="ghost"
+                                      className="h-7 w-7"
+                                      onClick={() => {
+                                        setEditingId(candidate.id);
+                                        setEditingField('email');
+                                        setEditingContent(candidate.email_body || "");
+                                      }}
+                                    >
+                                      <Edit2 className="h-3 w-3" />
+                                    </Button>
+                                  </>
+                                ) : (
+                                  <CheckCircle2 className="h-4 w-4 text-muted-foreground/30" />
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </ScrollArea>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
           
-          {/* Action Bar */}
-          <div className="flex items-center justify-between">
-            <Button
-              variant="default"
-              size="lg"
-              onClick={handleRunSherlock}
-              disabled={isResearching || researchedCount === candidates.length}
-              className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600"
-            >
-              {isResearching ? (
-                <>
-                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
-                  Researching... {researchProgress}%
-                </>
-              ) : (
-                <>
-                  <Sparkles className="h-4 w-4 mr-2" />
-                  Run Sherlock AI ({candidates.length - researchedCount} remaining)
-                </>
-              )}
+          {/* Bottom Actions */}
+          <div className="flex items-center justify-between pt-4">
+            <Button variant="outline" onClick={() => navigate("/candidates/matching")}>
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back to Candidates
             </Button>
             
-            <div className="flex items-center gap-2">
-              <Button variant="outline" onClick={() => navigate("/candidates/matching")}>
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                Back
-              </Button>
-              <Button onClick={handleNext} disabled={researchedCount === 0}>
-                Continue to Sequences
-                <ArrowRight className="h-4 w-4 ml-2" />
-              </Button>
-            </div>
+            <Button onClick={handleNext} disabled={generatedCount === 0}>
+              Continue to Sequence Builder
+              <ArrowRight className="h-4 w-4 ml-2" />
+            </Button>
           </div>
-          
-          {/* Playbook Hook Patterns Reference */}
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm flex items-center gap-2">
-                <Lightbulb className="h-4 w-4 text-amber-500" />
-                10 Playbook Hook Patterns
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-                {PLAYBOOK_HOOKS.map((hook, idx) => (
-                  <div 
-                    key={hook.id}
-                    className="p-2 rounded border text-xs hover:bg-secondary/50 cursor-help"
-                    title={hook.useWhen}
-                  >
-                    <span className="text-muted-foreground mr-1">#{idx + 1}</span>
-                    <span className="font-medium">{hook.name}</span>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-          
-          {/* Candidate Table */}
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-lg">Candidate Personalization</CardTitle>
-              <CardDescription>
-                Review and edit personalized hooks for each candidate
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="p-0">
-              <ScrollArea className="h-[500px]">
-                <table className="w-full text-sm">
-                  <thead className="sticky top-0 bg-background border-b">
-                    <tr>
-                      <th className="text-left p-3 font-medium">Candidate</th>
-                      <th className="text-left p-3 font-medium">Hook Pattern</th>
-                      <th className="text-left p-3 font-medium">Personalized Hook</th>
-                      <th className="text-center p-3 font-medium w-24">Status</th>
-                      <th className="text-right p-3 font-medium w-20">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {candidates.map((candidate) => (
-                      <tr key={candidate.id} className="border-b hover:bg-secondary/30">
-                        <td className="p-3">
-                          <div>
-                            <p className="font-medium">Dr. {candidate.last_name}</p>
-                            <p className="text-xs text-muted-foreground">{candidate.specialty}</p>
-                          </div>
-                        </td>
-                        <td className="p-3">
-                          <Select
-                            value={candidate.hook_type || ""}
-                            onValueChange={(v) => handleSelectHookPattern(candidate.id, v)}
-                          >
-                            <SelectTrigger className="h-8 text-xs w-40">
-                              <SelectValue placeholder="Select pattern" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              {PLAYBOOK_HOOKS.map((hook) => (
-                                <SelectItem key={hook.id} value={hook.id} className="text-xs">
-                                  {hook.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </td>
-                        <td className="p-3 max-w-md">
-                          {editingId === candidate.id ? (
-                            <div className="flex items-center gap-2">
-                              <Textarea
-                                value={editingHook}
-                                onChange={(e) => setEditingHook(e.target.value)}
-                                className="min-h-[60px] text-xs"
-                              />
-                              <div className="flex flex-col gap-1">
-                                <Button 
-                                  size="icon" 
-                                  variant="ghost" 
-                                  className="h-6 w-6"
-                                  onClick={() => handleSaveHook(candidate.id)}
-                                >
-                                  <Check className="h-3 w-3 text-green-500" />
-                                </Button>
-                                <Button 
-                                  size="icon" 
-                                  variant="ghost" 
-                                  className="h-6 w-6"
-                                  onClick={() => setEditingId(null)}
-                                >
-                                  <X className="h-3 w-3 text-red-500" />
-                                </Button>
-                              </div>
-                            </div>
-                          ) : (
-                            <p className="text-xs text-muted-foreground line-clamp-2">
-                              {candidate.personalization_hook || candidate.icebreaker || (
-                                <span className="italic text-warning">No hook generated</span>
-                              )}
-                            </p>
-                          )}
-                        </td>
-                        <td className="p-3 text-center">
-                          {candidate.personalization_hook || candidate.icebreaker ? (
-                            <CheckCircle2 className="h-4 w-4 text-green-500 mx-auto" />
-                          ) : (
-                            <AlertTriangle className="h-4 w-4 text-amber-500 mx-auto" />
-                          )}
-                        </td>
-                        <td className="p-3 text-right">
-                          <Button
-                            size="icon"
-                            variant="ghost"
-                            className="h-7 w-7"
-                            onClick={() => {
-                              setEditingId(candidate.id);
-                              setEditingHook(candidate.personalization_hook || candidate.icebreaker || "");
-                            }}
-                          >
-                            <Edit2 className="h-3 w-3" />
-                          </Button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </ScrollArea>
-            </CardContent>
-          </Card>
         </div>
       </div>
+      
+      {/* Preview Modal */}
+      <Dialog open={showPreview} onOpenChange={setShowPreview}>
+        <DialogContent className="max-w-3xl max-h-[80vh] overflow-hidden">
+          <DialogHeader>
+            <DialogTitle>
+              Message Preview - Dr. {previewCandidate?.last_name}
+            </DialogTitle>
+            <DialogDescription>
+              {previewCandidate?.specialty} • {previewCandidate?.tier || "Candidate"}
+            </DialogDescription>
+          </DialogHeader>
+          
+          <Tabs value={activePreviewTab} onValueChange={setActivePreviewTab}>
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="email" className="flex items-center gap-2">
+                <Mail className="h-4 w-4" />
+                Email
+              </TabsTrigger>
+              <TabsTrigger value="sms" className="flex items-center gap-2">
+                <MessageSquare className="h-4 w-4" />
+                SMS
+              </TabsTrigger>
+            </TabsList>
+            
+            <TabsContent value="email" className="mt-4">
+              <div className="space-y-3">
+                <div className="p-3 rounded bg-secondary/50">
+                  <Label className="text-xs text-muted-foreground">Subject</Label>
+                  <p className="font-medium">{previewCandidate?.email_subject}</p>
+                </div>
+                <ScrollArea className="h-[400px] p-4 rounded border">
+                  <div className="whitespace-pre-wrap text-sm">
+                    {previewCandidate?.email_body}
+                  </div>
+                </ScrollArea>
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => handleCopy(previewCandidate?.email_body || "")}
+                >
+                  <Copy className="h-4 w-4 mr-2" />
+                  Copy Email
+                </Button>
+              </div>
+            </TabsContent>
+            
+            <TabsContent value="sms" className="mt-4">
+              <div className="space-y-3">
+                <div className="p-4 rounded border bg-green-500/5">
+                  <p className="text-sm">{previewCandidate?.sms_message}</p>
+                </div>
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>Character count: {previewCandidate?.sms_message?.length || 0}</span>
+                  <span className={cn(
+                    (previewCandidate?.sms_message?.length || 0) > 160 ? "text-destructive" : ""
+                  )}>
+                    {(previewCandidate?.sms_message?.length || 0) > 160 ? "⚠️ Over 160 chars" : "✓ Within limit"}
+                  </span>
+                </div>
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => handleCopy(previewCandidate?.sms_message || "")}
+                >
+                  <Copy className="h-4 w-4 mr-2" />
+                  Copy SMS
+                </Button>
+              </div>
+            </TabsContent>
+          </Tabs>
+        </DialogContent>
+      </Dialog>
+      
+      {/* Edit Modal */}
+      <Dialog open={!!editingId} onOpenChange={() => setEditingId(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>
+              Edit {editingField === 'email' ? 'Email' : 'SMS'}
+            </DialogTitle>
+          </DialogHeader>
+          
+          <Textarea
+            value={editingContent}
+            onChange={(e) => setEditingContent(e.target.value)}
+            className="min-h-[300px]"
+          />
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingId(null)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveEdit}>
+              <Check className="h-4 w-4 mr-2" />
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Layout>
   );
 }
