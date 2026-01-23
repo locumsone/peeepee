@@ -580,7 +580,7 @@ const CandidateMatching = () => {
     }
   };
 
-  // Deep research via Perplexity for personalization hooks
+  // Deep research via Perplexity for personalization hooks - processes in batches
   const deepResearchCandidates = async (candidateIds: string[]) => {
     const candidatesToResearch = candidates.filter(c => candidateIds.includes(c.id));
     
@@ -588,50 +588,78 @@ const CandidateMatching = () => {
     
     setDeepResearchingIds(prev => new Set([...prev, ...candidateIds]));
     
+    const BATCH_SIZE = 15; // Keep under backend limit of 20 for safety
+    const batches: string[][] = [];
+    
+    for (let i = 0; i < candidatesToResearch.length; i += BATCH_SIZE) {
+      batches.push(candidatesToResearch.slice(i, i + BATCH_SIZE).map(c => c.id));
+    }
+    
     try {
-      const response = await fetch(
-        "https://qpvyzyspwxwtwjhfcuhh.supabase.co/functions/v1/personalization-research",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            candidate_ids: candidatesToResearch.map(c => c.id),
-            job_id: effectiveJobId,
-            deep_research: true,
-          }),
-        }
-      );
-
-      if (!response.ok) throw new Error(`Deep research API error: ${response.status}`);
-
-      const data = await response.json();
+      let processedCount = 0;
       
-      // Update candidates with deep research results
-      setCandidates(prev => prev.map(c => {
-        const result = data.results?.find((r: any) => r.candidate_id === c.id);
-        if (!result) return c;
+      for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+        const batchIds = batches[batchIndex];
         
-        return {
-          ...c,
-          deep_researched: true,
-          research_depth: 'deep' as const,
-          personalization_hook: result.personalization_hook,
-          hook_type: result.hook_type,
-          icebreaker: result.icebreaker || c.icebreaker,
-          talking_points: result.talking_points || c.talking_points,
-        };
-      }));
+        if (batches.length > 1) {
+          toast.info(`Processing batch ${batchIndex + 1}/${batches.length} (${batchIds.length} candidates)`);
+        }
+        
+        const response = await fetch(
+          "https://qpvyzyspwxwtwjhfcuhh.supabase.co/functions/v1/personalization-research",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              candidate_ids: batchIds,
+              job_id: effectiveJobId,
+              deep_research: true,
+              batch_size: 3, // Smaller internal batch for parallel API calls
+            }),
+          }
+        );
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error(`Batch ${batchIndex + 1} error:`, errorText);
+          toast.error(`Batch ${batchIndex + 1} failed - continuing with next batch`);
+          continue;
+        }
+
+        const data = await response.json();
+        
+        // Update candidates with deep research results
+        setCandidates(prev => prev.map(c => {
+          const result = data.results?.find((r: any) => r.candidate_id === c.id);
+          if (!result) return c;
+          
+          return {
+            ...c,
+            deep_researched: true,
+            research_depth: 'deep' as const,
+            personalization_hook: result.personalization_hook,
+            hook_type: result.hook_type,
+            icebreaker: result.icebreaker || c.icebreaker,
+            talking_points: result.talking_points || c.talking_points,
+          };
+        }));
+        
+        processedCount += data.results?.length || 0;
+        
+        // Clear completed batch from deepResearchingIds
+        setDeepResearchingIds(prev => {
+          const next = new Set(prev);
+          batchIds.forEach(id => next.delete(id));
+          return next;
+        });
+      }
       
-      toast.success(`Deep research complete for ${candidatesToResearch.length} candidates 🔮`);
+      toast.success(`Deep research complete for ${processedCount} candidates 🔮`);
     } catch (error: any) {
       console.error("Deep research error:", error);
       toast.error(error.message || "Failed to deep research candidates");
     } finally {
-      setDeepResearchingIds(prev => {
-        const next = new Set(prev);
-        candidateIds.forEach(id => next.delete(id));
-        return next;
-      });
+      setDeepResearchingIds(new Set()); // Clear all remaining
     }
   };
 
