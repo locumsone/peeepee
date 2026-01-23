@@ -20,19 +20,21 @@ const steps = [
 const Layout = ({ children, currentStep = 1, showSteps = true }: LayoutProps) => {
   return (
     <SidebarProvider>
-      <div className="min-h-screen flex w-full gradient-subtle">
+      <div className="min-h-screen flex w-full bg-background">
         <AppSidebar />
         
         <div className="flex-1 flex flex-col min-w-0">
-          <header className="sticky top-0 z-50 h-14 flex items-center justify-between border-b border-border/50 bg-card/80 backdrop-blur-xl px-4">
-            <div className="flex items-center">
-              <SidebarTrigger className="mr-4" />
-              <span className="text-sm text-muted-foreground">Campaign Builder</span>
+          {/* Xbox-style header with clean lines */}
+          <header className="sticky top-0 z-50 h-14 flex items-center justify-between border-b border-border bg-card/95 backdrop-blur-sm px-6">
+            <div className="flex items-center gap-4">
+              <SidebarTrigger className="text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors rounded-md" />
+              <div className="h-4 w-px bg-border" />
+              <span className="text-sm font-medium text-muted-foreground">Campaign Builder</span>
             </div>
             <UserMenu />
           </header>
           
-          <main className="flex-1 p-6">
+          <main className="flex-1 p-6 bg-background">
             {showSteps && (
               <StepIndicator currentStep={currentStep} steps={steps} />
             )}

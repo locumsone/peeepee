@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { Stethoscope, Loader2 } from "lucide-react";
 import { z } from "zod";
+import logoImage from "@/assets/logo.png";
 
 const loginSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
@@ -25,7 +26,6 @@ export default function Login() {
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<{ email?: string; password?: string }>({});
 
-  // Redirect if already authenticated
   useEffect(() => {
     if (!authLoading && isAuthenticated) {
       const from = (location.state as any)?.from || "/dashboard";
@@ -37,7 +37,6 @@ export default function Login() {
     e.preventDefault();
     setErrors({});
 
-    // Validate input
     const result = loginSchema.safeParse({ email, password });
     if (!result.success) {
       const fieldErrors: { email?: string; password?: string } = {};
@@ -94,18 +93,25 @@ export default function Login() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
-      <Card className="w-full max-w-md shadow-card">
-        <CardHeader className="text-center space-y-2">
-          <div className="mx-auto w-16 h-16 rounded-2xl gradient-primary flex items-center justify-center mb-2">
-            <Stethoscope className="h-8 w-8 text-primary-foreground" />
+      {/* Background glow effect */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[600px] h-[400px] bg-primary/5 rounded-full blur-3xl" />
+      </div>
+
+      <Card className="w-full max-w-md relative z-10 border-border/50">
+        <CardHeader className="text-center space-y-3 pb-4">
+          <div className="mx-auto w-14 h-14 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center mb-1">
+            <img src={logoImage} alt="Locums One" className="h-8 w-8" />
           </div>
-          <CardTitle className="text-2xl font-display">Welcome to Locums One</CardTitle>
-          <CardDescription>Sign in to your account to continue</CardDescription>
+          <div>
+            <CardTitle className="text-xl font-bold tracking-tight">Welcome to Locums One</CardTitle>
+            <CardDescription className="mt-1">Sign in to your account to continue</CardDescription>
+          </div>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="email" className="text-sm font-medium">Email</Label>
               <Input
                 id="email"
                 type="email"
@@ -113,7 +119,7 @@ export default function Login() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 disabled={loading}
-                className={errors.email ? "border-destructive" : ""}
+                className={`h-10 bg-secondary/50 border-border focus:border-primary ${errors.email ? "border-destructive" : ""}`}
               />
               {errors.email && (
                 <p className="text-xs text-destructive">{errors.email}</p>
@@ -121,7 +127,7 @@ export default function Login() {
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
+              <Label htmlFor="password" className="text-sm font-medium">Password</Label>
               <Input
                 id="password"
                 type="password"
@@ -129,7 +135,7 @@ export default function Login() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 disabled={loading}
-                className={errors.password ? "border-destructive" : ""}
+                className={`h-10 bg-secondary/50 border-border focus:border-primary ${errors.password ? "border-destructive" : ""}`}
               />
               {errors.password && (
                 <p className="text-xs text-destructive">{errors.password}</p>
@@ -138,7 +144,7 @@ export default function Login() {
 
             <Button
               type="submit"
-              className="w-full gradient-primary text-primary-foreground"
+              className="w-full h-10"
               disabled={loading}
             >
               {loading ? (
@@ -152,7 +158,7 @@ export default function Login() {
             </Button>
           </form>
 
-          <div className="mt-4 text-center space-y-2">
+          <div className="mt-5 text-center space-y-2">
             <button
               onClick={handleForgotPassword}
               className="text-sm text-muted-foreground hover:text-primary transition-colors"
