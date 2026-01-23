@@ -14,8 +14,8 @@ export default {
     },
     extend: {
       fontFamily: {
-        sans: ["Inter", "system-ui", "sans-serif"],
-        display: ["Plus Jakarta Sans", "system-ui", "sans-serif"],
+        sans: ["Inter", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "system-ui", "sans-serif"],
+        display: ["Inter", "-apple-system", "BlinkMacSystemFont", "Segoe UI", "system-ui", "sans-serif"],
       },
       colors: {
         border: "hsl(var(--border))",
@@ -69,6 +69,14 @@ export default {
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
         },
+        // Xbox-specific semantic colors
+        xbox: {
+          blue: "hsl(199 89% 48%)",
+          green: "hsl(120 100% 37%)",
+          dark: "hsl(220 20% 6%)",
+          card: "hsl(220 20% 10%)",
+          hover: "hsl(220 20% 14%)",
+        },
       },
       borderRadius: {
         lg: "var(--radius)",
@@ -85,34 +93,45 @@ export default {
           to: { height: "0" },
         },
         "fade-in": {
-          from: { opacity: "0", transform: "translateY(10px)" },
+          from: { opacity: "0", transform: "translateY(8px)" },
           to: { opacity: "1", transform: "translateY(0)" },
         },
         "slide-in": {
-          from: { opacity: "0", transform: "translateX(-10px)" },
+          from: { opacity: "0", transform: "translateX(-8px)" },
           to: { opacity: "1", transform: "translateX(0)" },
         },
         "scale-in": {
-          from: { opacity: "0", transform: "scale(0.95)" },
+          from: { opacity: "0", transform: "scale(0.96)" },
           to: { opacity: "1", transform: "scale(1)" },
         },
         "pulse-glow": {
-          "0%, 100%": { boxShadow: "0 0 20px hsl(262 83% 58% / 0.25)" },
-          "50%": { boxShadow: "0 0 30px hsl(262 83% 58% / 0.4)" },
+          "0%, 100%": { boxShadow: "0 0 24px hsl(199 89% 48% / 0.3)" },
+          "50%": { boxShadow: "0 0 40px hsl(199 89% 48% / 0.5)" },
         },
         shimmer: {
           "0%": { backgroundPosition: "-200% 0" },
           "100%": { backgroundPosition: "200% 0" },
         },
+        "xbox-glow": {
+          "0%, 100%": { 
+            boxShadow: "0 0 0 0 hsl(199 89% 48% / 0.4)",
+            borderColor: "hsl(var(--border))"
+          },
+          "50%": { 
+            boxShadow: "0 0 20px 4px hsl(199 89% 48% / 0.2)",
+            borderColor: "hsl(199 89% 48% / 0.5)"
+          },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
-        "fade-in": "fade-in 0.4s ease-out",
-        "slide-in": "slide-in 0.3s ease-out",
-        "scale-in": "scale-in 0.3s ease-out",
-        "pulse-glow": "pulse-glow 2s ease-in-out infinite",
+        "fade-in": "fade-in 0.3s ease-out",
+        "slide-in": "slide-in 0.25s ease-out",
+        "scale-in": "scale-in 0.25s ease-out",
+        "pulse-glow": "pulse-glow 2.5s ease-in-out infinite",
         shimmer: "shimmer 2s linear infinite",
+        "xbox-glow": "xbox-glow 3s ease-in-out infinite",
       },
     },
   },

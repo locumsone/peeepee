@@ -11,7 +11,9 @@ import {
   Mail,
   BarChart3,
   Clock,
-  User
+  User,
+  ArrowUpRight,
+  Zap
 } from "lucide-react";
 import Layout from "@/components/layout/Layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -39,7 +41,7 @@ const Dashboard = () => {
   const [callbacks, setCallbacks] = useState<Callback[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const userName = "Recruiter"; // Would come from auth context
+  const userName = "Recruiter";
   const greeting = getGreeting();
 
   function getGreeting() {
@@ -61,7 +63,6 @@ const Dashboard = () => {
     const monthStart = format(startOfMonth(today), "yyyy-MM-dd");
 
     try {
-      // Fetch all stats in parallel
       const [
         campaignsRes,
         hotLeadsRes,
@@ -69,33 +70,28 @@ const Dashboard = () => {
         placementsRes,
         callbacksRes,
       ] = await Promise.all([
-        // Active campaigns count
         supabase
           .from("campaigns")
           .select("id", { count: "exact", head: true })
           .eq("status", "active"),
         
-        // Hot leads (replies today)
         supabase
           .from("activity_log")
           .select("id", { count: "exact", head: true })
           .eq("action_type", "reply")
           .gte("created_at", todayStart),
         
-        // Calls today
         supabase
           .from("ai_call_logs")
           .select("id", { count: "exact", head: true })
           .gte("created_at", todayStart),
         
-        // Placements this month
         supabase
           .from("campaign_leads_v2")
           .select("id", { count: "exact", head: true })
           .eq("status", "placed")
           .gte("created_at", monthStart),
         
-        // Upcoming callbacks from ai_call_queue
         supabase
           .from("ai_call_queue")
           .select("*")
@@ -120,168 +116,137 @@ const Dashboard = () => {
     }
   };
 
+  const statCards = [
+    {
+      title: "Active Campaigns",
+      value: stats.activeCampaigns,
+      icon: Megaphone,
+      accent: "bg-primary/10 text-primary",
+    },
+    {
+      title: "Hot Leads Today",
+      value: stats.hotLeads,
+      icon: Flame,
+      accent: "bg-warning/10 text-warning",
+    },
+    {
+      title: "Calls Today",
+      value: stats.callsToday,
+      icon: Phone,
+      accent: "bg-primary/10 text-primary",
+    },
+    {
+      title: "Placements MTD",
+      value: stats.placementsMTD,
+      icon: Trophy,
+      accent: "bg-success/10 text-success",
+    },
+  ];
+
+  const quickActions = [
+    { label: "New Job", icon: FileText, to: "/jobs/new" },
+    { label: "Find Candidates", icon: Search, to: "/candidates/search" },
+    { label: "Check Inbox", icon: Mail, to: "/inbox/sms" },
+    { label: "View Campaigns", icon: BarChart3, to: "/campaigns" },
+  ];
+
   return (
     <Layout>
-      <div className="p-6 space-y-6">
+      <div className="space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold text-foreground">
+            <h1 className="text-2xl font-bold text-foreground tracking-tight">
               {greeting}, {userName}
             </h1>
-            <p className="text-muted-foreground mt-1">
+            <p className="text-sm text-muted-foreground mt-0.5">
               {format(new Date(), "EEEE, MMMM d, yyyy")}
             </p>
           </div>
+          <Button variant="default" className="gap-2">
+            <Zap className="h-4 w-4" />
+            Quick Campaign
+          </Button>
         </div>
 
-        {/* Stats Row */}
+        {/* Stats Grid - Xbox tile style */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <Card className="bg-card border-border">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">Active Campaigns</p>
-                  <p className="text-3xl font-bold text-foreground mt-1">
-                    {loading ? "—" : stats.activeCampaigns}
-                  </p>
+          {statCards.map((stat) => (
+            <Card 
+              key={stat.title} 
+              className="group cursor-pointer hover:border-primary/30 transition-all duration-200"
+            >
+              <CardContent className="p-5">
+                <div className="flex items-start justify-between">
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                      {stat.title}
+                    </p>
+                    <p className="text-3xl font-bold text-foreground tabular-nums">
+                      {loading ? "—" : stat.value}
+                    </p>
+                  </div>
+                  <div className={`h-10 w-10 rounded-lg flex items-center justify-center ${stat.accent}`}>
+                    <stat.icon className="h-5 w-5" />
+                  </div>
                 </div>
-                <div className="h-12 w-12 rounded-full bg-purple-500/20 flex items-center justify-center">
-                  <Megaphone className="h-6 w-6 text-purple-400" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-card border-border">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">Hot Leads Today</p>
-                  <p className="text-3xl font-bold text-foreground mt-1">
-                    {loading ? "—" : stats.hotLeads}
-                  </p>
-                </div>
-                <div className="h-12 w-12 rounded-full bg-orange-500/20 flex items-center justify-center">
-                  <Flame className="h-6 w-6 text-orange-400" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-card border-border">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">Calls Today</p>
-                  <p className="text-3xl font-bold text-foreground mt-1">
-                    {loading ? "—" : stats.callsToday}
-                  </p>
-                </div>
-                <div className="h-12 w-12 rounded-full bg-blue-500/20 flex items-center justify-center">
-                  <Phone className="h-6 w-6 text-blue-400" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-card border-border">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-muted-foreground">Placements MTD</p>
-                  <p className="text-3xl font-bold text-foreground mt-1">
-                    {loading ? "—" : stats.placementsMTD}
-                  </p>
-                </div>
-                <div className="h-12 w-12 rounded-full bg-green-500/20 flex items-center justify-center">
-                  <Trophy className="h-6 w-6 text-green-400" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          ))}
         </div>
 
-        {/* Quick Actions */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <Button
-            asChild
-            variant="outline"
-            className="h-16 flex items-center justify-center gap-2 bg-card hover:bg-accent"
-          >
-            <Link to="/jobs/new">
-              <FileText className="h-5 w-5" />
-              <span>New Job</span>
-            </Link>
-          </Button>
-
-          <Button
-            asChild
-            variant="outline"
-            className="h-16 flex items-center justify-center gap-2 bg-card hover:bg-accent"
-          >
-            <Link to="/candidates/search">
-              <Search className="h-5 w-5" />
-              <span>Find Candidates</span>
-            </Link>
-          </Button>
-
-          <Button
-            asChild
-            variant="outline"
-            className="h-16 flex items-center justify-center gap-2 bg-card hover:bg-accent"
-          >
-            <Link to="/inbox/sms">
-              <Mail className="h-5 w-5" />
-              <span>Check Inbox</span>
-            </Link>
-          </Button>
-
-          <Button
-            asChild
-            variant="outline"
-            className="h-16 flex items-center justify-center gap-2 bg-card hover:bg-accent"
-          >
-            <Link to="/campaigns">
-              <BarChart3 className="h-5 w-5" />
-              <span>View Campaigns</span>
-            </Link>
-          </Button>
+        {/* Quick Actions - Xbox button row */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {quickActions.map((action) => (
+            <Button
+              key={action.label}
+              asChild
+              variant="outline"
+              className="h-12 justify-start gap-3 bg-card hover:bg-secondary hover:border-primary/40 transition-all"
+            >
+              <Link to={action.to}>
+                <action.icon className="h-4 w-4 text-muted-foreground" />
+                <span>{action.label}</span>
+                <ArrowUpRight className="h-3 w-3 ml-auto text-muted-foreground" />
+              </Link>
+            </Button>
+          ))}
         </div>
 
         {/* Activity Feed & Callbacks */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Activity Feed */}
-          <Card className="lg:col-span-2 bg-card border-border">
-            <CardHeader>
-              <CardTitle className="text-lg font-semibold">Recent Activity</CardTitle>
+          <Card className="lg:col-span-2">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base font-semibold">Recent Activity</CardTitle>
             </CardHeader>
             <CardContent>
-              <ActivityFeed filter={{ limit: 20 }} showCandidate={true} className="h-[400px]" />
+              <ActivityFeed filter={{ limit: 20 }} showCandidate={true} className="h-[380px]" />
             </CardContent>
           </Card>
 
           {/* Upcoming Callbacks */}
-          <Card className="bg-card border-border">
-            <CardHeader>
-              <CardTitle className="text-lg font-semibold">Upcoming Callbacks</CardTitle>
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base font-semibold">Upcoming Callbacks</CardTitle>
             </CardHeader>
             <CardContent>
-              <ScrollArea className="h-[400px] pr-4">
+              <ScrollArea className="h-[380px] pr-4">
                 {loading ? (
-                  <div className="text-center text-muted-foreground py-8">
-                    Loading callbacks...
+                  <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+                    Loading...
                   </div>
                 ) : callbacks.length === 0 ? (
-                  <div className="text-center text-muted-foreground py-8">
-                    No upcoming callbacks
+                  <div className="flex flex-col items-center justify-center h-full text-muted-foreground">
+                    <Clock className="h-8 w-8 mb-2 opacity-40" />
+                    <p className="text-sm">No upcoming callbacks</p>
                   </div>
                 ) : (
                   <div className="space-y-3">
                     {callbacks.map((callback) => (
                       <div
                         key={callback.id}
-                        className="p-3 rounded-lg bg-muted/50 space-y-2"
+                        className="p-3 rounded-lg bg-secondary/50 border border-border/50 space-y-2 hover:border-primary/30 transition-colors"
                       >
                         <div className="flex items-center gap-2">
                           <User className="h-4 w-4 text-muted-foreground" />
@@ -296,15 +261,15 @@ const Dashboard = () => {
                             : "Not scheduled"}
                         </div>
                         {callback.metadata && typeof callback.metadata === 'object' && !Array.isArray(callback.metadata) && (callback.metadata as Record<string, unknown>).reason && (
-                          <p className="text-xs text-muted-foreground">
+                          <p className="text-xs text-muted-foreground line-clamp-2">
                             {String((callback.metadata as Record<string, unknown>).reason)}
                           </p>
                         )}
                         <Button
                           size="sm"
-                          className="w-full mt-2 bg-primary hover:bg-primary/90"
+                          className="w-full mt-2"
                         >
-                          <Phone className="h-3 w-3 mr-1" />
+                          <Phone className="h-3 w-3 mr-1.5" />
                           Call Now
                         </Button>
                       </div>
