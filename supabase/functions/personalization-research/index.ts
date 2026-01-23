@@ -529,14 +529,75 @@ serve(async (req) => {
       throw new Error('Failed to fetch candidates');
     }
 
+    // Check for existing deep research to avoid duplicate API calls
+    const { data: existingMatches } = await supabase
+      .from('candidate_job_matches')
+      .select('candidate_id, icebreaker, talking_points')
+      .eq('job_id', job_id)
+      .in('candidate_id', limitedCandidateIds);
+
+    const alreadyResearchedMap = new Map<string, { icebreaker: string; talking_points: string[] }>();
+    if (existingMatches) {
+      for (const match of existingMatches) {
+        // Consider it "already researched" if it has both icebreaker AND talking points
+        if (match.icebreaker && match.talking_points && match.talking_points.length > 0) {
+          alreadyResearchedMap.set(match.candidate_id, {
+            icebreaker: match.icebreaker,
+            talking_points: match.talking_points
+          });
+        }
+      }
+    }
+
+    // Split candidates into those needing research and those with cached results
+    const candidatesNeedingResearch = candidatesData.filter(c => !alreadyResearchedMap.has(c.id));
+    const cachedResults: PersonalizationResult[] = candidatesData
+      .filter(c => alreadyResearchedMap.has(c.id))
+      .map(c => {
+        const cached = alreadyResearchedMap.get(c.id)!;
+        return {
+          candidate_id: c.id,
+          candidate_name: `${c.first_name} ${c.last_name}`,
+          personalization_hook: cached.icebreaker,
+          hook_type: 'cached',
+          confidence: 'high' as const,
+          research_sources: [],
+          talking_points: cached.talking_points,
+          icebreaker: cached.icebreaker,
+          research_summary: 'Previously researched',
+          from_cache: true
+        };
+      });
+
+    if (candidatesNeedingResearch.length === 0) {
+      console.log(`All ${limitedCandidateIds.length} candidates already have deep research cached`);
+      return new Response(
+        JSON.stringify({
+          success: true,
+          results: cachedResults,
+          deep_research_used: false,
+          total_candidates: cachedResults.length,
+          from_cache: cachedResults.length,
+          was_limited: wasLimited,
+          original_count: candidate_ids.length,
+          high_confidence: cachedResults.length,
+          medium_confidence: 0,
+          low_confidence: 0
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    console.log(`Processing ${candidatesNeedingResearch.length} candidates (${cachedResults.length} from cache)`);
+
     const useDeepResearch = deep_research && !!PERPLEXITY_API_KEY;
     
     // Use smaller batch size for deep research (more API calls per candidate)
     const effectiveBatchSize = useDeepResearch ? Math.min(batch_size, 3) : batch_size;
     
-    // Process all candidates in parallel batches
-    const results = await processCandidatesInBatches(
-      candidatesData,
+    // Process only candidates that need research
+    const newResults = await processCandidatesInBatches(
+      candidatesNeedingResearch,
       job,
       PERPLEXITY_API_KEY,
       LOVABLE_API_KEY,
@@ -544,8 +605,11 @@ serve(async (req) => {
       effectiveBatchSize
     );
 
-    // Store results in candidate_job_matches (in parallel)
-    const upsertPromises = results.map(async (result) => {
+    // Combine new results with cached results
+    const allResults = [...newResults, ...cachedResults];
+
+    // Store only NEW results in candidate_job_matches (in parallel)
+    const upsertPromises = newResults.map(async (result: PersonalizationResult) => {
       try {
         console.log(`Saving deep research for candidate ${result.candidate_id}: icebreaker="${result.icebreaker?.substring(0, 30)}...", talking_points=${result.talking_points?.length || 0}`);
         const { data, error } = await supabase.rpc('upsert_candidate_job_match', {
@@ -573,19 +637,21 @@ serve(async (req) => {
     
     await Promise.all(upsertPromises);
 
-    console.log(`Generated ${results.length} personalization hooks`);
+    console.log(`Generated ${newResults.length} new hooks, ${cachedResults.length} from cache`);
 
     return new Response(
       JSON.stringify({
         success: true,
-        results,
+        results: allResults,
         deep_research_used: useDeepResearch,
-        total_candidates: results.length,
+        total_candidates: allResults.length,
+        from_cache: cachedResults.length,
+        newly_researched: newResults.length,
         was_limited: wasLimited,
         original_count: candidate_ids.length,
-        high_confidence: results.filter(r => r.confidence === 'high').length,
-        medium_confidence: results.filter(r => r.confidence === 'medium').length,
-        low_confidence: results.filter(r => r.confidence === 'low').length
+        high_confidence: allResults.filter((r: PersonalizationResult) => r.confidence === 'high').length,
+        medium_confidence: allResults.filter((r: PersonalizationResult) => r.confidence === 'medium').length,
+        low_confidence: allResults.filter((r: PersonalizationResult) => r.confidence === 'low').length
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
