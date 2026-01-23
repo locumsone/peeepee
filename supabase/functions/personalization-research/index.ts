@@ -97,7 +97,7 @@ const DEFAULT_HOOK_PATTERNS = [
   }
 ];
 
-// Research a candidate using Perplexity web search - OPTIMIZED for speed
+// Research a candidate using Perplexity web search - OPTIMIZED for quality + speed
 async function deepResearchCandidate(
   perplexityKey: string,
   candidate: Candidate,
@@ -105,7 +105,17 @@ async function deepResearchCandidate(
 ): Promise<{ summary: string; sources: string[]; details: any }> {
   
   try {
-    // Use a more detailed query for richer profile info
+    // Build a rich search query with all available identifiers
+    const nameQuery = `Dr. ${candidate.first_name} ${candidate.last_name}`;
+    const specialtyInfo = candidate.specialty ? `${candidate.specialty} physician` : 'physician';
+    const locationInfo = candidate.state ? `practicing in ${candidate.state}` : '';
+    const npiInfo = candidate.npi ? `NPI: ${candidate.npi}` : '';
+    const employerInfo = candidate.company_name ? `affiliated with ${candidate.company_name}` : '';
+    
+    const searchQuery = [nameQuery, specialtyInfo, locationInfo, employerInfo, npiInfo]
+      .filter(Boolean)
+      .join(', ');
+
     const response = await fetch('https://api.perplexity.ai/chat/completions', {
       method: 'POST',
       headers: {
@@ -113,25 +123,27 @@ async function deepResearchCandidate(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'sonar', // Fast model
+        model: 'sonar', // Fast model with web search
         messages: [
           {
             role: 'system',
-            content: `You are a healthcare recruiter assistant researching physicians. Find specific, verifiable facts about this physician for personalized outreach. Include:
-- Current or recent hospital/employer affiliations
-- Fellowship training or residency programs
-- Board certifications or specializations
-- Publications, research, or notable achievements
-- Leadership roles or committee memberships
-Be factual and cite specific institutions. If limited info is found, say so. Max 5 sentences.`
+            content: `You are a healthcare recruiter researching a physician for personalized outreach. Search for SPECIFIC, VERIFIABLE facts about this doctor. 
+
+REQUIRED OUTPUT FORMAT:
+1. EMPLOYER: Current hospital/health system affiliation (e.g., "Works at Memorial Hermann Hospital")
+2. TRAINING: Fellowship/residency program and institution (e.g., "Completed IR fellowship at Johns Hopkins")
+3. CREDENTIALS: Board certifications, specializations (e.g., "Board certified in Interventional Radiology")
+4. NOTABLE: Publications, research, leadership roles, awards
+
+Be SPECIFIC - name institutions, dates, and achievements. If you cannot find specific information for a category, skip it entirely rather than being vague. Do NOT make up information. Max 4 sentences total, focused on the most impressive/relevant findings.`
           },
           {
             role: 'user',
-            content: `Dr. ${candidate.first_name} ${candidate.last_name}, ${candidate.specialty || 'physician'}${candidate.state ? `, practicing in ${candidate.state}` : ''}${candidate.npi ? ` (NPI: ${candidate.npi})` : ''}`
+            content: searchQuery
           }
         ],
         temperature: 0.1,
-        max_tokens: 500, // Increased for richer content
+        max_tokens: 600,
       }),
     });
 
@@ -517,6 +529,7 @@ serve(async (req) => {
       candidate_ids, 
       job_id, 
       deep_research = false,
+      force_refresh = false, // NEW: Force fresh research even if cached
       custom_playbook,
       batch_size = 5  // Allow caller to configure batch size
     } = await req.json();
@@ -573,6 +586,7 @@ serve(async (req) => {
     }
 
     // Check for existing deep research to avoid duplicate API calls
+    // But SKIP cache if force_refresh is true (user explicitly wants new research)
     // Also fetch the candidate_research data for research summaries
     const [matchesResult, researchResult] = await Promise.all([
       supabase
@@ -597,29 +611,45 @@ serve(async (req) => {
       }
     }
 
+    // If force_refresh AND deep_research, bypass ALL caching
+    // If just deep_research without force, check if we have DEEP research (icebreaker > 50 chars)
     const alreadyResearchedMap = new Map<string, { 
       icebreaker: string; 
       talking_points: string[];
       match_reasons?: string[];
       research?: any;
+      has_deep_research?: boolean;
     }>();
-    if (existingMatches) {
+    
+    if (!force_refresh && existingMatches) {
       for (const match of existingMatches) {
-        // Consider it "already researched" if it has both icebreaker AND talking points
-        if (match.icebreaker && match.talking_points && match.talking_points.length > 0) {
+        // For deep_research requests, only use cache if icebreaker looks like actual research (not just "Hi Dr. X")
+        const icebreakerIsSubstantial = match.icebreaker && match.icebreaker.length > 60;
+        const hasQualityData = match.talking_points && match.talking_points.length > 0;
+        
+        // If requesting deep research, only cache if we have substantial icebreaker
+        // If not requesting deep research, cache if we have any talking points
+        const shouldCache = deep_research 
+          ? (icebreakerIsSubstantial && hasQualityData)
+          : (match.icebreaker && hasQualityData);
+          
+        if (shouldCache) {
           alreadyResearchedMap.set(match.candidate_id, {
             icebreaker: match.icebreaker,
             talking_points: match.talking_points,
             match_reasons: match.match_reasons,
-            research: researchMap.get(match.candidate_id)
+            research: researchMap.get(match.candidate_id),
+            has_deep_research: icebreakerIsSubstantial
           });
         }
       }
     }
+    
+    console.log(`force_refresh=${force_refresh}, deep_research=${deep_research}, cached=${alreadyResearchedMap.size}/${limitedCandidateIds.length}`);
 
     // Split candidates into those needing research and those with cached results
     const candidatesNeedingResearch = candidatesData.filter(c => !alreadyResearchedMap.has(c.id));
-    const cachedResults: (PersonalizationResult & { from_cache?: boolean; professional_highlights?: string[]; credentials_summary?: string; has_imlc?: boolean; verified_specialty?: string; verified_licenses?: string[] })[] = candidatesData
+    const cachedResults: (PersonalizationResult & { from_cache?: boolean; professional_highlights?: string[]; credentials_summary?: string; has_imlc?: boolean; verified_specialty?: string; verified_licenses?: string[]; deep_research_done?: boolean })[] = candidatesData
       .filter(c => alreadyResearchedMap.has(c.id))
       .map(c => {
         const cached = alreadyResearchedMap.get(c.id)!;
@@ -648,7 +678,8 @@ serve(async (req) => {
           has_imlc: research?.has_imlc,
           verified_specialty: research?.verified_specialty,
           verified_licenses: research?.verified_licenses,
-          from_cache: true
+          from_cache: true,
+          deep_research_done: cached.has_deep_research
         };
       });
 

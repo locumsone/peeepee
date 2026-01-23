@@ -604,11 +604,12 @@ const CandidateMatching = () => {
   } | null>(null);
 
   // Deep research via Perplexity for personalization hooks - processes in batches with live progress
-  const deepResearchCandidates = async (candidateIds: string[]) => {
+  const deepResearchCandidates = async (candidateIds: string[], forceRefresh = false) => {
     // Filter out already deep-researched candidates to avoid wasting API calls
-    const candidatesToResearch = candidates.filter(c => 
-      candidateIds.includes(c.id) && !c.deep_researched
-    );
+    // UNLESS forceRefresh is true, then research all of them
+    const candidatesToResearch = forceRefresh 
+      ? candidates.filter(c => candidateIds.includes(c.id))
+      : candidates.filter(c => candidateIds.includes(c.id) && !c.deep_researched);
     
     if (candidatesToResearch.length === 0) {
       toast.info("All selected candidates already have deep research");
@@ -617,14 +618,14 @@ const CandidateMatching = () => {
     
     // Notify user if some were skipped
     const skippedCount = candidateIds.length - candidatesToResearch.length;
-    if (skippedCount > 0) {
+    if (skippedCount > 0 && !forceRefresh) {
       toast.info(`Skipping ${skippedCount} already deep-researched candidates`);
     }
     
-    setDeepResearchingIds(prev => new Set([...prev, ...candidateIds]));
+    setDeepResearchingIds(prev => new Set([...prev, ...candidatesToResearch.map(c => c.id)]));
     setDeepResearchProgress({ current: 0, total: candidatesToResearch.length });
     
-    const BATCH_SIZE = 10; // Slightly smaller for faster feedback
+    const BATCH_SIZE = 5; // Process 5 at a time
     const batches: Candidate[][] = [];
     
     for (let i = 0; i < candidatesToResearch.length; i += BATCH_SIZE) {
@@ -654,7 +655,8 @@ const CandidateMatching = () => {
               candidate_ids: batchIds,
               job_id: effectiveJobId,
               deep_research: true,
-              batch_size: 5, // Larger internal batch since API calls are faster now
+              force_refresh: forceRefresh, // Pass force flag to bypass cache
+              batch_size: 3, // Smaller batch for faster parallel Perplexity calls
             }),
           }
         );
@@ -673,17 +675,22 @@ const CandidateMatching = () => {
           const result = data.results?.find((r: any) => r.candidate_id === c.id);
           if (!result) return c;
           
+          // Only mark as deep_researched if actual research was done (not from cache or icebreaker is substantial)
+          const actualDeepResearch = !result.from_cache || 
+            (result.icebreaker && result.icebreaker.length > 60) ||
+            result.deep_research_done;
+          
           return {
             ...c,
-            deep_researched: true,
-            research_depth: 'deep' as const,
-            personalization_hook: result.personalization_hook,
-            hook_type: result.hook_type,
+            deep_researched: actualDeepResearch || c.deep_researched,
+            research_depth: actualDeepResearch ? 'deep' as const : c.research_depth,
+            personalization_hook: result.personalization_hook || c.personalization_hook,
+            hook_type: result.hook_type || c.hook_type,
             icebreaker: result.icebreaker || c.icebreaker,
             talking_points: result.talking_points || c.talking_points,
             research_summary: result.research_summary || c.research_summary,
             research_confidence: result.confidence || c.research_confidence,
-            // Also update profile fields from cached research data
+            // Also update profile fields from research data
             professional_highlights: result.professional_highlights || c.professional_highlights,
             credentials_summary: result.credentials_summary || c.credentials_summary,
             has_imlc: result.has_imlc ?? c.has_imlc,
@@ -720,19 +727,20 @@ const CandidateMatching = () => {
   };
 
   // Handle single candidate deep research
-  const handleDeepResearchCandidate = (candidate: Candidate) => {
-    if (candidate.deep_researched) {
-      toast.info("This candidate already has deep research");
+  const handleDeepResearchCandidate = (candidate: Candidate, forceRefresh = false) => {
+    if (candidate.deep_researched && !forceRefresh) {
+      // Already researched - ask if they want to refresh
+      toast.info("Already researched - click again to refresh", { duration: 2000 });
       return;
     }
-    deepResearchCandidates([candidate.id]);
+    deepResearchCandidates([candidate.id], forceRefresh);
   };
 
   // Bulk deep research selected candidates
-  const handleBulkDeepResearch = async () => {
-    const candidatesToResearch = candidates.filter(c => 
-      selectedIds.has(c.id) && !c.deep_researched
-    );
+  const handleBulkDeepResearch = async (forceRefresh = false) => {
+    const candidatesToResearch = forceRefresh
+      ? candidates.filter(c => selectedIds.has(c.id))
+      : candidates.filter(c => selectedIds.has(c.id) && !c.deep_researched);
 
     if (candidatesToResearch.length === 0) {
       toast.error("No candidates selected for deep research");
@@ -742,7 +750,7 @@ const CandidateMatching = () => {
     setBulkDeepResearching(true);
     
     try {
-      await deepResearchCandidates(candidatesToResearch.map(c => c.id));
+      await deepResearchCandidates(candidatesToResearch.map(c => c.id), forceRefresh);
     } catch (error: any) {
       console.error("Bulk deep research error:", error);
       toast.error(error.message || "Failed to deep research candidates");
@@ -1288,7 +1296,7 @@ const CandidateMatching = () => {
             <Button 
               variant="outline" 
               size="sm" 
-              onClick={handleBulkDeepResearch}
+              onClick={() => handleBulkDeepResearch(false)}
               disabled={bulkDeepResearching || deepResearchingIds.size > 0}
               className="bg-purple-500/10 text-purple-600 border-purple-500/30 hover:bg-purple-500/20"
             >
@@ -1850,27 +1858,44 @@ const CandidateMatching = () => {
                                 </div>
                               )}
                               
-                              {/* Deep Research Upsell (if only standard research) */}
-                              {candidate.researched && !candidate.deep_researched && (
-                                <div className="rounded-lg bg-purple-500/5 border border-purple-500/10 p-3 flex items-center justify-between">
+                              {/* Deep Research Button - Always show for researched candidates */}
+                              {candidate.researched && (
+                                <div className={cn(
+                                  "rounded-lg p-3 flex items-center justify-between",
+                                  candidate.deep_researched 
+                                    ? "bg-purple-500/10 border border-purple-500/20" 
+                                    : "bg-purple-500/5 border border-purple-500/10"
+                                )}>
                                   <div className="flex items-center gap-2">
                                     <span className="text-lg">🔮</span>
                                     <div>
-                                      <p className="text-xs font-medium text-purple-300">Unlock Deep Personalization</p>
-                                      <p className="text-[10px] text-slate-500">AI-crafted hooks from live web research</p>
+                                      <p className="text-xs font-medium text-purple-300">
+                                        {candidate.deep_researched ? 'Deep Research Complete' : 'Unlock Deep Personalization'}
+                                      </p>
+                                      <p className="text-[10px] text-slate-500">
+                                        {candidate.deep_researched ? 'Click to refresh with latest web data' : 'AI-crafted hooks from live web research'}
+                                      </p>
                                     </div>
                                   </div>
                                   <Button
                                     size="sm"
                                     variant="ghost"
-                                    className="text-purple-400 hover:text-purple-300 hover:bg-purple-500/10 text-xs h-7"
+                                    className={cn(
+                                      "text-xs h-7",
+                                      candidate.deep_researched 
+                                        ? "text-purple-300 hover:text-purple-200 hover:bg-purple-500/10" 
+                                        : "text-purple-400 hover:text-purple-300 hover:bg-purple-500/10"
+                                    )}
                                     disabled={deepResearchingIds.has(candidate.id)}
-                                    onClick={(e) => { e.stopPropagation(); handleDeepResearchCandidate(candidate); }}
+                                    onClick={(e) => { 
+                                      e.stopPropagation(); 
+                                      handleDeepResearchCandidate(candidate, candidate.deep_researched); // Force refresh if already done
+                                    }}
                                   >
                                     {deepResearchingIds.has(candidate.id) ? (
                                       <Loader2 className="h-3 w-3 animate-spin mr-1" />
                                     ) : null}
-                                    Deep Research
+                                    {candidate.deep_researched ? '🔄 Refresh' : 'Deep Research'}
                                   </Button>
                                 </div>
                               )}
