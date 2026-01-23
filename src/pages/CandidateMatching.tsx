@@ -683,6 +683,13 @@ const CandidateMatching = () => {
             talking_points: result.talking_points || c.talking_points,
             research_summary: result.research_summary || c.research_summary,
             research_confidence: result.confidence || c.research_confidence,
+            // Also update profile fields from cached research data
+            professional_highlights: result.professional_highlights || c.professional_highlights,
+            credentials_summary: result.credentials_summary || c.credentials_summary,
+            has_imlc: result.has_imlc ?? c.has_imlc,
+            verified_specialty: result.verified_specialty || c.verified_specialty,
+            verified_licenses: result.verified_licenses || c.verified_licenses,
+            from_cache: result.from_cache || false,
           };
         }));
         
@@ -1695,8 +1702,30 @@ const CandidateMatching = () => {
                                       )}
                                     </div>
                                     
-                                    {/* WHY THIS CANDIDATE - The main focus */}
-                                    {candidate.match_reasons && candidate.match_reasons.length > 0 && (
+                                    {/* ═══════════════════════════════════════════════════════ */}
+                                    {/* PROFESSIONAL SUMMARY - The main "why" section */}
+                                    {/* ═══════════════════════════════════════════════════════ */}
+                                    
+                                    {/* Show professional highlights first (from NPI research) */}
+                                    {candidate.professional_highlights && candidate.professional_highlights.length > 0 && (
+                                      <div className="rounded-lg bg-gradient-to-br from-blue-500/10 to-cyan-500/5 border border-blue-500/20 p-4">
+                                        <p className="text-xs font-bold uppercase tracking-wider text-blue-400 mb-3 flex items-center gap-2">
+                                          <Award className="h-4 w-4" /> Professional Summary
+                                        </p>
+                                        <ul className="space-y-2">
+                                          {candidate.professional_highlights.map((highlight, i) => (
+                                            <li key={i} className="flex items-start gap-3 text-sm">
+                                              <span className="text-blue-400 mt-0.5 font-bold">•</span>
+                                              <span className="text-slate-200 leading-relaxed">{highlight}</span>
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    )}
+                                    
+                                    {/* WHY THIS CANDIDATE - Match reasons (if no professional highlights) */}
+                                    {(!candidate.professional_highlights || candidate.professional_highlights.length === 0) && 
+                                     candidate.match_reasons && candidate.match_reasons.length > 0 && (
                                       <div className="rounded-lg bg-emerald-500/5 border border-emerald-500/20 p-4">
                                         <p className="text-xs font-bold uppercase tracking-wider text-emerald-400 mb-3 flex items-center gap-2">
                                           <CheckCircle2 className="h-4 w-4" /> Why This Candidate Is a Great Fit
@@ -1712,21 +1741,13 @@ const CandidateMatching = () => {
                                       </div>
                                     )}
                                     
-                                    {/* Personalized Icebreaker - Only show if substantial */}
-                                    {candidate.icebreaker && candidate.icebreaker.length > 40 && !candidate.icebreaker.match(/^(Hi|Hello|Dear)\s+Dr\.?\s+\w+,?\s*$/i) && (
-                                      <div className="rounded-lg bg-blue-500/10 border border-blue-500/20 p-4">
-                                        <p className="text-xs font-bold uppercase tracking-wider text-blue-400 mb-2 flex items-center gap-2">
-                                          💬 AI-Generated Opening Line
-                                        </p>
-                                        <p className="text-sm text-slate-200 leading-relaxed italic">"{candidate.icebreaker}"</p>
-                                      </div>
-                                    )}
-                                    
-                                    {/* Deep Research Summary - from Perplexity */}
-                                    {candidate.deep_researched && candidate.research_summary && candidate.research_summary !== 'Previously researched' && candidate.research_summary.length > 20 && (
+                                    {/* Deep Research Summary - only show if actually has unique content */}
+                                    {candidate.research_summary && 
+                                     candidate.research_summary.length > 50 && 
+                                     !candidate.research_summary.toLowerCase().includes('previously researched') && (
                                       <div className="rounded-lg bg-purple-500/10 border border-purple-500/20 p-4">
                                         <p className="text-xs font-bold uppercase tracking-wider text-purple-400 mb-2 flex items-center gap-2">
-                                          🔮 Online Research Summary
+                                          🔮 Online Research Insights
                                           {candidate.research_confidence && (
                                             <Badge variant="outline" className={cn(
                                               "text-[10px] ml-2",
@@ -1739,6 +1760,16 @@ const CandidateMatching = () => {
                                           )}
                                         </p>
                                         <p className="text-sm text-slate-200 leading-relaxed">{candidate.research_summary}</p>
+                                      </div>
+                                    )}
+                                    
+                                    {/* Personalized Icebreaker - Only show if substantial */}
+                                    {candidate.icebreaker && candidate.icebreaker.length > 40 && !candidate.icebreaker.match(/^(Hi|Hello|Dear)\s+Dr\.?\s+\w+,?\s*$/i) && (
+                                      <div className="rounded-lg bg-slate-700/30 border border-slate-600/30 p-4">
+                                        <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2 flex items-center gap-2">
+                                          💬 Suggested Opening Line
+                                        </p>
+                                        <p className="text-sm text-slate-300 leading-relaxed italic">"{candidate.icebreaker}"</p>
                                       </div>
                                     )}
                                     
