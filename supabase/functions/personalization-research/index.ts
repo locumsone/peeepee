@@ -28,6 +28,7 @@ interface JobContext {
   city?: string;
   facility_name?: string;
   bill_rate?: number;
+  pay_rate?: number;
   raw_job_text?: string;
   personalization_playbook?: string;
 }
@@ -255,7 +256,7 @@ async function generatePersonalizedHook(
           },
           { 
             role: "user", 
-            content: `Dr. ${candidate.first_name} ${candidate.last_name}, ${candidate.specialty}. Job: ${job.specialty} at ${job.facility_name}, ${job.city}, ${job.state}. $${job.bill_rate}/hr. Research: ${researchSummary || 'None'}` 
+            content: `Dr. ${candidate.first_name} ${candidate.last_name}, ${candidate.specialty}. Job: ${job.specialty} at ${job.facility_name}, ${job.city}, ${job.state}. $${job.pay_rate || (job.bill_rate ? Math.round(job.bill_rate * 0.73) : 'competitive')}/hr. Research: ${researchSummary || 'None'}` 
           }
         ],
         max_tokens: 300,
@@ -295,10 +296,12 @@ async function generatePersonalizedHook(
   };
 }
 
-// Fast hook builder without AI
+// Fast hook builder without AI - uses PAY RATE (what candidate receives), not bill rate
 function buildQuickHook(candidate: Candidate, job: JobContext, research: string, hookType: string): string {
   const hasStateLicense = candidate.licenses?.some(l => l.toUpperCase() === job.state?.toUpperCase());
-  const rate = job.bill_rate ? `$${job.bill_rate}/hour` : 'competitive rate';
+  // Use pay_rate (what candidate gets), fallback to bill_rate * 0.73 if not set
+  const candidateRate = job.pay_rate || (job.bill_rate ? Math.round(job.bill_rate * 0.73) : null);
+  const rate = candidateRate ? `$${candidateRate}/hour` : 'competitive rate';
   
   if (research && research.length > 30 && !research.includes("No specific")) {
     // Extract first meaningful sentence from research
@@ -315,11 +318,13 @@ function buildQuickHook(candidate: Candidate, job: JobContext, research: string,
   return `Your ${candidate.specialty || 'medical'} background aligns with our ${job.specialty} opportunity at ${job.facility_name}. ${rate}, ${job.city}, ${job.state}.`;
 }
 
-// Fast talking points without AI
+// Fast talking points without AI - uses PAY RATE (what candidate receives)
 function buildQuickTalkingPoints(candidate: Candidate, job: JobContext, research: string): string[] {
   const points: string[] = [];
   
-  if (job.bill_rate) points.push(`$${job.bill_rate}/hour - elite locums compensation`);
+  // Use pay_rate (what candidate gets), fallback to bill_rate * 0.73 if not set
+  const candidateRate = job.pay_rate || (job.bill_rate ? Math.round(job.bill_rate * 0.73) : null);
+  if (candidateRate) points.push(`$${candidateRate}/hour - elite locums compensation`);
   if (job.facility_name) points.push(`${job.facility_name} - established health system`);
   
   const hasStateLicense = candidate.licenses?.some(l => l.toUpperCase() === job.state?.toUpperCase());
@@ -380,8 +385,10 @@ async function processCandidate(
     icebreaker = generated.icebreaker;
     talking_points = generated.talking_points;
   } else {
-    // Basic fallback without AI
-    hook = `Your ${candidate.specialty || 'medical'} background makes you a strong fit for our ${job.specialty} opportunity at ${job.facility_name}. $${job.bill_rate}/hour, ${job.city}, ${job.state}.`;
+    // Basic fallback without AI - use pay_rate
+    const candidateRate = job.pay_rate || (job.bill_rate ? Math.round(job.bill_rate * 0.73) : null);
+    const rateText = candidateRate ? `$${candidateRate}/hour` : 'competitive rate';
+    hook = `Your ${candidate.specialty || 'medical'} background makes you a strong fit for our ${job.specialty} opportunity at ${job.facility_name}. ${rateText}, ${job.city}, ${job.state}.`;
     icebreaker = `Hi Dr. ${candidate.last_name},`;
     talking_points = ['Competitive compensation', 'Excellent facility', 'Flexible scheduling'];
   }
