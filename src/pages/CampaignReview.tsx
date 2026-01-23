@@ -251,28 +251,63 @@ export default function CampaignReview() {
       const storedJobId = sessionStorage.getItem("campaign_job_id");
       const storedJob = sessionStorage.getItem("job") || sessionStorage.getItem("campaign_job");
       const storedCandidates = sessionStorage.getItem("selectedCandidates") || sessionStorage.getItem("campaign_candidates");
-      const storedChannels = sessionStorage.getItem("channelConfig") || sessionStorage.getItem("campaign_channels");
+      const storedChannels = sessionStorage.getItem("campaign_channels") || sessionStorage.getItem("channelConfig");
 
       // Validate required data
       if (!storedJobId && !storedJob) {
-        setLoadError("Missing job data. Please start over.");
+        setLoadError("Missing job data. Please start from the Candidate Matching page.");
         setIsLoading(false);
         return;
       }
 
-      if (!storedCandidates || storedCandidates === "[]") {
-        setLoadError("No candidates selected. Please start over.");
+      // Parse candidates and validate
+      let parsedCandidates: any[] = [];
+      if (storedCandidates) {
+        try {
+          parsedCandidates = JSON.parse(storedCandidates);
+        } catch (e) {
+          console.error("Error parsing candidates:", e);
+        }
+      }
+
+      if (!parsedCandidates || parsedCandidates.length === 0) {
+        setLoadError("No candidates selected. Please go back to Candidate Matching and select candidates.");
         setIsLoading(false);
         return;
       }
 
-      if (!storedChannels || storedChannels === "{}") {
-        setLoadError("Missing channel configuration. Please start over.");
+      // Parse channel config and validate it has at least one channel enabled
+      let parsedChannels: ChannelConfig | null = null;
+      if (storedChannels) {
+        try {
+          const raw = JSON.parse(storedChannels);
+          // Handle both formats: campaign_channels format (email.sender) and channelConfig format (email.enabled)
+          if (raw.email?.sender || raw.sms?.fromNumber || raw.aiCall?.fromNumber || raw.linkedin === true) {
+            parsedChannels = raw as ChannelConfig;
+          } else if (raw.email?.enabled || raw.sms?.enabled || raw.aiCalls?.enabled || raw.linkedin?.enabled) {
+            // Convert old format to new format
+            parsedChannels = {
+              email: raw.email?.enabled ? { sender: raw.email.sender || '', sequenceLength: raw.email.sequenceCount || 4, gapDays: 3 } : null,
+              sms: raw.sms?.enabled ? { fromNumber: '+12185628671', sequenceLength: raw.sms.sequenceCount || 2 } : null,
+              aiCall: raw.aiCalls?.enabled ? { fromNumber: '+13055634142', callDay: raw.aiCalls.callDay || 1, transferTo: 'rainey' } : null,
+              linkedin: raw.linkedin?.enabled || false,
+              schedule: raw.schedule || { startDate: new Date().toISOString(), sendWindowStart: '9:00 AM', sendWindowEnd: '5:00 PM', timezone: 'America/Chicago', weekdaysOnly: true }
+            };
+          }
+        } catch (e) {
+          console.error("Error parsing channels:", e);
+        }
+      }
+
+      const hasAnyChannel = parsedChannels?.email || parsedChannels?.sms || parsedChannels?.aiCall || parsedChannels?.linkedin;
+      if (!hasAnyChannel) {
+        setLoadError("Missing channel configuration. Please configure your outreach channels first.");
         setIsLoading(false);
         return;
       }
 
       setJobId(storedJobId);
+      setChannelConfig(parsedChannels);
       
       // Parse job if available from sessionStorage
       if (storedJob) {
@@ -283,18 +318,13 @@ export default function CampaignReview() {
         }
       }
 
-      const candidates = JSON.parse(storedCandidates);
       // Handle both array of IDs and array of candidate objects
-      if (Array.isArray(candidates) && candidates.length > 0) {
-        if (typeof candidates[0] === 'string') {
-          setCandidateIds(candidates);
-        } else {
-          setCandidateIds(candidates.map((c: any) => c.id));
-          setSelectedCandidates(candidates);
-        }
+      if (typeof parsedCandidates[0] === 'string') {
+        setCandidateIds(parsedCandidates);
+      } else {
+        setCandidateIds(parsedCandidates.map((c: any) => c.id));
+        setSelectedCandidates(parsedCandidates);
       }
-      
-      setChannelConfig(JSON.parse(storedChannels));
 
       // Fetch job
       const fetchJob = async () => {
@@ -322,12 +352,16 @@ export default function CampaignReview() {
         }
       };
 
-      // Fetch candidate stats and details
+      // Fetch candidate stats and details - use candidateIds from parsedCandidates
+      const candidateIdsToFetch = typeof parsedCandidates[0] === 'string' 
+        ? parsedCandidates 
+        : parsedCandidates.map((c: any) => c.id);
+      
       const fetchCandidateStats = async () => {
         const { data } = await supabase
           .from("candidates")
           .select("id, first_name, last_name, enrichment_tier, phone, personal_mobile, email, personal_email, specialty")
-          .in("id", candidates);
+          .in("id", candidateIdsToFetch);
 
         if (data) {
           setSelectedCandidates(data);
