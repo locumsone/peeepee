@@ -355,6 +355,122 @@ Generate the personalized hook, icebreaker, and talking points.`;
   };
 }
 
+// Process a single candidate - used for parallel processing
+async function processCandidate(
+  candidate: Candidate,
+  job: JobContext,
+  perplexityKey: string | undefined,
+  lovableKey: string | undefined,
+  useDeepResearch: boolean
+): Promise<PersonalizationResult> {
+  let researchSummary = '';
+  let researchSources: string[] = [];
+  let researchDetails: any = {};
+
+  // Deep research with Perplexity if enabled
+  if (useDeepResearch && perplexityKey) {
+    console.log(`Deep researching: ${candidate.first_name} ${candidate.last_name}`);
+    const research = await deepResearchCandidate(perplexityKey, candidate, job);
+    researchSummary = research.summary;
+    researchSources = research.sources;
+    researchDetails = research.details;
+  }
+
+  // Select hook pattern
+  const hookPattern = selectHookPattern(
+    candidate, 
+    job, 
+    researchDetails,
+    job.personalization_playbook
+  );
+
+  // Generate personalized content
+  let hook = '';
+  let icebreaker = '';
+  let talking_points: string[] = [];
+
+  if (lovableKey) {
+    const generated = await generatePersonalizedHook(
+      lovableKey,
+      candidate,
+      job,
+      hookPattern,
+      researchSummary
+    );
+    hook = generated.hook;
+    icebreaker = generated.icebreaker;
+    talking_points = generated.talking_points;
+  } else {
+    // Basic fallback without AI
+    hook = `Your ${candidate.specialty || 'medical'} background makes you a strong fit for our ${job.specialty} opportunity at ${job.facility_name}. $${job.bill_rate}/hour, ${job.city}, ${job.state}.`;
+    icebreaker = `Hi Dr. ${candidate.last_name},`;
+    talking_points = ['Competitive compensation', 'Excellent facility', 'Flexible scheduling'];
+  }
+
+  // Determine confidence based on research quality
+  let confidence: 'high' | 'medium' | 'low' = 'low';
+  if (researchDetails?.fellowship || researchDetails?.employer) {
+    confidence = 'high';
+  } else if (researchSummary && researchSummary.length > 200) {
+    confidence = 'medium';
+  } else if (candidate.board_certifications?.length || candidate.licenses?.length) {
+    confidence = 'medium';
+  }
+
+  return {
+    candidate_id: candidate.id,
+    candidate_name: `${candidate.first_name} ${candidate.last_name}`,
+    personalization_hook: hook,
+    hook_type: hookPattern.type,
+    confidence,
+    research_sources: researchSources,
+    talking_points,
+    icebreaker,
+    research_summary: researchSummary || undefined
+  };
+}
+
+// Process candidates in batches with parallelization
+async function processCandidatesInBatches(
+  candidates: Candidate[],
+  job: JobContext,
+  perplexityKey: string | undefined,
+  lovableKey: string | undefined,
+  useDeepResearch: boolean,
+  batchSize: number = 5
+): Promise<PersonalizationResult[]> {
+  const results: PersonalizationResult[] = [];
+  
+  for (let i = 0; i < candidates.length; i += batchSize) {
+    const batch = candidates.slice(i, i + batchSize);
+    console.log(`Processing batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(candidates.length / batchSize)} (${batch.length} candidates)`);
+    
+    // Process batch in parallel
+    const batchPromises = batch.map(candidate => 
+      processCandidate(candidate, job, perplexityKey, lovableKey, useDeepResearch)
+        .catch(error => {
+          console.error(`Error processing ${candidate.first_name} ${candidate.last_name}:`, error);
+          // Return fallback result on error
+          return {
+            candidate_id: candidate.id,
+            candidate_name: `${candidate.first_name} ${candidate.last_name}`,
+            personalization_hook: `Your ${candidate.specialty || 'medical'} background aligns with our ${job.specialty} opportunity.`,
+            hook_type: 'generic_specialty_match',
+            confidence: 'low' as const,
+            research_sources: [],
+            talking_points: ['Competitive compensation', 'Excellent facility'],
+            icebreaker: `Hi Dr. ${candidate.last_name},`
+          };
+        })
+    );
+    
+    const batchResults = await Promise.all(batchPromises);
+    results.push(...batchResults);
+  }
+  
+  return results;
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -372,7 +488,8 @@ serve(async (req) => {
       candidate_ids, 
       job_id, 
       deep_research = false,
-      custom_playbook 
+      custom_playbook,
+      batch_size = 5  // Allow caller to configure batch size
     } = await req.json();
 
     if (!candidate_ids || !Array.isArray(candidate_ids) || candidate_ids.length === 0) {
@@ -382,7 +499,16 @@ serve(async (req) => {
       throw new Error('job_id is required');
     }
 
-    console.log(`Personalization research for ${candidate_ids.length} candidates, deep_research=${deep_research}`);
+    // Limit candidates per request to prevent timeouts
+    const MAX_CANDIDATES = 20;
+    const limitedCandidateIds = candidate_ids.slice(0, MAX_CANDIDATES);
+    const wasLimited = candidate_ids.length > MAX_CANDIDATES;
+    
+    if (wasLimited) {
+      console.log(`Limited from ${candidate_ids.length} to ${MAX_CANDIDATES} candidates to prevent timeout`);
+    }
+
+    console.log(`Personalization research for ${limitedCandidateIds.length} candidates, deep_research=${deep_research}`);
 
     // Fetch job details
     const { data: jobData, error: jobError } = await supabase
@@ -410,94 +536,42 @@ serve(async (req) => {
     const { data: candidatesData, error: candidatesError } = await supabase
       .from('candidates')
       .select('id, first_name, last_name, specialty, state, city, company_name, licenses, npi, graduation_year, board_certifications, enrichment_tier')
-      .in('id', candidate_ids);
+      .in('id', limitedCandidateIds);
 
     if (candidatesError || !candidatesData) {
       throw new Error('Failed to fetch candidates');
     }
 
-    const results: PersonalizationResult[] = [];
     const useDeepResearch = deep_research && !!PERPLEXITY_API_KEY;
+    
+    // Use smaller batch size for deep research (more API calls per candidate)
+    const effectiveBatchSize = useDeepResearch ? Math.min(batch_size, 3) : batch_size;
+    
+    // Process all candidates in parallel batches
+    const results = await processCandidatesInBatches(
+      candidatesData,
+      job,
+      PERPLEXITY_API_KEY,
+      LOVABLE_API_KEY,
+      useDeepResearch,
+      effectiveBatchSize
+    );
 
-    for (const candidate of candidatesData) {
-      let researchSummary = '';
-      let researchSources: string[] = [];
-      let researchDetails: any = {};
-
-      // Deep research with Perplexity if enabled
-      if (useDeepResearch) {
-        console.log(`Deep researching: ${candidate.first_name} ${candidate.last_name}`);
-        const research = await deepResearchCandidate(PERPLEXITY_API_KEY!, candidate, job);
-        researchSummary = research.summary;
-        researchSources = research.sources;
-        researchDetails = research.details;
-      }
-
-      // Select hook pattern
-      const hookPattern = selectHookPattern(
-        candidate, 
-        job, 
-        researchDetails,
-        job.personalization_playbook
-      );
-
-      // Generate personalized content
-      let hook = '';
-      let icebreaker = '';
-      let talking_points: string[] = [];
-
-      if (LOVABLE_API_KEY) {
-        const generated = await generatePersonalizedHook(
-          LOVABLE_API_KEY,
-          candidate,
-          job,
-          hookPattern,
-          researchSummary
-        );
-        hook = generated.hook;
-        icebreaker = generated.icebreaker;
-        talking_points = generated.talking_points;
-      } else {
-        // Basic fallback without AI
-        hook = `Your ${candidate.specialty || 'medical'} background makes you a strong fit for our ${job.specialty} opportunity at ${job.facility_name}. $${job.bill_rate}/hour, ${job.city}, ${job.state}.`;
-        icebreaker = `Hi Dr. ${candidate.last_name},`;
-        talking_points = ['Competitive compensation', 'Excellent facility', 'Flexible scheduling'];
-      }
-
-      // Determine confidence based on research quality
-      let confidence: 'high' | 'medium' | 'low' = 'low';
-      if (researchDetails?.fellowship || researchDetails?.employer) {
-        confidence = 'high';
-      } else if (researchSummary && researchSummary.length > 200) {
-        confidence = 'medium';
-      } else if (candidate.company_name || candidate.board_certifications?.length) {
-        confidence = 'medium';
-      }
-
-      results.push({
-        candidate_id: candidate.id,
-        candidate_name: `Dr. ${candidate.first_name} ${candidate.last_name}`,
-        personalization_hook: hook,
-        hook_type: hookPattern.type,
-        confidence,
-        research_sources: researchSources,
-        talking_points,
-        icebreaker,
-        research_summary: useDeepResearch ? researchSummary : undefined
-      });
-
-      // Store in candidate_job_matches
+    // Store results in candidate_job_matches (in parallel)
+    const upsertPromises = results.map(async (result) => {
       try {
         await supabase.rpc('upsert_candidate_job_match', {
-          p_candidate_id: candidate.id,
+          p_candidate_id: result.candidate_id,
           p_job_id: job_id,
-          p_icebreaker: icebreaker,
-          p_talking_points: talking_points
+          p_icebreaker: result.icebreaker,
+          p_talking_points: result.talking_points
         });
       } catch (e) {
         console.error('Failed to upsert match:', e);
       }
-    }
+    });
+    
+    await Promise.all(upsertPromises);
 
     console.log(`Generated ${results.length} personalization hooks`);
 
@@ -507,6 +581,8 @@ serve(async (req) => {
         results,
         deep_research_used: useDeepResearch,
         total_candidates: results.length,
+        was_limited: wasLimited,
+        original_count: candidate_ids.length,
         high_confidence: results.filter(r => r.confidence === 'high').length,
         medium_confidence: results.filter(r => r.confidence === 'medium').length,
         low_confidence: results.filter(r => r.confidence === 'low').length
