@@ -105,7 +105,7 @@ async function deepResearchCandidate(
 ): Promise<{ summary: string; sources: string[]; details: any }> {
   
   try {
-    // Use a more targeted, faster query
+    // Use a more detailed query for richer profile info
     const response = await fetch('https://api.perplexity.ai/chat/completions', {
       method: 'POST',
       headers: {
@@ -117,15 +117,21 @@ async function deepResearchCandidate(
         messages: [
           {
             role: 'system',
-            content: `You are a healthcare recruiter assistant. Find 1-2 specific, verifiable facts about this physician for personalized outreach. Be VERY BRIEF - max 3 sentences. Focus on: fellowship/training, current hospital, or notable achievements. If nothing found, say "No specific info found."`
+            content: `You are a healthcare recruiter assistant researching physicians. Find specific, verifiable facts about this physician for personalized outreach. Include:
+- Current or recent hospital/employer affiliations
+- Fellowship training or residency programs
+- Board certifications or specializations
+- Publications, research, or notable achievements
+- Leadership roles or committee memberships
+Be factual and cite specific institutions. If limited info is found, say so. Max 5 sentences.`
           },
           {
             role: 'user',
-            content: `Dr. ${candidate.first_name} ${candidate.last_name}, ${candidate.specialty || 'physician'}${candidate.state ? `, ${candidate.state}` : ''}${candidate.npi ? ` (NPI: ${candidate.npi})` : ''}`
+            content: `Dr. ${candidate.first_name} ${candidate.last_name}, ${candidate.specialty || 'physician'}${candidate.state ? `, practicing in ${candidate.state}` : ''}${candidate.npi ? ` (NPI: ${candidate.npi})` : ''}`
           }
         ],
         temperature: 0.1,
-        max_tokens: 300, // Reduced from 800 for faster response
+        max_tokens: 500, // Increased for richer content
       }),
     });
 
@@ -141,8 +147,9 @@ async function deepResearchCandidate(
     // Quick parse - just look for key info
     const details = {
       fellowship: extractSection(content, ['fellowship', 'training', 'residency']),
-      employer: extractSection(content, ['hospital', 'employer', 'works at', 'affiliated']),
-      certifications: extractSection(content, ['board certified', 'certification']),
+      employer: extractSection(content, ['hospital', 'employer', 'works at', 'affiliated', 'practicing at']),
+      certifications: extractSection(content, ['board certified', 'certification', 'diplomate']),
+      publications: extractSection(content, ['published', 'research', 'author']),
     };
 
     return {
