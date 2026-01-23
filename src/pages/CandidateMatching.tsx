@@ -1875,32 +1875,7 @@ const CandidateMatching = () => {
                                 </div>
                               )}
                               
-                              {/* Licenses */}
-                              <div>
-                                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
-                                  Licenses ({candidate.licenses_count} states)
-                                </p>
-                                <div className="flex flex-wrap gap-1">
-                                  {candidate.licenses?.slice(0, 30).map((license, i) => (
-                                    <Badge key={i} variant="outline" className={cn("text-[10px]", license.includes(jobState) && "bg-success/20 text-success border-success/30")}>
-                                      {license}
-                                    </Badge>
-                                  ))}
-                                  {(candidate.licenses?.length || 0) > 30 && (
-                                    <Badge variant="outline" className="text-[10px]">+{candidate.licenses.length - 30} more</Badge>
-                                  )}
-                                </div>
-                              </div>
-                              
-                              {/* Match Concerns */}
-                              {candidate.match_concerns && candidate.match_concerns.length > 0 && (
-                                <div className="rounded-lg bg-destructive/10 border border-destructive/20 p-3">
-                                  <p className="text-xs font-semibold uppercase tracking-wide text-destructive mb-2">⚠️ Concerns</p>
-                                  <ul className="list-disc list-inside text-sm text-destructive/80 space-y-1">
-                                    {candidate.match_concerns.map((concern, i) => <li key={i}>{concern}</li>)}
-                                  </ul>
-                                </div>
-                              )}
+                              {/* Removed duplicate licenses and concerns sections - now shown in research card above */}
                               
                               {/* Contact Info */}
                               {(candidate.work_email || candidate.work_phone || candidate.personal_email || candidate.personal_mobile) && (
