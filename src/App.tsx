@@ -22,6 +22,7 @@ import Campaigns from "./pages/Campaigns";
 import CampaignBuilder from "./pages/CampaignBuilder";
 import CampaignCandidates from "./pages/CampaignCandidates";
 import CampaignChannels from "./pages/CampaignChannels";
+import PersonalizationStudio from "./pages/PersonalizationStudio";
 import SequenceStudio from "./pages/SequenceStudio";
 import CampaignReview from "./pages/CampaignReview";
 import CampaignDetail from "./pages/CampaignDetail";
@@ -66,9 +67,12 @@ const App = () => (
           <Route path="/campaigns" element={<AuthGuard><Campaigns /></AuthGuard>} />
           <Route path="/campaigns/new" element={<AuthGuard><CampaignBuilder /></AuthGuard>} />
           <Route path="/campaigns/new/candidates" element={<AuthGuard><CampaignCandidates /></AuthGuard>} />
+          {/* New flow: Candidates → Personalize → Sequence → Review → Enrichment → Launch */}
+          <Route path="/campaigns/new/personalize" element={<AuthGuard><PersonalizationStudio /></AuthGuard>} />
           <Route path="/campaigns/new/channels" element={<AuthGuard><SequenceStudio /></AuthGuard>} />
           <Route path="/campaigns/new/sequence" element={<AuthGuard><SequenceStudio /></AuthGuard>} />
           <Route path="/campaigns/new/review" element={<AuthGuard><CampaignReview /></AuthGuard>} />
+          <Route path="/campaigns/new/enrichment" element={<AuthGuard><EnrichmentReview /></AuthGuard>} />
           <Route path="/campaigns/:id" element={<AuthGuard><CampaignDetail /></AuthGuard>} />
           <Route path="/communications" element={<AuthGuard><Communications /></AuthGuard>} />
           <Route path="/sms/studio" element={<AuthGuard><SMSStudio /></AuthGuard>} />
