@@ -573,20 +573,45 @@ serve(async (req) => {
     }
 
     // Check for existing deep research to avoid duplicate API calls
-    const { data: existingMatches } = await supabase
-      .from('candidate_job_matches')
-      .select('candidate_id, icebreaker, talking_points')
-      .eq('job_id', job_id)
-      .in('candidate_id', limitedCandidateIds);
+    // Also fetch the candidate_research data for research summaries
+    const [matchesResult, researchResult] = await Promise.all([
+      supabase
+        .from('candidate_job_matches')
+        .select('candidate_id, icebreaker, talking_points, match_reasons, match_concerns')
+        .eq('job_id', job_id)
+        .in('candidate_id', limitedCandidateIds),
+      supabase
+        .from('candidate_research')
+        .select('candidate_id, credentials_summary, professional_highlights, verified_specialty, has_imlc, verified_licenses')
+        .in('candidate_id', limitedCandidateIds)
+    ]);
 
-    const alreadyResearchedMap = new Map<string, { icebreaker: string; talking_points: string[] }>();
+    const existingMatches = matchesResult.data;
+    const existingResearch = researchResult.data;
+    
+    // Build research lookup map
+    const researchMap = new Map<string, any>();
+    if (existingResearch) {
+      for (const research of existingResearch) {
+        researchMap.set(research.candidate_id, research);
+      }
+    }
+
+    const alreadyResearchedMap = new Map<string, { 
+      icebreaker: string; 
+      talking_points: string[];
+      match_reasons?: string[];
+      research?: any;
+    }>();
     if (existingMatches) {
       for (const match of existingMatches) {
         // Consider it "already researched" if it has both icebreaker AND talking points
         if (match.icebreaker && match.talking_points && match.talking_points.length > 0) {
           alreadyResearchedMap.set(match.candidate_id, {
             icebreaker: match.icebreaker,
-            talking_points: match.talking_points
+            talking_points: match.talking_points,
+            match_reasons: match.match_reasons,
+            research: researchMap.get(match.candidate_id)
           });
         }
       }
@@ -594,10 +619,20 @@ serve(async (req) => {
 
     // Split candidates into those needing research and those with cached results
     const candidatesNeedingResearch = candidatesData.filter(c => !alreadyResearchedMap.has(c.id));
-    const cachedResults: PersonalizationResult[] = candidatesData
+    const cachedResults: (PersonalizationResult & { from_cache?: boolean; professional_highlights?: string[]; credentials_summary?: string; has_imlc?: boolean; verified_specialty?: string; verified_licenses?: string[] })[] = candidatesData
       .filter(c => alreadyResearchedMap.has(c.id))
       .map(c => {
         const cached = alreadyResearchedMap.get(c.id)!;
+        const research = cached.research;
+        
+        // Build a proper research summary from the available data
+        let researchSummary = '';
+        if (research?.professional_highlights && research.professional_highlights.length > 0) {
+          researchSummary = research.professional_highlights.slice(0, 3).join(' ');
+        } else if (cached.match_reasons && cached.match_reasons.length > 0) {
+          researchSummary = cached.match_reasons.slice(0, 3).join(' ');
+        }
+        
         return {
           candidate_id: c.id,
           candidate_name: `${c.first_name} ${c.last_name}`,
@@ -607,7 +642,12 @@ serve(async (req) => {
           research_sources: [],
           talking_points: cached.talking_points,
           icebreaker: cached.icebreaker,
-          research_summary: 'Previously researched',
+          research_summary: researchSummary || undefined,
+          professional_highlights: research?.professional_highlights,
+          credentials_summary: research?.credentials_summary,
+          has_imlc: research?.has_imlc,
+          verified_specialty: research?.verified_specialty,
+          verified_licenses: research?.verified_licenses,
           from_cache: true
         };
       });
