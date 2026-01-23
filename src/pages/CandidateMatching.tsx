@@ -1589,88 +1589,179 @@ const CandidateMatching = () => {
                                 </div>
                               )}
 
-                              {/* Deep Research Section - shows personalization hook */}
-                              {candidate.deep_researched && candidate.personalization_hook && (
-                                <div className="rounded-lg bg-purple-500/10 border border-purple-500/20 p-4">
-                                  <div className="flex items-center gap-2 mb-2">
-                                    <p className="text-xs font-semibold uppercase tracking-wide text-purple-500">🔮 Deep Research Hook</p>
-                                    {candidate.hook_type && (
-                                      <Badge variant="outline" className="text-[10px] text-purple-400 border-purple-500/30">
-                                        {candidate.hook_type.replace(/_/g, ' ')}
-                                      </Badge>
+                              {/* ═══════════════════════════════════════════════════════ */}
+                              {/* RESEARCH SUMMARY CARD - Playbook Style */}
+                              {/* ═══════════════════════════════════════════════════════ */}
+                              
+                              {(candidate.researched || candidate.deep_researched) && (
+                                <div className="rounded-xl bg-gradient-to-br from-slate-900/50 to-slate-800/30 border border-slate-700/50 overflow-hidden">
+                                  {/* Header */}
+                                  <div className="bg-gradient-to-r from-purple-600/20 to-blue-600/20 px-4 py-3 border-b border-slate-700/50">
+                                    <div className="flex items-center justify-between">
+                                      <div className="flex items-center gap-2">
+                                        <div className="h-7 w-7 rounded-full bg-purple-500/20 flex items-center justify-center">
+                                          <span className="text-sm">🔮</span>
+                                        </div>
+                                        <div>
+                                          <p className="text-sm font-semibold text-white">
+                                            Research Summary
+                                          </p>
+                                          <p className="text-[10px] text-slate-400">
+                                            {candidate.deep_researched ? 'Deep Research (Perplexity)' : 'Standard Research'}
+                                          </p>
+                                        </div>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        {candidate.match_strength && (
+                                          <Badge className={cn(
+                                            "text-xs font-bold",
+                                            candidate.match_strength >= 85 ? "bg-success text-success-foreground" :
+                                            candidate.match_strength >= 70 ? "bg-blue-500 text-white" :
+                                            candidate.match_strength >= 50 ? "bg-warning text-warning-foreground" :
+                                            "bg-muted text-muted-foreground"
+                                          )}>
+                                            {candidate.match_strength >= 85 ? 'Tier 1' :
+                                             candidate.match_strength >= 70 ? 'Tier 2' :
+                                             candidate.match_strength >= 50 ? 'Tier 3' : 'Tier 4'}
+                                          </Badge>
+                                        )}
+                                        {candidate.deep_researched && (
+                                          <Badge variant="outline" className="text-[10px] text-purple-400 border-purple-500/30 bg-purple-500/10">
+                                            🔮 Deep
+                                          </Badge>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+                                  
+                                  <div className="p-4 space-y-4">
+                                    {/* Quick Profile - Playbook style */}
+                                    <div className="grid grid-cols-2 gap-3 text-sm">
+                                      <div className="space-y-1">
+                                        <p className="text-[10px] uppercase tracking-wider text-slate-500">Current Role</p>
+                                        <p className="text-slate-200 font-medium">{candidate.specialty || 'Physician'}</p>
+                                      </div>
+                                      <div className="space-y-1">
+                                        <p className="text-[10px] uppercase tracking-wider text-slate-500">Location</p>
+                                        <p className="text-slate-200">{candidate.city}, {candidate.state}</p>
+                                      </div>
+                                      <div className="space-y-1">
+                                        <p className="text-[10px] uppercase tracking-wider text-slate-500">Licenses</p>
+                                        <p className="text-slate-200">{candidate.licenses_count || 0} states {candidate.has_job_state_license && <span className="text-green-400">✓ {job?.state}</span>}</p>
+                                      </div>
+                                      <div className="space-y-1">
+                                        <p className="text-[10px] uppercase tracking-wider text-slate-500">Key Strength</p>
+                                        <p className="text-slate-200">{candidate.hook_type?.replace(/_/g, ' ') || candidate.specialty || '—'}</p>
+                                      </div>
+                                    </div>
+                                    
+                                    {/* Icebreaker Opening */}
+                                    {candidate.icebreaker && (
+                                      <div className="rounded-lg bg-primary/10 border border-primary/30 p-3">
+                                        <p className="text-[10px] uppercase tracking-wider text-primary mb-1.5">💬 Personalized Opening</p>
+                                        <p className="text-sm text-foreground leading-relaxed">{candidate.icebreaker}</p>
+                                      </div>
+                                    )}
+                                    
+                                    {/* What Makes This Compelling - Playbook format */}
+                                    {candidate.talking_points && candidate.talking_points.length > 0 && (
+                                      <div>
+                                        <p className="text-xs font-semibold text-amber-400 mb-2 flex items-center gap-1.5">
+                                          <span>✨</span> What Makes This Compelling
+                                        </p>
+                                        <ul className="space-y-1.5">
+                                          {candidate.talking_points.map((point, i) => (
+                                            <li key={i} className="flex items-start gap-2 text-sm">
+                                              <span className="text-amber-500 mt-0.5">•</span>
+                                              <span className="text-slate-300">{point}</span>
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    )}
+                                    
+                                    {/* Match Insight from Score Reason */}
+                                    {candidate.score_reason && (
+                                      <div className="rounded-lg bg-blue-500/10 border border-blue-500/20 p-3">
+                                        <p className="text-[10px] uppercase tracking-wider text-blue-400 mb-1.5">🎯 Match Analysis</p>
+                                        <div className="text-sm text-slate-300">
+                                          {highlightScoreReason(candidate.score_reason)}
+                                        </div>
+                                      </div>
+                                    )}
+                                    
+                                    {/* Deep Research Hook (only if different from icebreaker) */}
+                                    {candidate.deep_researched && candidate.personalization_hook && 
+                                     candidate.personalization_hook !== candidate.icebreaker && (
+                                      <div className="rounded-lg bg-purple-500/10 border border-purple-500/20 p-3">
+                                        <p className="text-[10px] uppercase tracking-wider text-purple-400 mb-1.5">
+                                          🔮 Deep Research Hook 
+                                          {candidate.hook_type && (
+                                            <span className="ml-2 text-purple-300/60">({candidate.hook_type.replace(/_/g, ' ')})</span>
+                                          )}
+                                        </p>
+                                        <p className="text-sm text-foreground italic leading-relaxed">"{candidate.personalization_hook}"</p>
+                                      </div>
                                     )}
                                   </div>
-                                  <p className="text-sm text-foreground italic">"{candidate.personalization_hook}"</p>
                                 </div>
                               )}
-
-                              {/* Not Deep Researched - show option */}
-                              {!candidate.deep_researched && candidate.researched && (
-                                <div className="rounded-lg bg-purple-500/5 border border-purple-500/10 p-4 flex items-center justify-between">
+                              
+                              {/* Not Researched - show CTA */}
+                              {!candidate.researched && !candidate.deep_researched && (
+                                <div className="rounded-lg bg-slate-800/30 border border-slate-700/30 p-4 flex items-center justify-between">
                                   <div className="flex items-center gap-3">
-                                    <div className="h-8 w-8 rounded-full bg-purple-500/10 flex items-center justify-center">
-                                      <span className="text-lg">🔮</span>
+                                    <div className="h-8 w-8 rounded-full bg-slate-700/50 flex items-center justify-center">
+                                      <Search className="h-4 w-4 text-slate-400" />
                                     </div>
                                     <div>
-                                      <p className="text-sm font-medium text-muted-foreground">Deep Personalization Available</p>
-                                      <p className="text-xs text-muted-foreground">
-                                        Get AI-crafted personalization hooks & tailored talking points
+                                      <p className="text-sm font-medium text-slate-300">Research Available</p>
+                                      <p className="text-xs text-slate-500">
+                                        Run research to generate personalized outreach
                                       </p>
                                     </div>
                                   </div>
                                   <Button
                                     size="sm"
                                     variant="outline"
-                                    className="text-purple-600 border-purple-500/30 hover:bg-purple-500/10"
+                                    className="border-slate-600 hover:bg-slate-700"
+                                    disabled={researchingIds.has(candidate.id)}
+                                    onClick={(e) => { e.stopPropagation(); handleResearchCandidate(candidate); }}
+                                  >
+                                    {researchingIds.has(candidate.id) ? (
+                                      <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                      <Target className="h-4 w-4" />
+                                    )}
+                                    <span className="ml-2">Research</span>
+                                  </Button>
+                                </div>
+                              )}
+                              
+                              {/* Deep Research Upsell (if only standard research) */}
+                              {candidate.researched && !candidate.deep_researched && (
+                                <div className="rounded-lg bg-purple-500/5 border border-purple-500/10 p-3 flex items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-lg">🔮</span>
+                                    <div>
+                                      <p className="text-xs font-medium text-purple-300">Unlock Deep Personalization</p>
+                                      <p className="text-[10px] text-slate-500">AI-crafted hooks from live web research</p>
+                                    </div>
+                                  </div>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="text-purple-400 hover:text-purple-300 hover:bg-purple-500/10 text-xs h-7"
                                     disabled={deepResearchingIds.has(candidate.id)}
                                     onClick={(e) => { e.stopPropagation(); handleDeepResearchCandidate(candidate); }}
                                   >
                                     {deepResearchingIds.has(candidate.id) ? (
-                                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                    ) : (
-                                      <>🔮</>
-                                    )}
-                                    <span className="ml-2">Deep Research</span>
+                                      <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                                    ) : null}
+                                    Deep Research
                                   </Button>
                                 </div>
                               )}
-
-                              {/* Icebreaker */}
-                              <div className="rounded-lg bg-primary/10 border border-primary/20 p-4">
-                                <div className="flex items-center gap-2 mb-2">
-                                  <p className="text-xs font-semibold uppercase tracking-wide text-primary">💡 Icebreaker</p>
-                                  {candidate.deep_researched && (
-                                    <Badge variant="outline" className="text-[10px] text-purple-400 border-purple-500/30">
-                                      Deep Research
-                                    </Badge>
-                                  )}
-                                </div>
-                                <p className="text-sm text-foreground">{candidate.icebreaker || "No icebreaker available"}</p>
-                              </div>
-                              
-                              {/* Score Reason */}
-                              {candidate.score_reason && (
-                                <div>
-                                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-1">Why This Match</p>
-                                  {highlightScoreReason(candidate.score_reason)}
-                                </div>
-                              )}
-                              
-                              {/* Talking Points */}
-                              <div>
-                                <div className="flex items-center gap-2 mb-2">
-                                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Talking Points</p>
-                                  {candidate.deep_researched && (
-                                    <Badge variant="outline" className="text-[10px] text-purple-400 border-purple-500/30">
-                                      Deep Research
-                                    </Badge>
-                                  )}
-                                </div>
-                                <ol className="list-decimal list-inside text-sm text-foreground space-y-1">
-                                  {candidate.talking_points?.map((point, i) => <li key={i}>{point}</li>) || 
-                                   <li className="text-muted-foreground">No talking points available</li>}
-                                </ol>
-                              </div>
                               
                               {/* Licenses */}
                               <div>
