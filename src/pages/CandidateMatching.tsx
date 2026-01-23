@@ -1354,8 +1354,16 @@ const CandidateMatching = () => {
                         </td>
                         <td className="px-4 py-4" onClick={(e) => e.stopPropagation()}>
                           <div className="flex gap-1">
-                            {/* Research button */}
-                            {!candidate.researched && (
+                            {/* Researched indicator or Research button */}
+                            {candidate.researched ? (
+                              <Badge 
+                                variant="outline" 
+                                className="text-xs bg-success/10 text-success border-success/30"
+                                title={candidate.from_cache ? "Loaded from cache" : "Researched"}
+                              >
+                                ✓ Researched
+                              </Badge>
+                            ) : (
                               <Button
                                 size="sm"
                                 variant="outline"

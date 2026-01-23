@@ -99,6 +99,34 @@ interface OutputCandidate {
   is_local?: boolean;
   has_job_state_license?: boolean;
   priority_tier?: string;
+  // Cached research fields
+  researched?: boolean;
+  verified_npi?: boolean;
+  has_imlc?: boolean;
+  researched_at?: string;
+  from_cache?: boolean;
+}
+
+interface CachedResearch {
+  candidate_id: string;
+  npi_verified: boolean;
+  has_imlc: boolean;
+  npi: string | null;
+  verified_specialty: string | null;
+  license_count: number;
+  last_researched_at: string;
+}
+
+interface CachedJobMatch {
+  candidate_id: string;
+  job_id: string;
+  match_grade: string | null;
+  match_score: number | null;
+  match_reasons: string[] | null;
+  match_concerns: string[] | null;
+  icebreaker: string | null;
+  talking_points: string[] | null;
+  scored_at: string;
 }
 
 interface AlphaSophiaConfig {
@@ -650,27 +678,70 @@ serve(async (req) => {
     const dbCandidates = (localCandidates || []) as DbCandidate[];
     console.log(`Found ${dbCandidates.length} local candidates`);
 
+    // Fetch cached research data for all candidates
+    const candidateIds = dbCandidates.map(c => c.id);
+    
+    const [researchResult, matchResult] = await Promise.all([
+      supabase
+        .from('candidate_research')
+        .select('candidate_id, npi_verified, has_imlc, npi, verified_specialty, license_count, last_researched_at')
+        .in('candidate_id', candidateIds),
+      supabase
+        .from('candidate_job_matches')
+        .select('candidate_id, job_id, match_grade, match_score, match_reasons, match_concerns, icebreaker, talking_points, scored_at')
+        .eq('job_id', job_id)
+        .in('candidate_id', candidateIds)
+    ]);
+
+    // Build lookup maps for cached data
+    const researchMap = new Map<string, CachedResearch>();
+    (researchResult.data || []).forEach((r: any) => {
+      researchMap.set(r.candidate_id, r as CachedResearch);
+    });
+    
+    const matchMap = new Map<string, CachedJobMatch>();
+    (matchResult.data || []).forEach((m: any) => {
+      matchMap.set(m.candidate_id, m as CachedJobMatch);
+    });
+    
+    console.log(`Found ${researchMap.size} cached research records, ${matchMap.size} cached job matches`);
+
     const ENRICHED_SOURCES = ['Whitepages', 'PDL', 'Apollo', 'Hunter', 'Clearbit', 'ZoomInfo'];
     
-    // Use AI to score candidates
+    // Use AI to score candidates (only for those without cached matches)
     let aiScores: Map<string, AIMatchResult> = new Map();
     
-    if (LOVABLE_API_KEY && dbCandidates.length > 0) {
-      console.log('Using Lovable AI for candidate scoring...');
+    // Only AI score candidates that don't have cached job matches
+    const candidatesNeedingAI = dbCandidates.filter(c => !matchMap.has(c.id));
+    
+    if (LOVABLE_API_KEY && candidatesNeedingAI.length > 0) {
+      console.log(`Using Lovable AI for ${candidatesNeedingAI.length} candidates without cached scores...`);
       try {
-        aiScores = await getAIMatchScores(LOVABLE_API_KEY, job, dbCandidates.slice(0, 50));
+        aiScores = await getAIMatchScores(LOVABLE_API_KEY, job, candidatesNeedingAI.slice(0, 50));
         console.log(`AI scored ${aiScores.size} candidates`);
       } catch (aiError) {
         console.error('AI scoring failed, falling back to rule-based:', aiError);
       }
+    } else if (matchMap.size > 0) {
+      console.log(`Using ${matchMap.size} cached job matches, skipping AI scoring`);
     }
     
     let candidates: OutputCandidate[] = dbCandidates.map((c) => {
       const isEnriched = !!c.enrichment_source && ENRICHED_SOURCES.includes(c.enrichment_source);
       const aiResult = aiScores.get(c.id);
+      const cachedResearch = researchMap.get(c.id);
+      const cachedMatch = matchMap.get(c.id);
       
-      // Use rigorous hierarchy-based scoring if no AI score
+      // Use rigorous hierarchy-based scoring if no AI score and no cached match
       const calculatedStrength = calculateMatchStrength(c, job.state);
+      
+      // Prioritize: cached match > AI result > calculated
+      const finalGrade = cachedMatch?.match_grade || aiResult?.grade || c.unified_score || getGradeFromScore(calculatedStrength);
+      const finalScore = cachedMatch?.match_score || aiResult?.match_score || calculatedStrength;
+      const finalReasons = cachedMatch?.match_reasons?.join(' • ') || aiResult?.match_reasons?.join(' • ') || generateScoreReason(c, job);
+      const finalIcebreaker = cachedMatch?.icebreaker || aiResult?.icebreaker || generateIcebreaker(c, job);
+      const finalTalkingPoints = cachedMatch?.talking_points || aiResult?.talking_points || generateTalkingPoints(c, job);
+      const finalConcerns = cachedMatch?.match_concerns || aiResult?.concerns || [];
       
       return {
         id: c.id,
@@ -679,15 +750,15 @@ serve(async (req) => {
         specialty: c.specialty || '',
         state: c.state || '',
         city: c.city || undefined,
-        unified_score: aiResult?.grade || c.unified_score || getGradeFromScore(calculatedStrength),
-        match_strength: aiResult?.match_score || calculatedStrength,
+        unified_score: finalGrade,
+        match_strength: finalScore,
         licenses: c.licenses || [],
         licenses_count: c.license_count || 0,
         enrichment_tier: c.enrichment_tier || 'Basic',
         enrichment_source: c.enrichment_source || undefined,
-        score_reason: aiResult?.match_reasons?.join(' • ') || generateScoreReason(c, job),
-        icebreaker: aiResult?.icebreaker || generateIcebreaker(c, job),
-        talking_points: aiResult?.talking_points || generateTalkingPoints(c, job),
+        score_reason: finalReasons,
+        icebreaker: finalIcebreaker,
+        talking_points: finalTalkingPoints,
         has_personal_contact: c.has_personal_contact,
         needs_enrichment: c.needs_enrichment,
         is_enriched: isEnriched,
@@ -696,11 +767,18 @@ serve(async (req) => {
         personal_mobile: c.personal_mobile || undefined,
         personal_email: c.personal_email || undefined,
         source: 'database',
-        match_concerns: aiResult?.concerns || [],
+        match_concerns: finalConcerns,
         // New fields for recruiter UX
         is_local: (c.state || '').toUpperCase() === job.state.toUpperCase(),
         has_job_state_license: (c.licenses || []).some(l => l.toUpperCase() === job.state.toUpperCase()),
         priority_tier: getPriorityTier(c, job.state),
+        // Cached research fields - mark as already researched if we have cached data
+        researched: !!cachedResearch || !!cachedMatch,
+        verified_npi: cachedResearch?.npi_verified || false,
+        npi: cachedResearch?.npi || undefined,
+        has_imlc: cachedResearch?.has_imlc || false,
+        researched_at: cachedMatch?.scored_at || cachedResearch?.last_researched_at || undefined,
+        from_cache: !!cachedResearch || !!cachedMatch,
       };
     });
 
@@ -786,6 +864,10 @@ serve(async (req) => {
       alpha_sophia_count: candidates.filter(c => c.source === 'alpha_sophia').length,
       alpha_sophia_searched: alphaSophiaSearched,
       ai_scored: aiScores.size > 0,
+      // New: cached research stats
+      already_researched: candidates.filter(c => c.researched).length,
+      cached_matches: matchMap.size,
+      cached_research: researchMap.size,
       alpha_sophia_limit: limitInfo ? {
         allowed: limitInfo.allowed, remaining: limitInfo.remaining,
         used_today: limitInfo.used_today, daily_limit: limitInfo.daily_limit, is_admin: limitInfo.is_admin,
