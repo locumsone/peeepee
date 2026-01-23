@@ -96,15 +96,15 @@ const DEFAULT_HOOK_PATTERNS = [
   }
 ];
 
-// Research a candidate using Perplexity web search
+// Research a candidate using Perplexity web search - OPTIMIZED for speed
 async function deepResearchCandidate(
   perplexityKey: string,
   candidate: Candidate,
   job: JobContext
 ): Promise<{ summary: string; sources: string[]; details: any }> {
-  const searchQuery = `${candidate.first_name} ${candidate.last_name} physician ${candidate.specialty || ''} ${candidate.state || ''} fellowship training hospital`;
   
   try {
+    // Use a more targeted, faster query
     const response = await fetch('https://api.perplexity.ai/chat/completions', {
       method: 'POST',
       headers: {
@@ -112,36 +112,19 @@ async function deepResearchCandidate(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'sonar',
+        model: 'sonar', // Fast model
         messages: [
           {
             role: 'system',
-            content: `You are researching a physician candidate for a healthcare recruiting firm. 
-Find specific, verifiable professional information that can be used for personalized outreach.
-
-Focus on:
-1. Fellowship training institution and specialty
-2. Current or recent employer/hospital
-3. Board certifications and credentials
-4. Publications or presentations
-5. Professional memberships or leadership roles
-6. Any unique professional accomplishments
-
-Return ONLY factual, verifiable information. Do NOT make up details.
-If you cannot find specific information, say "No specific information found" for that category.`
+            content: `You are a healthcare recruiter assistant. Find 1-2 specific, verifiable facts about this physician for personalized outreach. Be VERY BRIEF - max 3 sentences. Focus on: fellowship/training, current hospital, or notable achievements. If nothing found, say "No specific info found."`
           },
           {
             role: 'user',
-            content: `Research Dr. ${candidate.first_name} ${candidate.last_name}, a ${candidate.specialty || 'physician'} ${candidate.state ? `in ${candidate.state}` : ''}.
-${candidate.company_name ? `Current employer: ${candidate.company_name}` : ''}
-${candidate.npi ? `NPI: ${candidate.npi}` : ''}
-${candidate.graduation_year ? `Graduation year: ${candidate.graduation_year}` : ''}
-
-Find their professional background for recruiting outreach.`
+            content: `Dr. ${candidate.first_name} ${candidate.last_name}, ${candidate.specialty || 'physician'}${candidate.state ? `, ${candidate.state}` : ''}${candidate.npi ? ` (NPI: ${candidate.npi})` : ''}`
           }
         ],
         temperature: 0.1,
-        max_tokens: 800,
+        max_tokens: 300, // Reduced from 800 for faster response
       }),
     });
 
@@ -154,13 +137,11 @@ Find their professional background for recruiting outreach.`
     const content = data.choices?.[0]?.message?.content || '';
     const citations = data.citations || [];
 
-    // Parse the research into structured details
+    // Quick parse - just look for key info
     const details = {
       fellowship: extractSection(content, ['fellowship', 'training', 'residency']),
       employer: extractSection(content, ['hospital', 'employer', 'works at', 'affiliated']),
-      certifications: extractSection(content, ['board certified', 'certification', 'credentials']),
-      publications: extractSection(content, ['publication', 'research', 'published']),
-      leadership: extractSection(content, ['leadership', 'director', 'chief', 'president']),
+      certifications: extractSection(content, ['board certified', 'certification']),
     };
 
     return {
@@ -237,7 +218,7 @@ function selectHookPattern(
   return { type: 'generic_specialty_match', pattern: DEFAULT_HOOK_PATTERNS[7].pattern };
 }
 
-// Generate personalized hook using AI
+// Generate personalized hook using AI - OPTIMIZED for speed
 async function generatePersonalizedHook(
   lovableKey: string,
   candidate: Candidate,
@@ -245,42 +226,19 @@ async function generatePersonalizedHook(
   hookPattern: { type: string; pattern: string },
   researchSummary: string
 ): Promise<{ hook: string; icebreaker: string; talking_points: string[] }> {
-  const systemPrompt = `You are an expert healthcare recruiter creating hyper-personalized outreach.
+  
+  // If we have good research, generate a quick hook without full AI call
+  if (researchSummary && researchSummary.length > 50 && !researchSummary.includes("No specific info")) {
+    // Fast path: Use research findings directly to build hook
+    const hook = buildQuickHook(candidate, job, researchSummary, hookPattern.type);
+    return {
+      hook,
+      icebreaker: `Hi Dr. ${candidate.last_name},`,
+      talking_points: buildQuickTalkingPoints(candidate, job, researchSummary)
+    };
+  }
 
-Your task: Generate a compelling, personalized outreach hook for a physician candidate.
-
-CRITICAL RULES:
-1. Use SPECIFIC details from the research - fellowship institution, current employer, publications
-2. Never use generic phrases like "your background caught our attention" unless NO specific details exist
-3. Lead with what makes THIS candidate special for THIS specific opportunity
-4. Reference the hook pattern provided but customize with real details
-5. Keep the hook under 100 words - punchy and specific
-6. Generate 3-4 specific talking points the recruiter can use
-
-Hook Pattern to Follow: ${hookPattern.type}
-Pattern Template: ${hookPattern.pattern}`;
-
-  const userPrompt = `
-CANDIDATE:
-Name: Dr. ${candidate.first_name} ${candidate.last_name}
-Specialty: ${candidate.specialty || 'Unknown'}
-Location: ${candidate.city || ''}, ${candidate.state || 'Unknown'}
-Current Employer: ${candidate.company_name || 'Unknown'}
-Licenses: ${(candidate.licenses || []).join(', ') || 'Unknown'}
-Board Certifications: ${(candidate.board_certifications || []).join(', ') || 'Unknown'}
-
-RESEARCH FINDINGS:
-${researchSummary || 'No specific research available'}
-
-JOB OPPORTUNITY:
-Specialty: ${job.specialty}
-Facility: ${job.facility_name}
-Location: ${job.city}, ${job.state}
-Rate: $${job.bill_rate}/hour
-${job.raw_job_text ? `\nAdditional Details:\n${job.raw_job_text.substring(0, 1500)}` : ''}
-
-Generate the personalized hook, icebreaker, and talking points.`;
-
+  // Fallback to AI only if research is empty/generic
   try {
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -291,53 +249,39 @@ Generate the personalized hook, icebreaker, and talking points.`;
       body: JSON.stringify({
         model: "google/gemini-3-flash-preview",
         messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt }
-        ],
-        tools: [{
-          type: "function",
-          function: {
-            name: "generate_personalization",
-            description: "Generate personalized outreach content",
-            parameters: {
-              type: "object",
-              properties: {
-                hook: { 
-                  type: "string", 
-                  description: "Main personalization hook - specific, compelling, under 100 words" 
-                },
-                icebreaker: { 
-                  type: "string", 
-                  description: "Opening line for email/call - warm, specific reference to their background" 
-                },
-                talking_points: { 
-                  type: "array", 
-                  items: { type: "string" }, 
-                  description: "3-4 key selling points tailored to this candidate" 
-                }
-              },
-              required: ["hook", "icebreaker", "talking_points"]
-            }
+          { 
+            role: "system", 
+            content: `Create a 2-sentence personalized recruiter hook for a physician. Be specific. Return JSON only: {"hook":"...","icebreaker":"...","talking_points":["...",".."]}` 
+          },
+          { 
+            role: "user", 
+            content: `Dr. ${candidate.first_name} ${candidate.last_name}, ${candidate.specialty}. Job: ${job.specialty} at ${job.facility_name}, ${job.city}, ${job.state}. $${job.bill_rate}/hr. Research: ${researchSummary || 'None'}` 
           }
-        }],
-        tool_choice: { type: "function", function: { name: "generate_personalization" } }
+        ],
+        max_tokens: 300,
       }),
     });
 
     if (!response.ok) {
-      throw new Error(`Lovable AI error: ${response.status}`);
+      throw new Error(`AI error: ${response.status}`);
     }
 
     const data = await response.json();
-    const toolCall = data.choices?.[0]?.message?.tool_calls?.[0];
+    const content = data.choices?.[0]?.message?.content || '';
     
-    if (toolCall?.function?.arguments) {
-      const parsed = JSON.parse(toolCall.function.arguments);
-      return {
-        hook: parsed.hook || '',
-        icebreaker: parsed.icebreaker || `Hi Dr. ${candidate.last_name},`,
-        talking_points: parsed.talking_points || []
-      };
+    // Try to parse JSON from response
+    try {
+      const jsonMatch = content.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        return {
+          hook: parsed.hook || buildQuickHook(candidate, job, researchSummary, hookPattern.type),
+          icebreaker: parsed.icebreaker || `Hi Dr. ${candidate.last_name},`,
+          talking_points: parsed.talking_points || buildQuickTalkingPoints(candidate, job, researchSummary)
+        };
+      }
+    } catch {
+      // JSON parse failed, use content directly
     }
   } catch (error) {
     console.error('AI generation error:', error);
@@ -345,14 +289,49 @@ Generate the personalized hook, icebreaker, and talking points.`;
 
   // Fallback
   return {
-    hook: `Your background in ${candidate.specialty || 'medicine'} aligns with our ${job.specialty} opportunity at ${job.facility_name} in ${job.city}, ${job.state}. $${job.bill_rate}/hour, long-term locums.`,
+    hook: buildQuickHook(candidate, job, researchSummary, hookPattern.type),
     icebreaker: `Hi Dr. ${candidate.last_name},`,
-    talking_points: [
-      `$${job.bill_rate}/hour compensation`,
-      `${job.facility_name} - excellent resources`,
-      `Long-term stability with locums flexibility`
-    ]
+    talking_points: buildQuickTalkingPoints(candidate, job, researchSummary)
   };
+}
+
+// Fast hook builder without AI
+function buildQuickHook(candidate: Candidate, job: JobContext, research: string, hookType: string): string {
+  const hasStateLicense = candidate.licenses?.some(l => l.toUpperCase() === job.state?.toUpperCase());
+  const rate = job.bill_rate ? `$${job.bill_rate}/hour` : 'competitive rate';
+  
+  if (research && research.length > 30 && !research.includes("No specific")) {
+    // Extract first meaningful sentence from research
+    const firstSentence = research.split('.')[0].trim();
+    if (firstSentence.length > 20) {
+      return `${firstSentence}. This makes you ideal for our ${job.specialty} opportunity at ${job.facility_name} - ${rate}.`;
+    }
+  }
+  
+  if (hasStateLicense) {
+    return `Your ${job.state} license + ${candidate.specialty} experience = priority credentialing for ${job.facility_name}. ${rate}, start quickly.`;
+  }
+  
+  return `Your ${candidate.specialty || 'medical'} background aligns with our ${job.specialty} opportunity at ${job.facility_name}. ${rate}, ${job.city}, ${job.state}.`;
+}
+
+// Fast talking points without AI
+function buildQuickTalkingPoints(candidate: Candidate, job: JobContext, research: string): string[] {
+  const points: string[] = [];
+  
+  if (job.bill_rate) points.push(`$${job.bill_rate}/hour - elite locums compensation`);
+  if (job.facility_name) points.push(`${job.facility_name} - established health system`);
+  
+  const hasStateLicense = candidate.licenses?.some(l => l.toUpperCase() === job.state?.toUpperCase());
+  if (hasStateLicense) {
+    points.push(`Already licensed in ${job.state} - expedited credentialing`);
+  } else if ((candidate.licenses?.length || 0) >= 10) {
+    points.push(`Multi-state licensure - IMLC eligible for faster start`);
+  }
+  
+  points.push('Long-term assignment with locums flexibility');
+  
+  return points.slice(0, 4);
 }
 
 // Process a single candidate - used for parallel processing
