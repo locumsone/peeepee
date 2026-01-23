@@ -732,12 +732,41 @@ serve(async (req) => {
       const cachedResearch = researchMap.get(c.id);
       const cachedMatch = matchMap.get(c.id);
       
-      // Use rigorous hierarchy-based scoring if no AI score and no cached match
+      // Use rigorous hierarchy-based scoring that ALWAYS respects locality
       const calculatedStrength = calculateMatchStrength(c, job.state);
       
-      // Prioritize: cached match > AI result > calculated
-      const finalGrade = cachedMatch?.match_grade || aiResult?.grade || c.unified_score || getGradeFromScore(calculatedStrength);
-      const finalScore = cachedMatch?.match_score || aiResult?.match_score || calculatedStrength;
+      // Determine locality and license status (these MUST be respected regardless of AI score)
+      const isLocal = (c.state || '').toUpperCase() === job.state.toUpperCase();
+      const hasJobStateLicense = (c.licenses || []).some(l => l.toUpperCase() === job.state.toUpperCase());
+      const licenseCount = c.license_count || 0;
+      
+      // Get AI/cached score as a baseline
+      const aiOrCachedScore = cachedMatch?.match_score || aiResult?.match_score;
+      
+      // CRITICAL: Enforce locality hierarchy - local + licensed candidates MUST score highest
+      // Even if AI gives a non-local candidate 100, local candidates with licenses should win
+      let finalScore: number;
+      if (aiOrCachedScore !== undefined) {
+        // Start with AI score but enforce hierarchy
+        if (isLocal && hasJobStateLicense) {
+          // Local + licensed: ensure minimum 95, boost AI score if lower
+          finalScore = Math.max(aiOrCachedScore, 95 + Math.min(5, Math.floor(licenseCount / 5)));
+        } else if (isLocal) {
+          // Local only: ensure minimum 85
+          finalScore = Math.max(aiOrCachedScore, 85);
+        } else if (hasJobStateLicense) {
+          // Not local but licensed: cap at 94 to never beat local+licensed
+          finalScore = Math.min(aiOrCachedScore, 94);
+        } else {
+          // Neither local nor licensed: cap at 79
+          finalScore = Math.min(aiOrCachedScore, 79);
+        }
+      } else {
+        // No AI score - use calculated (already respects hierarchy)
+        finalScore = calculatedStrength;
+      }
+      
+      const finalGrade = getGradeFromScore(finalScore);
       const finalReasons = cachedMatch?.match_reasons?.join(' • ') || aiResult?.match_reasons?.join(' • ') || generateScoreReason(c, job);
       const finalIcebreaker = cachedMatch?.icebreaker || aiResult?.icebreaker || generateIcebreaker(c, job);
       const finalTalkingPoints = cachedMatch?.talking_points || aiResult?.talking_points || generateTalkingPoints(c, job);
