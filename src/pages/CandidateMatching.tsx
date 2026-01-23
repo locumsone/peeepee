@@ -1355,6 +1355,14 @@ const CandidateMatching = () => {
                                   {candidate.from_cache ? '📦 Saved' : '🔬 Researched'}
                                 </Badge>
                               )}
+                              {candidate.deep_researched && (
+                                <Badge 
+                                  variant="outline" 
+                                  className="text-[10px] bg-purple-500/10 text-purple-500 border-purple-500/30 gap-1"
+                                >
+                                  🔮 Deep
+                                </Badge>
+                              )}
                               {candidate.verified_npi && (
                                 <Badge 
                                   variant="outline" 
@@ -1565,9 +1573,62 @@ const CandidateMatching = () => {
                                 </div>
                               )}
 
+                              {/* Deep Research Section - shows personalization hook */}
+                              {candidate.deep_researched && candidate.personalization_hook && (
+                                <div className="rounded-lg bg-purple-500/10 border border-purple-500/20 p-4">
+                                  <div className="flex items-center gap-2 mb-2">
+                                    <p className="text-xs font-semibold uppercase tracking-wide text-purple-500">🔮 Deep Research Hook</p>
+                                    {candidate.hook_type && (
+                                      <Badge variant="outline" className="text-[10px] text-purple-400 border-purple-500/30">
+                                        {candidate.hook_type.replace(/_/g, ' ')}
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  <p className="text-sm text-foreground italic">"{candidate.personalization_hook}"</p>
+                                </div>
+                              )}
+
+                              {/* Not Deep Researched - show option */}
+                              {!candidate.deep_researched && candidate.researched && (
+                                <div className="rounded-lg bg-purple-500/5 border border-purple-500/10 p-4 flex items-center justify-between">
+                                  <div className="flex items-center gap-3">
+                                    <div className="h-8 w-8 rounded-full bg-purple-500/10 flex items-center justify-center">
+                                      <span className="text-lg">🔮</span>
+                                    </div>
+                                    <div>
+                                      <p className="text-sm font-medium text-muted-foreground">Deep Personalization Available</p>
+                                      <p className="text-xs text-muted-foreground">
+                                        Get AI-crafted personalization hooks & tailored talking points
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="text-purple-600 border-purple-500/30 hover:bg-purple-500/10"
+                                    disabled={deepResearchingIds.has(candidate.id)}
+                                    onClick={(e) => { e.stopPropagation(); handleDeepResearchCandidate(candidate); }}
+                                  >
+                                    {deepResearchingIds.has(candidate.id) ? (
+                                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                    ) : (
+                                      <>🔮</>
+                                    )}
+                                    <span className="ml-2">Deep Research</span>
+                                  </Button>
+                                </div>
+                              )}
+
                               {/* Icebreaker */}
                               <div className="rounded-lg bg-primary/10 border border-primary/20 p-4">
-                                <p className="text-xs font-semibold uppercase tracking-wide text-primary mb-2">💡 Icebreaker</p>
+                                <div className="flex items-center gap-2 mb-2">
+                                  <p className="text-xs font-semibold uppercase tracking-wide text-primary">💡 Icebreaker</p>
+                                  {candidate.deep_researched && (
+                                    <Badge variant="outline" className="text-[10px] text-purple-400 border-purple-500/30">
+                                      Deep Research
+                                    </Badge>
+                                  )}
+                                </div>
                                 <p className="text-sm text-foreground">{candidate.icebreaker || "No icebreaker available"}</p>
                               </div>
                               
@@ -1581,7 +1642,14 @@ const CandidateMatching = () => {
                               
                               {/* Talking Points */}
                               <div>
-                                <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">Talking Points</p>
+                                <div className="flex items-center gap-2 mb-2">
+                                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Talking Points</p>
+                                  {candidate.deep_researched && (
+                                    <Badge variant="outline" className="text-[10px] text-purple-400 border-purple-500/30">
+                                      Deep Research
+                                    </Badge>
+                                  )}
+                                </div>
                                 <ol className="list-decimal list-inside text-sm text-foreground space-y-1">
                                   {candidate.talking_points?.map((point, i) => <li key={i}>{point}</li>) || 
                                    <li className="text-muted-foreground">No talking points available</li>}
