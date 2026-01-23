@@ -55,12 +55,19 @@ interface Candidate {
   npi?: string;
   verified_npi?: boolean;
   match_concerns?: string[];
+  match_reasons?: string[];
   from_cache?: boolean;
   researched_at?: string;
   research_depth?: 'quick' | 'deep';
   deep_researched?: boolean;
   personalization_hook?: string;
   hook_type?: string;
+  // Profile summary fields from research
+  credentials_summary?: string;
+  professional_highlights?: string[];
+  verified_specialty?: string;
+  verified_licenses?: string[];
+  imlc_inference_reason?: string;
   // New rigorous scoring fields
   is_local?: boolean;
   has_job_state_license?: boolean;
@@ -511,7 +518,14 @@ const CandidateMatching = () => {
           icebreaker: result.match_analysis?.icebreaker || c.icebreaker,
           talking_points: result.match_analysis?.talking_points || c.talking_points,
           match_concerns: result.match_analysis?.concerns || [],
+          match_reasons: result.match_analysis?.reasons || [],
           from_cache: result.from_cache || false,
+          // Profile summary fields from research
+          credentials_summary: result.research?.credentials_summary || c.credentials_summary,
+          professional_highlights: result.research?.professional_highlights || result.match_analysis?.reasons || c.professional_highlights,
+          verified_specialty: result.research?.verified_specialty || c.verified_specialty,
+          verified_licenses: result.research?.verified_licenses || c.verified_licenses,
+          imlc_inference_reason: result.research?.imlc_inference_reason || c.imlc_inference_reason,
         };
       }));
       
@@ -1604,14 +1618,19 @@ const CandidateMatching = () => {
                                         </div>
                                         <div>
                                           <p className="text-sm font-semibold text-white">
-                                            Research Summary
+                                            Research Profile
                                           </p>
                                           <p className="text-[10px] text-slate-400">
-                                            {candidate.deep_researched ? 'Deep Research (Perplexity)' : 'Standard Research'}
+                                            {candidate.deep_researched ? 'Deep Research (Perplexity + AI)' : candidate.from_cache ? 'Cached Research' : 'Standard Research (NPI + AI)'}
                                           </p>
                                         </div>
                                       </div>
                                       <div className="flex items-center gap-2">
+                                        {candidate.npi && (
+                                          <Badge variant="outline" className="text-[10px] text-emerald-400 border-emerald-500/30 bg-emerald-500/10">
+                                            NPI: {candidate.npi}
+                                          </Badge>
+                                        )}
                                         {candidate.match_strength && (
                                           <Badge className={cn(
                                             "text-xs font-bold",
@@ -1620,9 +1639,7 @@ const CandidateMatching = () => {
                                             candidate.match_strength >= 50 ? "bg-warning text-warning-foreground" :
                                             "bg-muted text-muted-foreground"
                                           )}>
-                                            {candidate.match_strength >= 85 ? 'Tier 1' :
-                                             candidate.match_strength >= 70 ? 'Tier 2' :
-                                             candidate.match_strength >= 50 ? 'Tier 3' : 'Tier 4'}
+                                            {candidate.match_strength}% Match
                                           </Badge>
                                         )}
                                         {candidate.deep_researched && (
@@ -1635,39 +1652,83 @@ const CandidateMatching = () => {
                                   </div>
                                   
                                   <div className="p-4 space-y-4">
-                                    {/* Quick Profile - Playbook style */}
-                                    <div className="grid grid-cols-2 gap-3 text-sm">
-                                      <div className="space-y-1">
-                                        <p className="text-[10px] uppercase tracking-wider text-slate-500">Current Role</p>
-                                        <p className="text-slate-200 font-medium">{candidate.specialty || 'Physician'}</p>
-                                      </div>
-                                      <div className="space-y-1">
-                                        <p className="text-[10px] uppercase tracking-wider text-slate-500">Location</p>
-                                        <p className="text-slate-200">{candidate.city}, {candidate.state}</p>
-                                      </div>
-                                      <div className="space-y-1">
-                                        <p className="text-[10px] uppercase tracking-wider text-slate-500">Licenses</p>
-                                        <p className="text-slate-200">{candidate.licenses_count || 0} states {candidate.has_job_state_license && <span className="text-green-400">✓ {job?.state}</span>}</p>
-                                      </div>
-                                      <div className="space-y-1">
-                                        <p className="text-[10px] uppercase tracking-wider text-slate-500">Key Strength</p>
-                                        <p className="text-slate-200">{candidate.hook_type?.replace(/_/g, ' ') || candidate.specialty || '—'}</p>
+                                    {/* Professional Profile Summary */}
+                                    <div className="rounded-lg bg-slate-800/50 border border-slate-700/30 p-3">
+                                      <p className="text-[10px] uppercase tracking-wider text-blue-400 mb-2 flex items-center gap-1.5">
+                                        <Users className="h-3 w-3" /> Professional Profile
+                                      </p>
+                                      <div className="grid grid-cols-2 gap-3 text-sm">
+                                        <div className="space-y-1">
+                                          <p className="text-[10px] text-slate-500">Verified Specialty</p>
+                                          <p className="text-slate-200 font-medium">
+                                            {candidate.verified_specialty || candidate.specialty || 'Physician'}
+                                            {candidate.credentials_summary && (
+                                              <span className="ml-1 text-slate-400">({candidate.credentials_summary})</span>
+                                            )}
+                                          </p>
+                                        </div>
+                                        <div className="space-y-1">
+                                          <p className="text-[10px] text-slate-500">Location</p>
+                                          <p className="text-slate-200">
+                                            {candidate.city ? `${candidate.city}, ${candidate.state}` : candidate.state}
+                                            {candidate.is_local && <span className="ml-1 text-green-400">📍 Local</span>}
+                                          </p>
+                                        </div>
+                                        <div className="space-y-1">
+                                          <p className="text-[10px] text-slate-500">Active Licenses</p>
+                                          <p className="text-slate-200">
+                                            {candidate.verified_licenses?.length || candidate.licenses_count || 0} states
+                                            {candidate.has_job_state_license && <span className="text-green-400 ml-1">✓ {job?.state}</span>}
+                                          </p>
+                                        </div>
+                                        <div className="space-y-1">
+                                          <p className="text-[10px] text-slate-500">IMLC Status</p>
+                                          <p className="text-slate-200">
+                                            {candidate.has_imlc ? (
+                                              <span className="text-indigo-400">
+                                                🏛️ Eligible
+                                                {candidate.imlc_inference_reason && (
+                                                  <span className="text-slate-500 text-xs ml-1">({candidate.imlc_inference_reason})</span>
+                                                )}
+                                              </span>
+                                            ) : (
+                                              <span className="text-slate-400">Not indicated</span>
+                                            )}
+                                          </p>
+                                        </div>
                                       </div>
                                     </div>
                                     
-                                    {/* Icebreaker Opening */}
-                                    {candidate.icebreaker && (
+                                    {/* Why This Candidate - Professional Highlights */}
+                                    {(candidate.professional_highlights && candidate.professional_highlights.length > 0) || (candidate.match_reasons && candidate.match_reasons.length > 0) ? (
+                                      <div>
+                                        <p className="text-xs font-semibold text-emerald-400 mb-2 flex items-center gap-1.5">
+                                          <Award className="h-3.5 w-3.5" /> Why This Candidate Stands Out
+                                        </p>
+                                        <ul className="space-y-1.5">
+                                          {(candidate.professional_highlights || candidate.match_reasons || []).map((point, i) => (
+                                            <li key={i} className="flex items-start gap-2 text-sm">
+                                              <span className="text-emerald-500 mt-0.5">✓</span>
+                                              <span className="text-slate-300">{point}</span>
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    ) : null}
+                                    
+                                    {/* Personalized Icebreaker - Only show if it's substantial (not just "Hi Dr. X") */}
+                                    {candidate.icebreaker && candidate.icebreaker.length > 30 && !candidate.icebreaker.match(/^(Hi|Hello|Dear)\s+Dr\.?\s+\w+,?\s*$/i) && (
                                       <div className="rounded-lg bg-primary/10 border border-primary/30 p-3">
                                         <p className="text-[10px] uppercase tracking-wider text-primary mb-1.5">💬 Personalized Opening</p>
-                                        <p className="text-sm text-foreground leading-relaxed">{candidate.icebreaker}</p>
+                                        <p className="text-sm text-foreground leading-relaxed italic">"{candidate.icebreaker}"</p>
                                       </div>
                                     )}
                                     
-                                    {/* What Makes This Compelling - Playbook format */}
+                                    {/* Talking Points for Outreach */}
                                     {candidate.talking_points && candidate.talking_points.length > 0 && (
                                       <div>
                                         <p className="text-xs font-semibold text-amber-400 mb-2 flex items-center gap-1.5">
-                                          <span>✨</span> What Makes This Compelling
+                                          <Zap className="h-3.5 w-3.5" /> Key Talking Points for Outreach
                                         </p>
                                         <ul className="space-y-1.5">
                                           {candidate.talking_points.map((point, i) => (
@@ -1690,9 +1751,11 @@ const CandidateMatching = () => {
                                       </div>
                                     )}
                                     
-                                    {/* Deep Research Hook (only if different from icebreaker) */}
+                                    {/* Deep Research Hook (only if different from icebreaker and substantial) */}
                                     {candidate.deep_researched && candidate.personalization_hook && 
-                                     candidate.personalization_hook !== candidate.icebreaker && (
+                                     candidate.personalization_hook !== candidate.icebreaker &&
+                                     candidate.personalization_hook.length > 30 &&
+                                     !candidate.personalization_hook.match(/^(Hi|Hello|Dear)\s+Dr\.?\s+\w+,?\s*$/i) && (
                                       <div className="rounded-lg bg-purple-500/10 border border-purple-500/20 p-3">
                                         <p className="text-[10px] uppercase tracking-wider text-purple-400 mb-1.5">
                                           🔮 Deep Research Hook 
