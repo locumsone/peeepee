@@ -68,6 +68,8 @@ interface Candidate {
   verified_specialty?: string;
   verified_licenses?: string[];
   imlc_inference_reason?: string;
+  research_summary?: string; // From deep research (Perplexity)
+  research_confidence?: 'high' | 'medium' | 'low';
   // New rigorous scoring fields
   is_local?: boolean;
   has_job_state_license?: boolean;
@@ -679,6 +681,8 @@ const CandidateMatching = () => {
             hook_type: result.hook_type,
             icebreaker: result.icebreaker || c.icebreaker,
             talking_points: result.talking_points || c.talking_points,
+            research_summary: result.research_summary || c.research_summary,
+            research_confidence: result.confidence || c.research_confidence,
           };
         }));
         
@@ -1608,162 +1612,176 @@ const CandidateMatching = () => {
                               {/* ═══════════════════════════════════════════════════════ */}
                               
                               {(candidate.researched || candidate.deep_researched) && (
-                                <div className="rounded-xl bg-gradient-to-br from-slate-900/50 to-slate-800/30 border border-slate-700/50 overflow-hidden">
-                                  {/* Header */}
-                                  <div className="bg-gradient-to-r from-purple-600/20 to-blue-600/20 px-4 py-3 border-b border-slate-700/50">
-                                    <div className="flex items-center justify-between">
-                                      <div className="flex items-center gap-2">
-                                        <div className="h-7 w-7 rounded-full bg-purple-500/20 flex items-center justify-center">
-                                          <span className="text-sm">🔮</span>
+                                <div className="rounded-xl bg-gradient-to-br from-slate-900/80 to-slate-800/60 border border-slate-600/50 overflow-hidden">
+                                  {/* ATS-Style Header */}
+                                  <div className="bg-gradient-to-r from-emerald-600/20 via-blue-600/10 to-purple-600/20 px-5 py-4 border-b border-slate-600/30">
+                                    <div className="flex items-start justify-between">
+                                      <div className="flex items-center gap-4">
+                                        {/* Avatar with initials */}
+                                        <div className="h-14 w-14 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-lg shadow-lg">
+                                          {candidate.first_name?.[0]}{candidate.last_name?.[0]}
                                         </div>
                                         <div>
-                                          <p className="text-sm font-semibold text-white">
-                                            Research Profile
+                                          <h3 className="text-lg font-bold text-white">
+                                            Dr. {candidate.first_name} {candidate.last_name}
+                                            {candidate.credentials_summary && (
+                                              <span className="ml-2 text-sm font-normal text-slate-400">{candidate.credentials_summary}</span>
+                                            )}
+                                          </h3>
+                                          <p className="text-sm text-blue-300">
+                                            {candidate.verified_specialty || candidate.specialty}
                                           </p>
-                                          <p className="text-[10px] text-slate-400">
-                                            {candidate.deep_researched ? 'Deep Research (Perplexity + AI)' : candidate.from_cache ? 'Cached Research' : 'Standard Research (NPI + AI)'}
-                                          </p>
+                                          <div className="flex items-center gap-2 mt-1">
+                                            <span className="text-xs text-slate-400">
+                                              📍 {candidate.city ? `${candidate.city}, ` : ''}{candidate.state}
+                                            </span>
+                                            {candidate.npi && (
+                                              <span className="text-xs text-emerald-400">• NPI: {candidate.npi}</span>
+                                            )}
+                                          </div>
                                         </div>
                                       </div>
-                                      <div className="flex items-center gap-2">
-                                        {candidate.npi && (
-                                          <Badge variant="outline" className="text-[10px] text-emerald-400 border-emerald-500/30 bg-emerald-500/10">
-                                            NPI: {candidate.npi}
-                                          </Badge>
-                                        )}
-                                        {candidate.match_strength && (
-                                          <Badge className={cn(
-                                            "text-xs font-bold",
-                                            candidate.match_strength >= 85 ? "bg-success text-success-foreground" :
-                                            candidate.match_strength >= 70 ? "bg-blue-500 text-white" :
-                                            candidate.match_strength >= 50 ? "bg-warning text-warning-foreground" :
-                                            "bg-muted text-muted-foreground"
-                                          )}>
-                                            {candidate.match_strength}% Match
-                                          </Badge>
-                                        )}
-                                        {candidate.deep_researched && (
-                                          <Badge variant="outline" className="text-[10px] text-purple-400 border-purple-500/30 bg-purple-500/10">
-                                            🔮 Deep
-                                          </Badge>
-                                        )}
+                                      {/* Score Badge */}
+                                      <div className="text-right">
+                                        <div className={cn(
+                                          "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-bold",
+                                          candidate.match_strength >= 95 ? "bg-emerald-500/20 text-emerald-400 ring-1 ring-emerald-500/50" :
+                                          candidate.match_strength >= 85 ? "bg-blue-500/20 text-blue-400 ring-1 ring-blue-500/50" :
+                                          candidate.match_strength >= 70 ? "bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/50" :
+                                          "bg-slate-500/20 text-slate-400"
+                                        )}>
+                                          {candidate.match_strength >= 95 && <Star className="h-3.5 w-3.5" />}
+                                          {candidate.match_strength}% Match
+                                        </div>
+                                        <p className="text-[10px] text-slate-500 mt-1">
+                                          {candidate.deep_researched ? '🔮 Deep Research' : candidate.from_cache ? '📦 Cached' : '🔬 NPI Verified'}
+                                        </p>
                                       </div>
                                     </div>
                                   </div>
                                   
-                                  <div className="p-4 space-y-4">
-                                    {/* Professional Profile Summary */}
-                                    <div className="rounded-lg bg-slate-800/50 border border-slate-700/30 p-3">
-                                      <p className="text-[10px] uppercase tracking-wider text-blue-400 mb-2 flex items-center gap-1.5">
-                                        <Users className="h-3 w-3" /> Professional Profile
+                                  <div className="p-5 space-y-5">
+                                    {/* Quick Tags Row - ATS Style */}
+                                    <div className="flex flex-wrap gap-2">
+                                      {candidate.is_local && (
+                                        <Badge className="bg-green-500/20 text-green-400 border-green-500/30 text-xs">
+                                          📍 Local Candidate
+                                        </Badge>
+                                      )}
+                                      {candidate.has_job_state_license && (
+                                        <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-xs">
+                                          ✓ {job?.state} Licensed
+                                        </Badge>
+                                      )}
+                                      {candidate.has_imlc && (
+                                        <Badge className="bg-indigo-500/20 text-indigo-400 border-indigo-500/30 text-xs">
+                                          🏛️ IMLC Eligible
+                                        </Badge>
+                                      )}
+                                      {(candidate.verified_licenses?.length || candidate.licenses_count || 0) >= 10 && (
+                                        <Badge className="bg-purple-500/20 text-purple-400 border-purple-500/30 text-xs">
+                                          🌟 {candidate.verified_licenses?.length || candidate.licenses_count} State Licenses
+                                        </Badge>
+                                      )}
+                                      {candidate.verified_specialty && (
+                                        <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/30 text-xs">
+                                          {candidate.verified_specialty}
+                                        </Badge>
+                                      )}
+                                      {candidate.deep_researched && (
+                                        <Badge className="bg-purple-500/20 text-purple-400 border-purple-500/30 text-xs">
+                                          🔮 AI Enriched
+                                        </Badge>
+                                      )}
+                                    </div>
+                                    
+                                    {/* WHY THIS CANDIDATE - The main focus */}
+                                    {candidate.match_reasons && candidate.match_reasons.length > 0 && (
+                                      <div className="rounded-lg bg-emerald-500/5 border border-emerald-500/20 p-4">
+                                        <p className="text-xs font-bold uppercase tracking-wider text-emerald-400 mb-3 flex items-center gap-2">
+                                          <CheckCircle2 className="h-4 w-4" /> Why This Candidate Is a Great Fit
+                                        </p>
+                                        <ul className="space-y-2">
+                                          {candidate.match_reasons.map((reason, i) => (
+                                            <li key={i} className="flex items-start gap-3 text-sm">
+                                              <span className="text-emerald-500 mt-0.5 font-bold">✓</span>
+                                              <span className="text-slate-200">{reason}</span>
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    )}
+                                    
+                                    {/* Personalized Icebreaker - Only show if substantial */}
+                                    {candidate.icebreaker && candidate.icebreaker.length > 40 && !candidate.icebreaker.match(/^(Hi|Hello|Dear)\s+Dr\.?\s+\w+,?\s*$/i) && (
+                                      <div className="rounded-lg bg-blue-500/10 border border-blue-500/20 p-4">
+                                        <p className="text-xs font-bold uppercase tracking-wider text-blue-400 mb-2 flex items-center gap-2">
+                                          💬 AI-Generated Opening Line
+                                        </p>
+                                        <p className="text-sm text-slate-200 leading-relaxed italic">"{candidate.icebreaker}"</p>
+                                      </div>
+                                    )}
+                                    
+                                    {/* Deep Research Summary - from Perplexity */}
+                                    {candidate.deep_researched && candidate.research_summary && candidate.research_summary !== 'Previously researched' && candidate.research_summary.length > 20 && (
+                                      <div className="rounded-lg bg-purple-500/10 border border-purple-500/20 p-4">
+                                        <p className="text-xs font-bold uppercase tracking-wider text-purple-400 mb-2 flex items-center gap-2">
+                                          🔮 Online Research Summary
+                                          {candidate.research_confidence && (
+                                            <Badge variant="outline" className={cn(
+                                              "text-[10px] ml-2",
+                                              candidate.research_confidence === 'high' ? "text-emerald-400 border-emerald-500/30" :
+                                              candidate.research_confidence === 'medium' ? "text-amber-400 border-amber-500/30" :
+                                              "text-slate-400 border-slate-500/30"
+                                            )}>
+                                              {candidate.research_confidence} confidence
+                                            </Badge>
+                                          )}
+                                        </p>
+                                        <p className="text-sm text-slate-200 leading-relaxed">{candidate.research_summary}</p>
+                                      </div>
+                                    )}
+                                    
+                                    {/* LICENSES - Visual Tag Display */}
+                                    <div>
+                                      <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2 flex items-center gap-2">
+                                        <Shield className="h-3.5 w-3.5" /> Active State Licenses ({candidate.verified_licenses?.length || candidate.licenses_count || 0})
                                       </p>
-                                      <div className="grid grid-cols-2 gap-3 text-sm">
-                                        <div className="space-y-1">
-                                          <p className="text-[10px] text-slate-500">Verified Specialty</p>
-                                          <p className="text-slate-200 font-medium">
-                                            {candidate.verified_specialty || candidate.specialty || 'Physician'}
-                                            {candidate.credentials_summary && (
-                                              <span className="ml-1 text-slate-400">({candidate.credentials_summary})</span>
+                                      <div className="flex flex-wrap gap-1.5">
+                                        {(candidate.verified_licenses || candidate.licenses)?.slice(0, 20).map((license, i) => (
+                                          <Badge 
+                                            key={i} 
+                                            variant="outline" 
+                                            className={cn(
+                                              "text-xs font-medium",
+                                              license.toUpperCase() === job?.state?.toUpperCase() 
+                                                ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/40 ring-1 ring-emerald-500/30" 
+                                                : "bg-slate-700/50 text-slate-300 border-slate-600/50"
                                             )}
-                                          </p>
-                                        </div>
-                                        <div className="space-y-1">
-                                          <p className="text-[10px] text-slate-500">Location</p>
-                                          <p className="text-slate-200">
-                                            {candidate.city ? `${candidate.city}, ${candidate.state}` : candidate.state}
-                                            {candidate.is_local && <span className="ml-1 text-green-400">📍 Local</span>}
-                                          </p>
-                                        </div>
-                                        <div className="space-y-1">
-                                          <p className="text-[10px] text-slate-500">Active Licenses</p>
-                                          <p className="text-slate-200">
-                                            {candidate.verified_licenses?.length || candidate.licenses_count || 0} states
-                                            {candidate.has_job_state_license && <span className="text-green-400 ml-1">✓ {job?.state}</span>}
-                                          </p>
-                                        </div>
-                                        <div className="space-y-1">
-                                          <p className="text-[10px] text-slate-500">IMLC Status</p>
-                                          <p className="text-slate-200">
-                                            {candidate.has_imlc ? (
-                                              <span className="text-indigo-400">
-                                                🏛️ Eligible
-                                                {candidate.imlc_inference_reason && (
-                                                  <span className="text-slate-500 text-xs ml-1">({candidate.imlc_inference_reason})</span>
-                                                )}
-                                              </span>
-                                            ) : (
-                                              <span className="text-slate-400">Not indicated</span>
-                                            )}
-                                          </p>
-                                        </div>
+                                          >
+                                            {license}
+                                          </Badge>
+                                        ))}
+                                        {((candidate.verified_licenses || candidate.licenses)?.length || 0) > 20 && (
+                                          <Badge variant="outline" className="text-xs bg-slate-700/30 text-slate-400">
+                                            +{(candidate.verified_licenses || candidate.licenses).length - 20} more
+                                          </Badge>
+                                        )}
                                       </div>
                                     </div>
                                     
-                                    {/* Why This Candidate - Professional Highlights */}
-                                    {(candidate.professional_highlights && candidate.professional_highlights.length > 0) || (candidate.match_reasons && candidate.match_reasons.length > 0) ? (
-                                      <div>
-                                        <p className="text-xs font-semibold text-emerald-400 mb-2 flex items-center gap-1.5">
-                                          <Award className="h-3.5 w-3.5" /> Why This Candidate Stands Out
-                                        </p>
-                                        <ul className="space-y-1.5">
-                                          {(candidate.professional_highlights || candidate.match_reasons || []).map((point, i) => (
-                                            <li key={i} className="flex items-start gap-2 text-sm">
-                                              <span className="text-emerald-500 mt-0.5">✓</span>
-                                              <span className="text-slate-300">{point}</span>
-                                            </li>
-                                          ))}
-                                        </ul>
-                                      </div>
-                                    ) : null}
-                                    
-                                    {/* Personalized Icebreaker - Only show if it's substantial (not just "Hi Dr. X") */}
-                                    {candidate.icebreaker && candidate.icebreaker.length > 30 && !candidate.icebreaker.match(/^(Hi|Hello|Dear)\s+Dr\.?\s+\w+,?\s*$/i) && (
-                                      <div className="rounded-lg bg-primary/10 border border-primary/30 p-3">
-                                        <p className="text-[10px] uppercase tracking-wider text-primary mb-1.5">💬 Personalized Opening</p>
-                                        <p className="text-sm text-foreground leading-relaxed italic">"{candidate.icebreaker}"</p>
-                                      </div>
-                                    )}
-                                    
-                                    {/* Talking Points for Outreach */}
-                                    {candidate.talking_points && candidate.talking_points.length > 0 && (
-                                      <div>
-                                        <p className="text-xs font-semibold text-amber-400 mb-2 flex items-center gap-1.5">
-                                          <Zap className="h-3.5 w-3.5" /> Key Talking Points for Outreach
-                                        </p>
-                                        <ul className="space-y-1.5">
-                                          {candidate.talking_points.map((point, i) => (
-                                            <li key={i} className="flex items-start gap-2 text-sm">
+                                    {/* Concerns if any */}
+                                    {candidate.match_concerns && candidate.match_concerns.length > 0 && (
+                                      <div className="rounded-lg bg-amber-500/5 border border-amber-500/20 p-3">
+                                        <p className="text-xs font-semibold uppercase tracking-wider text-amber-400 mb-2">⚠️ Notes / Considerations</p>
+                                        <ul className="space-y-1">
+                                          {candidate.match_concerns.map((concern, i) => (
+                                            <li key={i} className="text-sm text-amber-300/80 flex items-start gap-2">
                                               <span className="text-amber-500 mt-0.5">•</span>
-                                              <span className="text-slate-300">{point}</span>
+                                              {concern}
                                             </li>
                                           ))}
                                         </ul>
-                                      </div>
-                                    )}
-                                    
-                                    {/* Match Insight from Score Reason */}
-                                    {candidate.score_reason && (
-                                      <div className="rounded-lg bg-blue-500/10 border border-blue-500/20 p-3">
-                                        <p className="text-[10px] uppercase tracking-wider text-blue-400 mb-1.5">🎯 Match Analysis</p>
-                                        <div className="text-sm text-slate-300">
-                                          {highlightScoreReason(candidate.score_reason)}
-                                        </div>
-                                      </div>
-                                    )}
-                                    
-                                    {/* Deep Research Hook (only if different from icebreaker and substantial) */}
-                                    {candidate.deep_researched && candidate.personalization_hook && 
-                                     candidate.personalization_hook !== candidate.icebreaker &&
-                                     candidate.personalization_hook.length > 30 &&
-                                     !candidate.personalization_hook.match(/^(Hi|Hello|Dear)\s+Dr\.?\s+\w+,?\s*$/i) && (
-                                      <div className="rounded-lg bg-purple-500/10 border border-purple-500/20 p-3">
-                                        <p className="text-[10px] uppercase tracking-wider text-purple-400 mb-1.5">
-                                          🔮 Deep Research Hook 
-                                          {candidate.hook_type && (
-                                            <span className="ml-2 text-purple-300/60">({candidate.hook_type.replace(/_/g, ' ')})</span>
-                                          )}
-                                        </p>
-                                        <p className="text-sm text-foreground italic leading-relaxed">"{candidate.personalization_hook}"</p>
                                       </div>
                                     )}
                                   </div>
