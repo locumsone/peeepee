@@ -24,6 +24,7 @@ import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
+import { ResearchInsights } from "@/components/candidates/ResearchInsights";
 
 interface Candidate {
   id: string;
@@ -1749,26 +1750,14 @@ const CandidateMatching = () => {
                                       </div>
                                     )}
                                     
-                                    {/* Deep Research Summary - only show if actually has unique content */}
+                                    {/* Deep Research Summary - Formatted Component */}
                                     {candidate.research_summary && 
                                      candidate.research_summary.length > 50 && 
                                      !candidate.research_summary.toLowerCase().includes('previously researched') && (
-                                      <div className="rounded-lg bg-purple-500/10 border border-purple-500/20 p-4">
-                                        <p className="text-xs font-bold uppercase tracking-wider text-purple-400 mb-2 flex items-center gap-2">
-                                          🔮 Online Research Insights
-                                          {candidate.research_confidence && (
-                                            <Badge variant="outline" className={cn(
-                                              "text-[10px] ml-2",
-                                              candidate.research_confidence === 'high' ? "text-emerald-400 border-emerald-500/30" :
-                                              candidate.research_confidence === 'medium' ? "text-amber-400 border-amber-500/30" :
-                                              "text-slate-400 border-slate-500/30"
-                                            )}>
-                                              {candidate.research_confidence} confidence
-                                            </Badge>
-                                          )}
-                                        </p>
-                                        <p className="text-sm text-slate-200 leading-relaxed">{candidate.research_summary}</p>
-                                      </div>
+                                      <ResearchInsights 
+                                        researchSummary={candidate.research_summary}
+                                        confidence={candidate.research_confidence}
+                                      />
                                     )}
                                     
                                     {/* Personalized Icebreaker - Only show if substantial */}
