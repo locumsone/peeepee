@@ -1,13 +1,16 @@
 import { Link } from "react-router-dom";
+import logoImage from "@/assets/logo.png";
 
 const Header = () => {
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border/50 bg-card/80 backdrop-blur-xl">
       <div className="container mx-auto flex h-16 items-center justify-between px-4">
         <Link to="/" className="flex items-center gap-3 group">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl gradient-primary shadow-md group-hover:shadow-glow transition-shadow duration-300">
-            <span className="text-xl">🐱</span>
-          </div>
+          <img 
+            src={logoImage} 
+            alt="Locums One" 
+            className="h-10 w-10 rounded-xl shadow-md group-hover:shadow-glow transition-shadow duration-300"
+          />
           <div className="flex flex-col">
             <span className="font-display text-xl font-bold text-gradient">
               Locums One
