@@ -514,6 +514,7 @@ serve(async (req) => {
       city: jobData.city,
       facility_name: jobData.facility_name,
       bill_rate: jobData.bill_rate,
+      pay_rate: jobData.pay_rate,
       raw_job_text: jobData.raw_job_text,
       personalization_playbook: custom_playbook || jobData.personalization_playbook
     };
@@ -546,12 +547,25 @@ serve(async (req) => {
     // Store results in candidate_job_matches (in parallel)
     const upsertPromises = results.map(async (result) => {
       try {
-        await supabase.rpc('upsert_candidate_job_match', {
+        console.log(`Saving deep research for candidate ${result.candidate_id}: icebreaker="${result.icebreaker?.substring(0, 30)}...", talking_points=${result.talking_points?.length || 0}`);
+        const { data, error } = await supabase.rpc('upsert_candidate_job_match', {
           p_candidate_id: result.candidate_id,
           p_job_id: job_id,
-          p_icebreaker: result.icebreaker,
-          p_talking_points: result.talking_points
+          p_research_id: null,
+          p_match_score: null,
+          p_match_grade: null,
+          p_match_reasons: null,
+          p_match_concerns: null,
+          p_talking_points: result.talking_points || [],
+          p_icebreaker: result.icebreaker || null,
+          p_has_required_license: null,
+          p_license_path: null
         });
+        if (error) {
+          console.error(`RPC error for ${result.candidate_id}:`, error);
+        } else {
+          console.log(`Successfully saved research for ${result.candidate_id}, match_id: ${data}`);
+        }
       } catch (e) {
         console.error('Failed to upsert match:', e);
       }
