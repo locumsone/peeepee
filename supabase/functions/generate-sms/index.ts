@@ -8,6 +8,7 @@ const corsHeaders = {
 interface SMSRequest {
   candidate_id: string;
   job_id: string;
+  campaign_id?: string;
   template_style?: 'ca_license' | 'no_call' | 'compensation' | 'location' | 'board_eligible' | 'non_trauma';
   personalization_hook?: string;
   custom_context?: string;
@@ -296,7 +297,31 @@ Deno.serve(async (req) => {
     });
 
     const body: SMSRequest = await req.json();
-    const { candidate_id, job_id, template_style = 'ca_license', personalization_hook, custom_context, playbook_content } = body;
+    const { candidate_id, job_id, campaign_id, template_style = 'ca_license', personalization_hook, custom_context, playbook_content } = body;
+
+    // Determine playbook content source - prefer provided content, fall back to campaign cache
+    let effectivePlaybookContent = playbook_content || '';
+    
+    if (!effectivePlaybookContent && campaign_id) {
+      console.log("No playbook_content provided - checking campaign cache...");
+      const { data: campaign } = await supabase
+        .from('campaigns')
+        .select('playbook_data')
+        .eq('id', campaign_id)
+        .maybeSingle();
+      
+      if (campaign?.playbook_data) {
+        const cached = campaign.playbook_data as { content?: string; extracted_rates?: { hourly?: string } };
+        if (cached.content && cached.content.length > 500) {
+          effectivePlaybookContent = cached.content;
+          console.log("✅ Using cached playbook from campaign:", campaign_id);
+          console.log("Cached content length:", cached.content.length);
+          if (cached.extracted_rates?.hourly) {
+            console.log("Cached hourly rate:", cached.extracted_rates.hourly);
+          }
+        }
+      }
+    }
 
     // Fetch candidate data
     const { data: candidate, error: candidateError } = await supabase
@@ -321,8 +346,8 @@ Deno.serve(async (req) => {
     }
 
     // Extract rates from playbook (NEVER calculate)
-    const rates = extractPlaybookRates(playbook_content || '');
-    const clinical = extractClinicalDetails(playbook_content || '');
+    const rates = extractPlaybookRates(effectivePlaybookContent);
+    const clinical = extractClinicalDetails(effectivePlaybookContent);
 
     // Log extracted data for validation
     console.log("PLAYBOOK EXTRACTION VALIDATION:", {
