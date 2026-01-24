@@ -276,7 +276,7 @@ export default function PersonalizationStudio() {
     }
   };
   
-  // Sync playbook from Notion (refresh cache)
+  // Sync playbook from Notion (refresh cache) - ACTUAL FETCH via Notion MCP
   const handleSyncPlaybook = async () => {
     if (!cachedPlaybook?.notion_id) {
       toast.error("No playbook to sync - select one first");
@@ -284,13 +284,54 @@ export default function PersonalizationStudio() {
     }
     
     setIsSyncing(true);
-    toast.info("Syncing playbook from Notion... Ask the agent to fetch page: " + cachedPlaybook.notion_id);
+    toast.info("Fetching latest playbook from Notion...");
     
-    // The actual sync happens when agent calls setNotionPlaybookContent
-    // This just shows the UI state
-    setTimeout(() => {
+    try {
+      // Use the Supabase edge function to fetch from Notion
+      const { data, error } = await supabase.functions.invoke('fetch-notion-playbook', {
+        body: { 
+          page_id: cachedPlaybook.notion_id,
+          campaign_id: campaignId
+        },
+      });
+      
+      if (error) throw error;
+      
+      if (data?.content && data.content.length > 500) {
+        // Update local state with fresh content
+        setPlaybookContent(data.content);
+        
+        // Extract rates and update cache
+        const extractedRates = extractRatesFromContent(data.content);
+        const newCache: PlaybookCache = {
+          notion_id: cachedPlaybook.notion_id,
+          title: cachedPlaybook.title,
+          content: data.content,
+          extracted_rates: extractedRates,
+          synced_at: new Date().toISOString(),
+        };
+        
+        // Save to campaign
+        await supabase
+          .from("campaigns")
+          .update({
+            playbook_data: JSON.parse(JSON.stringify(newCache)),
+            playbook_synced_at: new Date().toISOString(),
+          })
+          .eq("id", campaignId);
+        
+        setCachedPlaybook(newCache);
+        toast.success(`Synced! Rate: $${extractedRates.hourly || 'not found'}/hr`);
+        console.log("=== PLAYBOOK SYNCED FROM NOTION ===", extractedRates);
+      } else {
+        throw new Error("Empty or invalid content received");
+      }
+    } catch (error) {
+      console.error("Sync error:", error);
+      toast.error("Sync failed - try pasting content manually or ask agent to fetch");
+    } finally {
       setIsSyncing(false);
-    }, 2000);
+    }
   };
   
   // Search Notion for playbooks using MCP
@@ -450,13 +491,14 @@ export default function PersonalizationStudio() {
         const batchResults = await Promise.all(
           batch.map(async (candidate) => {
             try {
-              // Call edge function for email with FULL playbook content
+              // Call edge function for email with FULL playbook content or campaign_id for cache
               const { data: emailData, error: emailError } = await supabase.functions.invoke('generate-email', {
                 body: {
                   candidate_id: candidate.id,
                   job_id: jobId,
+                  campaign_id: campaignId, // Allow edge function to use cached playbook
                   personalization_hook: candidate.personalization_hook,
-                  playbook_content: playbookContent, // Pass FULL content, not truncated
+                  playbook_content: playbookContent, // Pass content if available
                 },
               });
               
@@ -464,13 +506,14 @@ export default function PersonalizationStudio() {
                 console.error("Email generation error:", emailError);
               }
               
-              // Call edge function for SMS with FULL playbook content
+              // Call edge function for SMS with FULL playbook content or campaign_id for cache
               const { data: smsData, error: smsError } = await supabase.functions.invoke('generate-sms', {
                 body: {
                   candidate_id: candidate.id,
                   job_id: jobId,
+                  campaign_id: campaignId, // Allow edge function to use cached playbook
                   personalization_hook: candidate.personalization_hook,
-                  playbook_content: playbookContent, // Pass FULL content, not truncated
+                  playbook_content: playbookContent, // Pass content if available
                 },
               });
               
@@ -645,47 +688,96 @@ Locums One`;
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {/* Cached Playbook Banner */}
-                  {cachedPlaybook && (
-                    <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/20">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <CheckCircle2 className="h-4 w-4 text-green-600" />
-                          <span className="text-sm font-medium text-green-700">Cached Playbook</span>
+                  {/* Cached Playbook Banner with Validation */}
+                  {cachedPlaybook && (() => {
+                    const syncedAt = new Date(cachedPlaybook.synced_at);
+                    const hoursSinceSync = (Date.now() - syncedAt.getTime()) / (1000 * 60 * 60);
+                    const isStale = hoursSinceSync > 24;
+                    const hasValidRate = !!cachedPlaybook.extracted_rates.hourly;
+                    
+                    return (
+                      <div className={cn(
+                        "p-3 rounded-lg border",
+                        isStale || !hasValidRate 
+                          ? "bg-amber-500/10 border-amber-500/20" 
+                          : "bg-green-500/10 border-green-500/20"
+                      )}>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            {isStale || !hasValidRate ? (
+                              <AlertTriangle className="h-4 w-4 text-amber-600" />
+                            ) : (
+                              <CheckCircle2 className="h-4 w-4 text-green-600" />
+                            )}
+                            <span className={cn(
+                              "text-sm font-medium",
+                              isStale || !hasValidRate ? "text-amber-700" : "text-green-700"
+                            )}>
+                              {isStale ? "Stale Cache" : !hasValidRate ? "Missing Rate" : "Cached Playbook"}
+                            </span>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 text-xs"
+                            onClick={handleSyncPlaybook}
+                            disabled={isSyncing}
+                          >
+                            {isSyncing ? (
+                              <RefreshCw className="h-3 w-3 mr-1 animate-spin" />
+                            ) : (
+                              <RefreshCw className="h-3 w-3 mr-1" />
+                            )}
+                            Sync
+                          </Button>
                         </div>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-7 text-xs"
-                          onClick={handleSyncPlaybook}
-                          disabled={isSyncing}
-                        >
-                          {isSyncing ? (
-                            <RefreshCw className="h-3 w-3 mr-1 animate-spin" />
+                        <p className={cn(
+                          "text-xs mt-1",
+                          isStale || !hasValidRate ? "text-amber-700" : "text-green-700"
+                        )}>{cachedPlaybook.title}</p>
+                        
+                        {/* Extracted Rates Display */}
+                        <div className="flex flex-wrap items-center gap-2 mt-2 text-xs">
+                          {cachedPlaybook.extracted_rates.hourly ? (
+                            <Badge className="bg-green-600 text-white text-xs font-bold">
+                              ${cachedPlaybook.extracted_rates.hourly}/hr
+                            </Badge>
                           ) : (
-                            <RefreshCw className="h-3 w-3 mr-1" />
+                            <Badge variant="destructive" className="text-xs">
+                              No hourly rate found
+                            </Badge>
                           )}
-                          Sync
-                        </Button>
+                          {cachedPlaybook.extracted_rates.daily && (
+                            <Badge variant="outline" className="text-green-600 border-green-500/30 text-xs">
+                              ${cachedPlaybook.extracted_rates.daily}/day
+                            </Badge>
+                          )}
+                          {cachedPlaybook.extracted_rates.weekly && (
+                            <Badge variant="outline" className="text-green-600 border-green-500/30 text-xs">
+                              ${cachedPlaybook.extracted_rates.weekly}/wk
+                            </Badge>
+                          )}
+                          {cachedPlaybook.extracted_rates.call_status && (
+                            <Badge variant="outline" className="text-blue-600 border-blue-500/30 text-xs">
+                              {cachedPlaybook.extracted_rates.call_status}
+                            </Badge>
+                          )}
+                        </div>
+                        
+                        {/* Sync Timestamp with Staleness Warning */}
+                        <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
+                          <span>
+                            Last synced: {syncedAt.toLocaleString()}
+                          </span>
+                          {isStale && (
+                            <span className="text-amber-600 font-medium">
+                              ({Math.round(hoursSinceSync)}h ago - consider syncing)
+                            </span>
+                          )}
+                        </div>
                       </div>
-                      <p className="text-xs text-green-700 mt-1">{cachedPlaybook.title}</p>
-                      <div className="flex items-center gap-2 mt-2 text-xs text-green-600">
-                        {cachedPlaybook.extracted_rates.hourly && (
-                          <Badge variant="outline" className="text-green-600 border-green-500/30 text-xs">
-                            ${cachedPlaybook.extracted_rates.hourly}/hr
-                          </Badge>
-                        )}
-                        {cachedPlaybook.extracted_rates.call_status && (
-                          <Badge variant="outline" className="text-green-600 border-green-500/30 text-xs">
-                            {cachedPlaybook.extracted_rates.call_status}
-                          </Badge>
-                        )}
-                        <span className="text-muted-foreground">
-                          Synced {new Date(cachedPlaybook.synced_at).toLocaleDateString()}
-                        </span>
-                      </div>
-                    </div>
-                  )}
+                    );
+                  })()}
                   
                   {/* Notion Search */}
                   <div className="space-y-2">
