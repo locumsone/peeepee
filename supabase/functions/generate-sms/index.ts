@@ -142,52 +142,91 @@ ${custom_context ? `- Additional Context: ${custom_context}` : ''}`;
 
     const templateGuide = SMS_TEMPLATES[template_style] || SMS_TEMPLATES.punchy;
 
-    const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${lovableKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: `${templateGuide}\n\nGenerate 3 different SMS options for this candidate. Return ONLY a JSON array with objects containing "sms" (the message) and "style" (one-word description). Example: [{"sms": "Dr. John - $500/hr IR...", "style": "urgent"}]` }
+    // Fallback SMS generator when AI is unavailable
+    const generateFallbackSMS = () => {
+      const rate = job.bill_rate ? `$${job.bill_rate}/hr` : 'Top rate';
+      const location = `${job.city}, ${job.state}`;
+      
+      const templates = {
+        punchy: [
+          { sms: `Dr. ${candidate.first_name} - ${rate} ${candidate.specialty} in ${location}. Your licenses = perfect fit. Quick call?`, style: 'punchy' },
+          { sms: `Dr. ${candidate.first_name}: ${rate} locums opportunity. ${job.facility_name}, ${job.state}. Interested?`, style: 'direct' },
+          { sms: `${rate} ${candidate.specialty} role at ${job.facility_name}. Dr. ${candidate.first_name}, 5 min to discuss?`, style: 'value' }
         ],
-        temperature: 0.8,
-      }),
-    });
+        friendly: [
+          { sms: `Hi Dr. ${candidate.first_name}! Saw your ${candidate.specialty} background - have an amazing ${location} opportunity. Mind if I share details?`, style: 'warm' },
+          { sms: `Dr. ${candidate.first_name}, thought of you for a ${candidate.specialty} role at ${job.facility_name}. Would love to chat!`, style: 'personal' },
+          { sms: `Hey Dr. ${candidate.first_name}! Quick question - open to ${candidate.specialty} locums in ${job.state}? Great opportunity here.`, style: 'casual' }
+        ],
+        urgent: [
+          { sms: `Dr. ${candidate.first_name} - Filling ${rate} ${candidate.specialty} locums THIS WEEK. ${job.state} license? Let's talk ASAP.`, style: 'urgent' },
+          { sms: `URGENT: ${rate} ${candidate.specialty} at ${job.facility_name}. Immediate start. Dr. ${candidate.first_name}, available?`, style: 'critical' },
+          { sms: `Dr. ${candidate.first_name}: Last spot for ${rate} ${candidate.specialty} in ${location}. Quick response needed!`, style: 'fomo' }
+        ],
+        value_prop: [
+          { sms: `Dr. ${candidate.first_name}: ${rate} ${candidate.specialty} locums. ${job.facility_name}. Your ${licenseCount} licenses = flexibility. 5 min?`, style: 'value' },
+          { sms: `${rate} + premium benefits. ${candidate.specialty} at ${job.facility_name}, ${job.state}. Dr. ${candidate.first_name}, interested?`, style: 'comp' },
+          { sms: `Dr. ${candidate.first_name} - Elite ${candidate.specialty} opportunity: ${rate}, ${location}. Your experience is ideal. Chat?`, style: 'premium' }
+        ]
+      };
+      
+      return templates[template_style] || templates.punchy;
+    };
 
-    if (!aiResponse.ok) {
-      const errorText = await aiResponse.text();
-      console.error("AI API error:", errorText);
-      throw new Error(`AI API error: ${aiResponse.status}`);
-    }
-
-    const aiData = await aiResponse.json();
-    const content = aiData.choices?.[0]?.message?.content || '';
-    
-    // Parse JSON from response
     let smsOptions = [];
+    let usedFallback = false;
+
     try {
-      const jsonMatch = content.match(/\[[\s\S]*\]/);
-      if (jsonMatch) {
-        smsOptions = JSON.parse(jsonMatch[0]);
+      const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${lovableKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "google/gemini-3-flash-preview",
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: `${templateGuide}\n\nGenerate 3 different SMS options for this candidate. Return ONLY a JSON array with objects containing "sms" (the message) and "style" (one-word description). Example: [{"sms": "Dr. John - $500/hr IR...", "style": "urgent"}]` }
+          ],
+          temperature: 0.8,
+        }),
+      });
+
+      if (!aiResponse.ok) {
+        const errorText = await aiResponse.text();
+        console.warn("AI API unavailable, using fallback templates:", errorText);
+        smsOptions = generateFallbackSMS();
+        usedFallback = true;
+      } else {
+        const aiData = await aiResponse.json();
+        const content = aiData.choices?.[0]?.message?.content || '';
+        
+        try {
+          const jsonMatch = content.match(/\[[\s\S]*\]/);
+          if (jsonMatch) {
+            smsOptions = JSON.parse(jsonMatch[0]);
+          } else {
+            smsOptions = generateFallbackSMS();
+            usedFallback = true;
+          }
+        } catch (parseError) {
+          console.warn("Failed to parse AI response, using fallback:", content);
+          smsOptions = generateFallbackSMS();
+          usedFallback = true;
+        }
       }
-    } catch (parseError) {
-      console.error("Failed to parse AI response:", content);
-      // Fallback: generate a simple message
-      smsOptions = [{
-        sms: `Dr. ${candidate.first_name} - ${job.bill_rate ? `$${job.bill_rate}/hr` : 'Top rate'} ${candidate.specialty} opportunity in ${job.city}, ${job.state}. Quick chat?`,
-        style: template_style
-      }];
+    } catch (fetchError) {
+      console.warn("AI fetch failed, using fallback templates:", fetchError);
+      smsOptions = generateFallbackSMS();
+      usedFallback = true;
     }
 
     // Ensure all messages are under 160 chars
     smsOptions = smsOptions.map((opt: { sms: string; style: string }) => ({
       ...opt,
       sms: opt.sms.length > 160 ? opt.sms.substring(0, 157) + '...' : opt.sms,
-      char_count: opt.sms.length
+      char_count: Math.min(opt.sms.length, 160)
     }));
 
     return new Response(
@@ -206,6 +245,7 @@ ${custom_context ? `- Additional Context: ${custom_context}` : ''}`;
         sms_options: smsOptions,
         template_style,
         personalization_used: !!hook,
+        used_fallback: usedFallback,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
