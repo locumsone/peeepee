@@ -83,6 +83,7 @@ interface NotionPlaybook {
   title: string;
   url: string;
   summary?: string;
+  fullContent?: string; // Full Notion page content when fetched
 }
 
 export default function PersonalizationStudio() {
@@ -209,51 +210,32 @@ export default function PersonalizationStudio() {
     }
   };
   
-  // Load selected playbook content
+  // Load selected playbook content - now expects REAL Notion content
+  // The full playbook content should be passed from the Notion MCP fetch
   const handleSelectPlaybook = async (playbook: NotionPlaybook) => {
     setSelectedPlaybook(playbook);
     setIsLoadingPlaybook(true);
     
     try {
-      // This would call notion-fetch MCP tool in production
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // Example playbook content structure
-      const content = `# ${playbook.title}
-
-## Position Overview
-- **Role**: ${job?.specialty || 'Physician'} 
-- **Location**: ${job?.city}, ${job?.state}
-- **Compensation**: $${payRate}/hr (${Math.round(payRate * 9 * 5 * 52 / 1000)}K annual potential)
-- **Facility**: ${job?.facility_name}
-
-## Key Value Propositions
-1. Elite compensation significantly above market
-2. Clinical autonomy with strong support
-3. Flexible scheduling options
-4. No administrative burden
-
-## Personalization Hooks (Use based on candidate background)
-1. **Fellowship/Training Match**: Reference their specific training program
-2. **Elite Compensation**: Lead with financial comparison to current role
-3. **Geographic**: Highlight location benefits for their situation
-4. **Work-Life Balance**: Emphasize schedule flexibility
-5. **Mission/Impact**: Connect to meaningful patient care
-
-## Email Template Structure
-- Personalized opening (2-3 sentences referencing their background)
-- Position overview with compensation
-- 4-6 bullet points of key benefits
-- Clear call-to-action (15-minute call)
-
-## SMS Template Structure
-- Under 160 characters
-- Dr. LastName format
-- Lead with rate and location
-- End with question`;
-      
-      setPlaybookContent(content);
-      toast.success("Playbook loaded");
+      // If playbook already has full content (from Notion MCP), use it
+      if (playbook.fullContent && playbook.fullContent.length > 1000) {
+        setPlaybookContent(playbook.fullContent);
+        toast.success(`Playbook loaded (${playbook.fullContent.length.toLocaleString()} chars)`);
+        console.log("PLAYBOOK LOADED - Content length:", playbook.fullContent.length);
+        console.log("PLAYBOOK SAMPLE (first 500 chars):", playbook.fullContent.substring(0, 500));
+        
+        // Validate it contains rate information
+        const hourlyMatch = playbook.fullContent.match(/\$(\d{2,4})(?:\.00)?(?:\s*)?(?:\/\s*hour|\/hour|\/hr|per hour)/i);
+        if (hourlyMatch) {
+          console.log("✅ RATE FOUND IN PLAYBOOK:", hourlyMatch[0]);
+        } else {
+          console.warn("⚠️ No hourly rate found in playbook content - extraction may fail");
+        }
+      } else {
+        // Fallback: Prompt user to paste content or use agent to fetch
+        toast.info("Playbook selected. Ask the agent to fetch full content from Notion, or paste content below.");
+        setPlaybookContent(`# ${playbook.title}\n\n[Waiting for full content from Notion...]\n\nPaste your playbook content here, or ask the agent to fetch it using the Notion page ID: ${playbook.id}`);
+      }
     } catch (error) {
       console.error("Playbook load error:", error);
       toast.error("Failed to load playbook");
@@ -261,6 +243,48 @@ export default function PersonalizationStudio() {
       setIsLoadingPlaybook(false);
     }
   };
+  
+  // Function to receive full Notion content from agent
+  // This is called when the agent fetches the playbook via MCP
+  const setNotionPlaybookContent = (content: string, playbookId?: string) => {
+    if (!content || content.length < 100) {
+      toast.error("Playbook content too short - ensure full document is fetched");
+      return;
+    }
+    
+    setPlaybookContent(content);
+    
+    // Log for validation
+    console.log("=== NOTION PLAYBOOK RECEIVED ===");
+    console.log("Content length:", content.length, "characters");
+    
+    // Extract and validate key data
+    const hourlyMatch = content.match(/\$(\d{2,4})(?:\.00)?(?:\s*)?(?:\/\s*hour|\/hour|\/hr|per hour)/i)
+      || content.match(/Hourly Rate:\*?\*?\s*\$(\d{2,4})/i);
+    const dailyMatch = content.match(/Daily (?:Rate|Earnings):\*?\*?\s*\$([\d,]+)/i)
+      || content.match(/\$([\d,]+)(?:\s*)?(?:\/\s*day|\/day|per day)/i);
+    const callMatch = content.match(/On-Call:\*?\*?\s*(NO|None|Zero|YES)/i)
+      || content.match(/(Zero call|NO CALL|no on-?call)/i);
+    
+    console.log("EXTRACTED VALUES:");
+    console.log("- Hourly:", hourlyMatch ? `$${hourlyMatch[1]}` : "NOT FOUND");
+    console.log("- Daily:", dailyMatch ? dailyMatch[1] : "NOT FOUND");
+    console.log("- Call:", callMatch ? callMatch[0] : "NOT FOUND");
+    
+    if (hourlyMatch) {
+      toast.success(`Playbook loaded with $${hourlyMatch[1]}/hr rate`);
+    } else {
+      toast.warning("Playbook loaded but hourly rate not detected - verify content");
+    }
+  };
+  
+  // Expose function globally for agent interaction (temporary bridge)
+  useEffect(() => {
+    (window as any).setNotionPlaybookContent = setNotionPlaybookContent;
+    return () => {
+      delete (window as any).setNotionPlaybookContent;
+    };
+  }, []);
   
   // Generate full personalized emails/SMS for all candidates
   const handleGenerateAll = async () => {
@@ -290,27 +314,33 @@ export default function PersonalizationStudio() {
         const batchResults = await Promise.all(
           batch.map(async (candidate) => {
             try {
-              // Call edge function for email
-              const { data: emailData } = await supabase.functions.invoke('generate-email', {
+              // Call edge function for email with FULL playbook content
+              const { data: emailData, error: emailError } = await supabase.functions.invoke('generate-email', {
                 body: {
                   candidate_id: candidate.id,
                   job_id: jobId,
-                  template_type: 'initial',
-                  include_full_details: true,
-                  custom_instructions: playbookContent ? 
-                    `Use this playbook as reference: ${playbookContent.substring(0, 2000)}` : undefined,
+                  personalization_hook: candidate.personalization_hook,
+                  playbook_content: playbookContent, // Pass FULL content, not truncated
                 },
               });
               
-              // Call edge function for SMS with playbook content
-              const { data: smsData } = await supabase.functions.invoke('generate-sms', {
+              if (emailError) {
+                console.error("Email generation error:", emailError);
+              }
+              
+              // Call edge function for SMS with FULL playbook content
+              const { data: smsData, error: smsError } = await supabase.functions.invoke('generate-sms', {
                 body: {
                   candidate_id: candidate.id,
                   job_id: jobId,
-                  template_style: 'punchy',
-                  playbook_content: playbookContent ? playbookContent.substring(0, 2000) : undefined,
+                  personalization_hook: candidate.personalization_hook,
+                  playbook_content: playbookContent, // Pass FULL content, not truncated
                 },
               });
+              
+              if (smsError) {
+                console.error("SMS generation error:", smsError);
+              }
               
               return {
                 id: candidate.id,
