@@ -12,11 +12,27 @@ interface EmailRequest {
   personalization_hook?: string;
   custom_instructions?: string;
   include_full_details?: boolean;
+  playbook_content?: string; // Notion playbook reference
 }
+
+// Sherlock Meowmes personality for AI-generated content
+const SHERLOCK_MEOWMES_PERSONA = `You are "Sherlock Meowmes" 🔮 - an elite recruitment intelligence agent who uncovers hidden connections and crafts irresistibly personalized outreach.
+
+YOUR PERSONALITY:
+- Clever and perceptive - you notice details others miss
+- Witty but professional - your emails are memorable, not goofy
+- Data-driven sleuth - you back up claims with specific numbers
+- Master of positioning - you frame opportunities as uniquely perfect for THIS candidate
+
+YOUR SIGNATURE MOVES:
+- Open with a surprising insight about their background (fellowship, publications, unique experience)
+- Connect dots between their career and the opportunity in unexpected ways
+- Use specific numbers to build credibility (exact rates, RVUs, license counts)
+- End with a soft but intriguing CTA that invites conversation`;
 
 const EMAIL_PLAYBOOKS = {
   fellowship: `Generate a DETAILED email for an IR FELLOWSHIP-TRAINED RADIOLOGIST. Include:
-- Recognition of their fellowship training
+- Recognition of their fellowship training institution
 - Specific procedural scope (thrombectomy, angio, biopsies, drains)
 - Elite compensation breakdown (hourly, daily, weekly, annual)
 - Schedule details (M-F, call frequency)
@@ -82,7 +98,8 @@ Deno.serve(async (req) => {
       template_type = 'initial', 
       personalization_hook, 
       custom_instructions,
-      include_full_details = false 
+      include_full_details = false,
+      playbook_content 
     } = body;
 
     // Fetch candidate with research data
@@ -150,17 +167,28 @@ Deno.serve(async (req) => {
     const weeklyRate = dailyRate * 5;
     const annualPotential = weeklyRate * 52;
 
-    const systemPrompt = `You are an expert healthcare recruitment copywriter creating personalized emails for physician locums opportunities. Your emails are detailed, compelling, and data-driven.
+    // Build the system prompt with Sherlock Meowmes persona
+    const systemPrompt = `${SHERLOCK_MEOWMES_PERSONA}
+
+You are creating personalized emails for physician locums opportunities. Your emails are detailed, compelling, and data-driven.
 
 CRITICAL RULES:
 1. Use markdown formatting for structure (headers, bullets, bold)
-2. Personalize based on candidate background
+2. Personalize based on candidate background - find the UNIQUE angle
 3. Include specific numbers (compensation, RVUs, schedule)
-4. Professional but engaging tone
+4. Professional but engaging tone - memorable, not generic
 5. Clear call-to-action
-6. Reference their specific qualifications
+6. Reference their specific qualifications and career trajectory
 
-CANDIDATE PROFILE:
+${playbook_content ? `
+RECRUITMENT PLAYBOOK REFERENCE:
+Use the following playbook as your positioning guide. Extract key messaging strategies, value propositions, and objection handling approaches:
+---
+${playbook_content.substring(0, 3000)}
+---
+` : ''}
+
+CANDIDATE PROFILE (🔮 Your Intelligence):
 - Name: Dr. ${candidate.first_name} ${candidate.last_name}
 - Specialty: ${candidate.specialty}
 - Location: ${candidate.city || 'Unknown'}, ${candidate.state || 'Unknown'}
@@ -168,7 +196,8 @@ CANDIDATE PROFILE:
 - Experience: ${candidate.years_of_experience ? `${candidate.years_of_experience} years` : 'Experienced'}
 - Board Certified: ${candidate.board_certified ? 'Yes' : 'Unknown'}
 ${research?.credentials_summary ? `- Credentials: ${research.credentials_summary}` : ''}
-${research?.professional_highlights?.length ? `- Highlights: ${research.professional_highlights.join(', ')}` : ''}
+${research?.professional_highlights?.length ? `- Professional Highlights: ${research.professional_highlights.join(', ')}` : ''}
+${research?.verified_specialty ? `- Verified Specialty: ${research.verified_specialty}` : ''}
 
 JOB DETAILS:
 - Position: ${job.job_name}

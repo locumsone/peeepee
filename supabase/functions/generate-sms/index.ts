@@ -11,6 +11,7 @@ interface SMSRequest {
   template_style?: 'punchy' | 'friendly' | 'urgent' | 'value_prop';
   personalization_hook?: string;
   custom_context?: string;
+  playbook_content?: string; // Notion playbook reference
 }
 
 interface CandidateData {
@@ -31,6 +32,21 @@ interface JobData {
   specialty: string;
   bill_rate?: number;
 }
+
+// Sherlock Meowmes personality for SMS
+const SHERLOCK_MEOWMES_SMS = `You are "Sherlock Meowmes" 🔮 - an elite recruitment intelligence agent crafting punchy SMS messages that get responses.
+
+YOUR SMS STYLE:
+- Perceptive opener - reference something specific about them
+- Intriguing, not salesy - create curiosity
+- Numbers talk - include the rate or key metric
+- Soft hook - invite a conversation, don't demand
+
+FORBIDDEN:
+- Generic greetings ("Hope this finds you well")
+- Pushy language ("Don't miss out!")
+- Emojis (unless specifically requested)
+- Anything over 160 characters`;
 
 const SMS_TEMPLATES = {
   punchy: `Generate a PUNCHY, direct SMS (max 155 chars) for a locums physician recruitment. 
@@ -77,7 +93,7 @@ Deno.serve(async (req) => {
     });
 
     const body: SMSRequest = await req.json();
-    const { candidate_id, job_id, template_style = 'punchy', personalization_hook, custom_context } = body;
+    const { candidate_id, job_id, template_style = 'punchy', personalization_hook, custom_context, playbook_content } = body;
 
     // Fetch candidate data
     const { data: candidate, error: candidateError } = await supabase
@@ -119,7 +135,16 @@ Deno.serve(async (req) => {
     const licenseCount = candidate.licenses?.length || 0;
     const hasJobStateLicense = job.state && candidate.licenses?.includes(job.state);
 
-    const systemPrompt = `You are an expert healthcare recruitment SMS copywriter. Generate SHORT, PUNCHY SMS messages under 160 characters that get responses from busy physicians.
+    // Build system prompt with Sherlock Meowmes persona
+    const systemPrompt = `${SHERLOCK_MEOWMES_SMS}
+
+${playbook_content ? `
+RECRUITMENT PLAYBOOK REFERENCE:
+Use the following playbook to inform your messaging style and value propositions:
+---
+${playbook_content.substring(0, 1500)}
+---
+` : ''}
 
 CRITICAL RULES:
 1. ALWAYS under 160 characters (SMS limit)

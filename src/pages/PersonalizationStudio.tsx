@@ -302,12 +302,13 @@ export default function PersonalizationStudio() {
                 },
               });
               
-              // Call edge function for SMS
+              // Call edge function for SMS with playbook content
               const { data: smsData } = await supabase.functions.invoke('generate-sms', {
                 body: {
                   candidate_id: candidate.id,
                   job_id: jobId,
                   template_style: 'punchy',
+                  playbook_content: playbookContent ? playbookContent.substring(0, 2000) : undefined,
                 },
               });
               
