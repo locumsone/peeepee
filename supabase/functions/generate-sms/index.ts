@@ -8,10 +8,10 @@ const corsHeaders = {
 interface SMSRequest {
   candidate_id: string;
   job_id: string;
-  template_style?: 'punchy' | 'friendly' | 'urgent' | 'value_prop';
+  template_style?: 'ca_license' | 'no_call' | 'compensation' | 'location' | 'board_eligible' | 'non_trauma';
   personalization_hook?: string;
   custom_context?: string;
-  playbook_content?: string; // Notion playbook reference
+  playbook_content?: string;
 }
 
 interface CandidateData {
@@ -20,7 +20,9 @@ interface CandidateData {
   last_name: string;
   specialty: string;
   state: string;
+  city?: string;
   licenses: string[];
+  company_name?: string;
 }
 
 interface JobData {
@@ -34,38 +36,78 @@ interface JobData {
   pay_rate?: number;
 }
 
-// Professional SMS generation persona
-const SMS_PERSONA = `You are a senior healthcare recruiter crafting brief, professional SMS messages.
+// Clinical Consultant SMS Persona
+const SMS_PERSONA = `You generate candidate SMS that sounds like a clinical consultant who understands medicine—NOT a recruiter running a sales script.
 
-YOUR SMS STYLE:
-- Direct and respectful opener with Dr. + first name
-- Lead with the key value (rate, location, schedule)
-- Create genuine interest without being salesy
-- Soft call-to-action (question, not demand)
+SMS RULES - HARD LIMIT: 300 characters
 
-FORBIDDEN:
-- Emojis of any kind
-- Generic greetings
-- Pushy language ("Don't miss out!")
-- Anything over 160 characters`;
+REQUIRED ELEMENTS:
+1. "Dr. [Last Name]" - professional address
+2. "Locums" - they must know it's contract
+3. Rate - EXACT from playbook (never calculate)
+4. Location - city/metro + state
+5. One clinical detail - case mix, call status, OR procedures
+6. One personalization hook - their license, training, or setting
+7. Soft CTA - "15 min to discuss fit?" / "Quick call on scope?"
 
-const SMS_TEMPLATES = {
-  punchy: `Generate a PUNCHY, direct SMS (max 155 chars) for a locums physician recruitment. 
-Style: Short, impactful, creates urgency. No fluff.
-Example: "Dr. {{first_name}} - $500/hr IR role in Houston. 80% procedures. Your fellowship = perfect fit. Quick call?"`,
-  
-  friendly: `Generate a FRIENDLY, conversational SMS (max 155 chars) for locums recruitment.
-Style: Warm, personal, like a colleague reaching out.
-Example: "Hi Dr. {{first_name}}! Saw your IR background - have an amazing Houston opportunity. Mind if I share details?"`,
-  
-  urgent: `Generate an URGENT SMS (max 155 chars) for time-sensitive locums opportunity.
-Style: Creates FOMO, emphasizes scarcity.
-Example: "Dr. {{first_name}} - Filling $500/hr IR locums THIS WEEK. Only 2 spots. Your licenses = instant start. Interested?"`,
-  
-  value_prop: `Generate a VALUE-FOCUSED SMS (max 155 chars) highlighting compensation.
-Style: Lead with money, emphasize elite earning potential.
-Example: "Dr. {{first_name}}: $1.17M/yr potential. IR locums, Houston. Your 24 licenses = flexibility. 5 min to discuss?"`
-};
+FORMULA:
+Dr. [Name] - [Locums] [Specialty] at [Location]: $[rate]/hr, [clinical detail]. [Personalization hook]. [Soft CTA]?
+
+NEVER DO:
+- Generic messages with no clinical detail
+- Wrong or invented rates
+- Missing "locums" signal
+- Emojis or multiple exclamation points
+- "I came across your profile" openers
+- Exceed 300 characters`;
+
+// Extract playbook rates
+function extractPlaybookRates(playbookContent: string): {
+  hourly: string;
+  daily: string;
+  weekly: string;
+} {
+  const defaults = { hourly: "$500", daily: "$4,500", weekly: "$22,500" };
+  if (!playbookContent) return defaults;
+
+  const hourlyMatch = playbookContent.match(/Hourly[:\s]*\*?\*?\$?([\d,]+)/i);
+  const dailyMatch = playbookContent.match(/Daily[:\s]*\*?\*?\$?([\d,]+)/i);
+  const weeklyMatch = playbookContent.match(/Weekly[:\s]*\*?\*?\$?([\d,]+)/i);
+
+  return {
+    hourly: hourlyMatch ? `$${hourlyMatch[1].replace(/,/g, '')}` : defaults.hourly,
+    daily: dailyMatch ? `$${dailyMatch[1]}` : defaults.daily,
+    weekly: weeklyMatch ? `$${weeklyMatch[1]}` : defaults.weekly
+  };
+}
+
+// Extract clinical details
+function extractClinicalDetails(playbookContent: string): {
+  callStatus: string;
+  schedule: string;
+  facilityType: string;
+  credentialingDays: string;
+} {
+  const defaults = {
+    callStatus: "zero call",
+    schedule: "M-F 8-5",
+    facilityType: "non-trauma",
+    credentialingDays: "40"
+  };
+
+  if (!playbookContent) return defaults;
+
+  let callStatus = defaults.callStatus;
+  if (playbookContent.toLowerCase().includes("no call") || 
+      playbookContent.toLowerCase().includes("zero call")) {
+    callStatus = "zero call";
+  }
+
+  const credMatch = playbookContent.match(/(\d+)[\s-]*day/i);
+  const credentialingDays = credMatch ? credMatch[1] : defaults.credentialingDays;
+
+  return { ...defaults, callStatus, credentialingDays };
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -94,12 +136,12 @@ Deno.serve(async (req) => {
     });
 
     const body: SMSRequest = await req.json();
-    const { candidate_id, job_id, template_style = 'punchy', personalization_hook, custom_context, playbook_content } = body;
+    const { candidate_id, job_id, template_style = 'ca_license', personalization_hook, custom_context, playbook_content } = body;
 
     // Fetch candidate data
     const { data: candidate, error: candidateError } = await supabase
       .from('candidates')
-      .select('id, first_name, last_name, specialty, state, licenses')
+      .select('id, first_name, last_name, specialty, state, city, licenses, company_name')
       .eq('id', candidate_id)
       .single();
 
@@ -107,19 +149,20 @@ Deno.serve(async (req) => {
       throw new Error(`Candidate not found: ${candidateError?.message}`);
     }
 
-    // Fetch job data - include pay_rate
+    // Fetch job data
     const { data: job, error: jobError } = await supabase
       .from('jobs')
       .select('id, job_name, facility_name, city, state, specialty, bill_rate, pay_rate')
       .eq('id', job_id)
       .single();
 
-    // Use pay_rate for candidate-facing messages (not bill_rate)
-    const payRate = job?.pay_rate || (job?.bill_rate ? job.bill_rate * 0.73 : null);
-
     if (jobError || !job) {
       throw new Error(`Job not found: ${jobError?.message}`);
     }
+
+    // Extract rates from playbook (NEVER calculate)
+    const rates = extractPlaybookRates(playbook_content || '');
+    const clinical = extractClinicalDetails(playbook_content || '');
 
     // Check for existing personalization
     let hook = personalization_hook;
@@ -139,67 +182,127 @@ Deno.serve(async (req) => {
     const licenseCount = candidate.licenses?.length || 0;
     const hasJobStateLicense = job.state && candidate.licenses?.includes(job.state);
 
-    // Build system prompt with professional persona
+    // Build system prompt
     const systemPrompt = `${SMS_PERSONA}
 
-${playbook_content ? `
-RECRUITMENT PLAYBOOK REFERENCE:
-Use the following playbook to inform your messaging style and value propositions:
----
-${playbook_content.substring(0, 1500)}
----
-` : ''}
+PLAYBOOK DATA (USE EXACTLY):
+- Rate: ${rates.hourly}/hr
+- Daily: ${rates.daily}
+- Weekly: ${rates.weekly}
+- Call: ${clinical.callStatus}
+- Schedule: ${clinical.schedule}
+- Facility: ${clinical.facilityType}
+- Credentialing: ${clinical.credentialingDays} days
 
-CRITICAL RULES:
-1. ALWAYS under 160 characters (SMS limit)
-2. Use Dr. + first name (never full name)
-3. Lead with the hook or value proposition
-4. End with a soft CTA (question, not demand)
-5. No emojis
-6. Sound human, not robotic
-7. Create curiosity or urgency
-
-PERSONALIZATION DATA:
-- Candidate: Dr. ${candidate.first_name} ${candidate.last_name}
+CANDIDATE:
+- Name: Dr. ${candidate.last_name}
 - Specialty: ${candidate.specialty}
-- Licenses: ${licenseCount} states${hasJobStateLicense ? ` (includes ${job.state})` : ''}
-- Job: ${job.job_name} at ${job.facility_name}
+- Location: ${candidate.city || ''}, ${candidate.state}
+- Licenses: ${licenseCount} states${hasJobStateLicense ? ` (has ${job.state})` : ''}
+
+JOB:
+- Facility: ${job.facility_name}
 - Location: ${job.city}, ${job.state}
-- Pay Rate: ${payRate ? `$${payRate}/hr` : 'Competitive'}
-${hook ? `- Personalization Hook: ${hook}` : ''}
-${custom_context ? `- Additional Context: ${custom_context}` : ''}`;
+- Specialty: ${job.specialty}
 
-    const templateGuide = SMS_TEMPLATES[template_style] || SMS_TEMPLATES.punchy;
+${hook ? `PERSONALIZATION HOOK: ${hook}` : ''}
+${custom_context ? `CONTEXT: ${custom_context}` : ''}`;
 
-    // Fallback SMS generator when AI is unavailable
+    // Template-based SMS generation (clinical consultant style)
     const generateFallbackSMS = () => {
-      const rate = payRate ? `$${payRate}/hr` : 'Top rate';
-      const location = `${job.city}, ${job.state}`;
+      const location = `${job.city}`;
+      const licenseHook = hasJobStateLicense 
+        ? `Your ${job.state} license = ${clinical.credentialingDays}-day start.`
+        : `${licenseCount} licenses = flexibility.`;
       
       const templates = {
-        punchy: [
-          { sms: `Dr. ${candidate.first_name} - ${rate} ${candidate.specialty} in ${location}. Your licenses = perfect fit. Quick call?`, style: 'punchy' },
-          { sms: `Dr. ${candidate.first_name}: ${rate} locums opportunity. ${job.facility_name}, ${job.state}. Interested?`, style: 'direct' },
-          { sms: `${rate} ${candidate.specialty} role at ${job.facility_name}. Dr. ${candidate.first_name}, 5 min to discuss?`, style: 'value' }
+        ca_license: [
+          { 
+            sms: `Dr. ${candidate.last_name} - Locums ${candidate.specialty} at ${job.facility_name} (${location}): ${rates.hourly}/hr, ${clinical.callStatus}. ${licenseHook} 15 min to discuss fit?`, 
+            style: 'license_priority' 
+          },
+          { 
+            sms: `Dr. ${candidate.last_name} - ${rates.hourly}/hr ${candidate.specialty} locums, ${clinical.facilityType} case mix. ${job.city}, ${job.state}. ${licenseHook} Quick call on scope?`, 
+            style: 'clinical_focus' 
+          },
+          { 
+            sms: `Dr. ${candidate.last_name} - Locums IR at ${job.facility_name}: ${rates.hourly}/hr, ${clinical.schedule}, ${clinical.callStatus}. ${licenseHook} Worth 15 min?`, 
+            style: 'schedule_focus' 
+          }
         ],
-        friendly: [
-          { sms: `Hi Dr. ${candidate.first_name}! Saw your ${candidate.specialty} background - have an amazing ${location} opportunity. Mind if I share details?`, style: 'warm' },
-          { sms: `Dr. ${candidate.first_name}, thought of you for a ${candidate.specialty} role at ${job.facility_name}. Would love to chat!`, style: 'personal' },
-          { sms: `Hey Dr. ${candidate.first_name}! Quick question - open to ${candidate.specialty} locums in ${job.state}? Great opportunity here.`, style: 'casual' }
+        no_call: [
+          { 
+            sms: `Dr. ${candidate.last_name} - ${candidate.specialty} locums with ZERO call. ${rates.hourly}/hr at ${job.facility_name}, ${location}. ${clinical.schedule}, done at 5. ${licenseHook} 15 min?`, 
+            style: 'no_call_emphasis' 
+          },
+          { 
+            sms: `Dr. ${candidate.last_name} - If call is burning you out: ${job.facility_name} locums, ${rates.hourly}/hr, zero call. ${clinical.facilityType}, ${location}. Worth discussing?`, 
+            style: 'burnout_relief' 
+          },
+          { 
+            sms: `Dr. ${candidate.last_name} - Locums ${candidate.specialty}: ${rates.hourly}/hr, NO CALL. ${job.city} (${clinical.facilityType}). ${clinical.schedule}. ${licenseHook} Quick call?`, 
+            style: 'direct' 
+          }
         ],
-        urgent: [
-          { sms: `Dr. ${candidate.first_name} - Filling ${rate} ${candidate.specialty} locums THIS WEEK. ${job.state} license? Let's talk ASAP.`, style: 'urgent' },
-          { sms: `URGENT: ${rate} ${candidate.specialty} at ${job.facility_name}. Immediate start. Dr. ${candidate.first_name}, available?`, style: 'critical' },
-          { sms: `Dr. ${candidate.first_name}: Last spot for ${rate} ${candidate.specialty} in ${location}. Quick response needed!`, style: 'fomo' }
+        compensation: [
+          { 
+            sms: `Dr. ${candidate.last_name} - ${rates.hourly}/hr locums ${candidate.specialty} at ${job.facility_name}, ${location}. ${rates.daily}/day, ${clinical.callStatus}. ${licenseHook} 15 min to discuss?`, 
+            style: 'rate_focused' 
+          },
+          { 
+            sms: `Dr. ${candidate.last_name} - Locums ${candidate.specialty}: ${rates.hourly}/hr (${rates.weekly}/week). ${job.city}, ${clinical.callStatus}, ${clinical.facilityType}. ${licenseHook} Worth a call?`, 
+            style: 'weekly_rate' 
+          },
+          { 
+            sms: `Dr. ${candidate.last_name} - ${rates.hourly}/hr ${candidate.specialty} locums. ${job.facility_name}, ${clinical.callStatus}. Routine case mix, sustainable pace. 15 min on clinical fit?`, 
+            style: 'sustainable' 
+          }
         ],
-        value_prop: [
-          { sms: `Dr. ${candidate.first_name}: ${rate} ${candidate.specialty} locums. ${job.facility_name}. Your ${licenseCount} licenses = flexibility. 5 min?`, style: 'value' },
-          { sms: `${rate} + premium benefits. ${candidate.specialty} at ${job.facility_name}, ${job.state}. Dr. ${candidate.first_name}, interested?`, style: 'comp' },
-          { sms: `Dr. ${candidate.first_name} - Elite ${candidate.specialty} opportunity: ${rate}, ${location}. Your experience is ideal. Chat?`, style: 'premium' }
+        non_trauma: [
+          { 
+            sms: `Dr. ${candidate.last_name} - ${clinical.facilityType} ${candidate.specialty} locums: ${rates.hourly}/hr, ${clinical.callStatus}. ${job.facility_name}, ${location}. Sustainable pace. ${licenseHook} 15 min?`, 
+            style: 'non_trauma_focus' 
+          },
+          { 
+            sms: `Dr. ${candidate.last_name} - Locums ${candidate.specialty} at ${clinical.facilityType} center: ${rates.hourly}/hr, routine case mix. ${job.city}, ${clinical.callStatus}. Quick call on scope?`, 
+            style: 'routine_case' 
+          },
+          { 
+            sms: `Dr. ${candidate.last_name} - No trauma chaos: ${rates.hourly}/hr ${candidate.specialty} locums at ${job.facility_name}. ${clinical.callStatus}, ${clinical.schedule}. ${licenseHook} 15 min?`, 
+            style: 'anti_trauma' 
+          }
+        ],
+        location: [
+          { 
+            sms: `Dr. ${candidate.last_name} - Locums ${candidate.specialty} in ${job.city} (LA County): ${rates.hourly}/hr, ${clinical.callStatus}. ${job.facility_name}, ${clinical.facilityType}. ${licenseHook} 15 min?`, 
+            style: 'location_first' 
+          },
+          { 
+            sms: `Dr. ${candidate.last_name} - ${job.facility_name} (${location}): ${rates.hourly}/hr ${candidate.specialty} locums, ${clinical.callStatus}. ${licenseHook} Quick call on clinical fit?`, 
+            style: 'facility_focus' 
+          },
+          { 
+            sms: `Dr. ${candidate.last_name} - ${location} ${candidate.specialty} locums: ${rates.hourly}/hr at ${job.facility_name}. ${clinical.callStatus}, ${clinical.schedule}. Worth 15 min to discuss?`, 
+            style: 'metro_focus' 
+          }
+        ],
+        board_eligible: [
+          { 
+            sms: `Dr. ${candidate.last_name} - Board Eligible accepted: ${rates.hourly}/hr ${candidate.specialty} locums at ${job.facility_name}. ${clinical.callStatus}, ${location}. Start earning now. 15 min?`, 
+            style: 'be_accepted' 
+          },
+          { 
+            sms: `Dr. ${candidate.last_name} - Recent fellowship? ${job.facility_name} takes Board Eligible: ${rates.hourly}/hr, ${clinical.callStatus}. ${location}. Earn while prepping boards. Quick call?`, 
+            style: 'new_grad' 
+          },
+          { 
+            sms: `Dr. ${candidate.last_name} - Don't wait for boards: ${rates.hourly}/hr ${candidate.specialty} locums at ${job.facility_name}. BE within 5 years OK. ${clinical.callStatus}. 15 min?`, 
+            style: 'immediate_start' 
+          }
         ]
       };
       
-      return templates[template_style] || templates.punchy;
+      return templates[template_style] || templates.ca_license;
     };
 
     let smsOptions = [];
@@ -216,7 +319,19 @@ ${custom_context ? `- Additional Context: ${custom_context}` : ''}`;
           model: "google/gemini-3-flash-preview",
           messages: [
             { role: "system", content: systemPrompt },
-            { role: "user", content: `${templateGuide}\n\nGenerate 3 different SMS options for this candidate. Return ONLY a JSON array with objects containing "sms" (the message) and "style" (one-word description). Example: [{"sms": "Dr. John - $500/hr IR...", "style": "urgent"}]` }
+            { role: "user", content: `Generate 3 SMS options for Dr. ${candidate.last_name}. 
+
+CRITICAL REQUIREMENTS:
+1. Each SMS MUST be under 300 characters
+2. Use EXACT rate: ${rates.hourly}/hr (never calculate or round)
+3. Include "locums" - they must know it's contract
+4. Include one clinical detail (case mix, call status, or procedures)
+5. Include one personalization hook (license advantage, training, or setting)
+6. End with soft CTA: "15 min to discuss fit?" or "Quick call on scope?"
+7. NO emojis, NO exclamation points
+8. Sound like a clinical consultant, not a recruiter
+
+Return as JSON array: [{"sms": "...", "style": "one-word-description"}]` }
           ],
           temperature: 0.8,
         }),
@@ -251,11 +366,11 @@ ${custom_context ? `- Additional Context: ${custom_context}` : ''}`;
       usedFallback = true;
     }
 
-    // Ensure all messages are under 160 chars
+    // Ensure all messages are under 300 chars and add char count
     smsOptions = smsOptions.map((opt: { sms: string; style: string }) => ({
       ...opt,
-      sms: opt.sms.length > 160 ? opt.sms.substring(0, 157) + '...' : opt.sms,
-      char_count: Math.min(opt.sms.length, 160)
+      sms: opt.sms.length > 300 ? opt.sms.substring(0, 297) + '...' : opt.sms,
+      char_count: Math.min(opt.sms.length, 300)
     }));
 
     return new Response(
@@ -263,7 +378,7 @@ ${custom_context ? `- Additional Context: ${custom_context}` : ''}`;
         success: true,
         candidate: {
           id: candidate.id,
-          name: `Dr. ${candidate.first_name} ${candidate.last_name}`,
+          name: `Dr. ${candidate.last_name}`,
           specialty: candidate.specialty,
         },
         job: {
@@ -273,6 +388,7 @@ ${custom_context ? `- Additional Context: ${custom_context}` : ''}`;
         },
         sms_options: smsOptions,
         template_style,
+        rates_used: rates,
         personalization_used: !!hook,
         used_fallback: usedFallback,
       }),
