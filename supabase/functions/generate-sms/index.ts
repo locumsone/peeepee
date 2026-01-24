@@ -61,52 +61,183 @@ NEVER DO:
 - "I came across your profile" openers
 - Exceed 300 characters`;
 
-// Extract playbook rates
+// Extract playbook rates - DYNAMIC extraction, NO hardcoded defaults
 function extractPlaybookRates(playbookContent: string): {
-  hourly: string;
-  daily: string;
-  weekly: string;
+  hourly: string | null;
+  daily: string | null;
+  weekly: string | null;
+  annual: string | null;
+  extracted: boolean;
 } {
-  const defaults = { hourly: "$500", daily: "$4,500", weekly: "$22,500" };
-  if (!playbookContent) return defaults;
-
-  const hourlyMatch = playbookContent.match(/Hourly[:\s]*\*?\*?\$?([\d,]+)/i);
-  const dailyMatch = playbookContent.match(/Daily[:\s]*\*?\*?\$?([\d,]+)/i);
-  const weeklyMatch = playbookContent.match(/Weekly[:\s]*\*?\*?\$?([\d,]+)/i);
-
-  return {
-    hourly: hourlyMatch ? `$${hourlyMatch[1].replace(/,/g, '')}` : defaults.hourly,
-    daily: dailyMatch ? `$${dailyMatch[1]}` : defaults.daily,
-    weekly: weeklyMatch ? `$${weeklyMatch[1]}` : defaults.weekly
-  };
-}
-
-// Extract clinical details
-function extractClinicalDetails(playbookContent: string): {
-  callStatus: string;
-  schedule: string;
-  facilityType: string;
-  credentialingDays: string;
-} {
-  const defaults = {
-    callStatus: "zero call",
-    schedule: "M-F 8-5",
-    facilityType: "non-trauma",
-    credentialingDays: "40"
-  };
-
-  if (!playbookContent) return defaults;
-
-  let callStatus = defaults.callStatus;
-  if (playbookContent.toLowerCase().includes("no call") || 
-      playbookContent.toLowerCase().includes("zero call")) {
-    callStatus = "zero call";
+  if (!playbookContent) {
+    console.warn("PLAYBOOK: No playbook content provided");
+    return { hourly: null, daily: null, weekly: null, annual: null, extracted: false };
   }
 
-  const credMatch = playbookContent.match(/(\d+)[\s-]*day/i);
-  const credentialingDays = credMatch ? credMatch[1] : defaults.credentialingDays;
+  // Multiple patterns for each rate type - cast wide net
+  const hourlyPatterns = [
+    /\*\*Hourly\*\*[:\s]*\$?([\d,]+)/i,
+    /Hourly\s*(?:Rate)?[:\s]*\$?([\d,]+)/i,
+    /\$([\d,]+)\s*(?:\/\s*)?(?:per\s*)?(?:hour|hr)/i,
+    /pay\s*rate[:\s]*\$?([\d,]+)/i,
+  ];
+  
+  const dailyPatterns = [
+    /\*\*Daily\*\*[:\s]*\$?([\d,]+)/i,
+    /Daily\s*(?:Rate|Earnings)?[:\s]*\$?([\d,]+)/i,
+    /\$([\d,]+)\s*(?:\/\s*)?(?:per\s*)?day/i,
+  ];
+  
+  const weeklyPatterns = [
+    /\*\*Weekly\*\*[:\s]*\$?([\d,]+)/i,
+    /Weekly\s*(?:Rate|Earnings)?[:\s]*\$?([\d,]+)/i,
+    /\$([\d,]+)\s*(?:\/\s*)?(?:per\s*)?week/i,
+  ];
+  
+  const annualPatterns = [
+    /\*\*Annual\*\*[:\s]*\$?([\d,]+(?:,\d+)*)/i,
+    /Annual\s*(?:Potential|Earnings)?[:\s]*\$?([\d,]+(?:,\d+)*)/i,
+    /\$([\d,.]+)\s*(?:M|million)?\s*(?:\/\s*)?(?:per\s*)?(?:year|annually)/i,
+  ];
 
-  return { ...defaults, callStatus, credentialingDays };
+  const findMatch = (patterns: RegExp[]): string | null => {
+    for (const pattern of patterns) {
+      const match = playbookContent.match(pattern);
+      if (match) return match[1].replace(/,/g, '');
+    }
+    return null;
+  };
+
+  const hourlyRaw = findMatch(hourlyPatterns);
+  const dailyRaw = findMatch(dailyPatterns);
+  const weeklyRaw = findMatch(weeklyPatterns);
+  const annualRaw = findMatch(annualPatterns);
+
+  const formatRate = (raw: string | null): string | null => {
+    if (!raw) return null;
+    const num = parseInt(raw, 10);
+    if (isNaN(num)) return null;
+    // Format with commas for readability
+    return `$${num.toLocaleString('en-US')}`;
+  };
+
+  const result = {
+    hourly: formatRate(hourlyRaw),
+    daily: formatRate(dailyRaw),
+    weekly: formatRate(weeklyRaw),
+    annual: formatRate(annualRaw),
+    extracted: hourlyRaw !== null, // At minimum need hourly rate
+  };
+
+  console.log("PLAYBOOK RATES EXTRACTED:", result);
+  return result;
+}
+
+// Extract clinical details - DYNAMIC extraction, NO hardcoded defaults
+function extractClinicalDetails(playbookContent: string): {
+  callStatus: string | null;
+  schedule: string | null;
+  facilityType: string | null;
+  credentialingDays: string | null;
+  procedures: string | null;
+  rvus: string | null;
+  extracted: boolean;
+} {
+  if (!playbookContent) {
+    console.warn("PLAYBOOK: No playbook content provided for clinical details");
+    return { callStatus: null, schedule: null, facilityType: null, credentialingDays: null, procedures: null, rvus: null, extracted: false };
+  }
+
+  // Call status extraction
+  let callStatus: string | null = null;
+  if (/no\s*call|zero\s*call|on-?call[:\s]*no/i.test(playbookContent)) {
+    callStatus = "zero call";
+  } else if (/1\s*:\s*(\d+)\s*call/i.test(playbookContent)) {
+    const match = playbookContent.match(/1\s*:\s*(\d+)\s*call/i);
+    callStatus = match ? `1:${match[1]} call` : null;
+  } else if (/light\s*call/i.test(playbookContent)) {
+    callStatus = "light call";
+  }
+
+  // Schedule extraction
+  let schedule: string | null = null;
+  const schedulePatterns = [
+    /schedule[:\s]*([^\n]+)/i,
+    /hours[:\s]*([^\n]+)/i,
+    /(M-F\s*\d+[ap]?m?\s*-\s*\d+[ap]?m?)/i,
+    /(Monday\s*-?\s*Friday[^\n]*)/i,
+  ];
+  for (const pattern of schedulePatterns) {
+    const match = playbookContent.match(pattern);
+    if (match) {
+      schedule = match[1].trim().replace(/\*+/g, '');
+      break;
+    }
+  }
+
+  // Facility type extraction
+  let facilityType: string | null = null;
+  if (/non-?trauma|non trauma/i.test(playbookContent)) {
+    facilityType = "non-trauma";
+  } else if (/level\s*[iI1]\s*trauma/i.test(playbookContent)) {
+    facilityType = "Level I trauma";
+  } else if (/level\s*[iI]{2,}|level\s*2/i.test(playbookContent)) {
+    facilityType = "Level II trauma";
+  } else if (/community\s*hospital/i.test(playbookContent)) {
+    facilityType = "community hospital";
+  } else if (/academic/i.test(playbookContent)) {
+    facilityType = "academic center";
+  }
+
+  // Credentialing days extraction
+  let credentialingDays: string | null = null;
+  const credPatterns = [
+    /credentialing[:\s]*(?:~)?(\d+)\s*days?/i,
+    /(\d+)[\s-]*day\s*credentialing/i,
+    /timeline[:\s]*(\d+)\s*days?/i,
+  ];
+  for (const pattern of credPatterns) {
+    const match = playbookContent.match(pattern);
+    if (match) {
+      credentialingDays = match[1];
+      break;
+    }
+  }
+
+  // Procedures extraction
+  let procedures: string | null = null;
+  const procPatterns = [
+    /procedures?[:\s]*([^\n]+)/i,
+    /scope[:\s]*([^\n]+)/i,
+    /case\s*types?[:\s]*([^\n]+)/i,
+  ];
+  for (const pattern of procPatterns) {
+    const match = playbookContent.match(pattern);
+    if (match) {
+      procedures = match[1].trim().replace(/\*+/g, '');
+      break;
+    }
+  }
+
+  // RVU extraction
+  let rvus: string | null = null;
+  const rvuMatch = playbookContent.match(/~?(\d+)\s*RVUs?(?:\s*\/\s*shift)?/i);
+  if (rvuMatch) {
+    rvus = `~${rvuMatch[1]} RVUs/shift`;
+  }
+
+  const result = {
+    callStatus,
+    schedule,
+    facilityType,
+    credentialingDays,
+    procedures,
+    rvus,
+    extracted: callStatus !== null || schedule !== null,
+  };
+
+  console.log("PLAYBOOK CLINICAL EXTRACTED:", result);
+  return result;
 }
 
 Deno.serve(async (req) => {
@@ -164,6 +295,18 @@ Deno.serve(async (req) => {
     const rates = extractPlaybookRates(playbook_content || '');
     const clinical = extractClinicalDetails(playbook_content || '');
 
+    // Log extracted data for validation
+    console.log("PLAYBOOK EXTRACTION VALIDATION:", {
+      source: "playbook_content provided: " + (!!playbook_content),
+      rates,
+      clinical
+    });
+
+    // Validate required rate data - fail if missing
+    if (!rates.hourly) {
+      throw new Error("RATE NOT FOUND IN PLAYBOOK - cannot generate SMS without verified hourly compensation. Please ensure playbook contains rate information.");
+    }
+
     // Check for existing personalization
     let hook = personalization_hook;
     if (!hook) {
@@ -182,17 +325,25 @@ Deno.serve(async (req) => {
     const licenseCount = candidate.licenses?.length || 0;
     const hasJobStateLicense = job.state && candidate.licenses?.includes(job.state);
 
-    // Build system prompt
+    // Use null coalescing for optional clinical data
+    const callText = clinical.callStatus || "flexible schedule";
+    const scheduleText = clinical.schedule || "weekday hours";
+    const facilityText = clinical.facilityType || "hospital";
+    const credDays = clinical.credentialingDays || "expedited";
+    const dailyRate = rates.daily || "";
+    const weeklyRate = rates.weekly || "";
+
+    // Build system prompt with safe values
     const systemPrompt = `${SMS_PERSONA}
 
 PLAYBOOK DATA (USE EXACTLY):
 - Rate: ${rates.hourly}/hr
-- Daily: ${rates.daily}
-- Weekly: ${rates.weekly}
-- Call: ${clinical.callStatus}
-- Schedule: ${clinical.schedule}
-- Facility: ${clinical.facilityType}
-- Credentialing: ${clinical.credentialingDays} days
+${dailyRate ? `- Daily: ${dailyRate}` : ''}
+${weeklyRate ? `- Weekly: ${weeklyRate}` : ''}
+- Call: ${callText}
+- Schedule: ${scheduleText}
+- Facility: ${facilityText}
+${credDays ? `- Credentialing: ${credDays} days` : ''}
 
 CANDIDATE:
 - Name: Dr. ${candidate.last_name}
@@ -212,91 +363,91 @@ ${custom_context ? `CONTEXT: ${custom_context}` : ''}`;
     const generateFallbackSMS = () => {
       const location = `${job.city}`;
       const licenseHook = hasJobStateLicense 
-        ? `Your ${job.state} license = ${clinical.credentialingDays}-day start.`
+        ? `Your ${job.state} license = ${credDays}-day start.`
         : `${licenseCount} licenses = flexibility.`;
       
       const templates = {
         ca_license: [
           { 
-            sms: `Dr. ${candidate.last_name} - Locums ${candidate.specialty} at ${job.facility_name} (${location}): ${rates.hourly}/hr, ${clinical.callStatus}. ${licenseHook} 15 min to discuss fit?`, 
+            sms: `Dr. ${candidate.last_name} - Locums ${candidate.specialty} at ${job.facility_name} (${location}): ${rates.hourly}/hr, ${callText}. ${licenseHook} 15 min to discuss fit?`, 
             style: 'license_priority' 
           },
           { 
-            sms: `Dr. ${candidate.last_name} - ${rates.hourly}/hr ${candidate.specialty} locums, ${clinical.facilityType} case mix. ${job.city}, ${job.state}. ${licenseHook} Quick call on scope?`, 
+            sms: `Dr. ${candidate.last_name} - ${rates.hourly}/hr ${candidate.specialty} locums, ${facilityText} case mix. ${job.city}, ${job.state}. ${licenseHook} Quick call on scope?`, 
             style: 'clinical_focus' 
           },
           { 
-            sms: `Dr. ${candidate.last_name} - Locums IR at ${job.facility_name}: ${rates.hourly}/hr, ${clinical.schedule}, ${clinical.callStatus}. ${licenseHook} Worth 15 min?`, 
+            sms: `Dr. ${candidate.last_name} - Locums ${candidate.specialty} at ${job.facility_name}: ${rates.hourly}/hr, ${scheduleText}, ${callText}. ${licenseHook} Worth 15 min?`, 
             style: 'schedule_focus' 
           }
         ],
         no_call: [
           { 
-            sms: `Dr. ${candidate.last_name} - ${candidate.specialty} locums with ZERO call. ${rates.hourly}/hr at ${job.facility_name}, ${location}. ${clinical.schedule}, done at 5. ${licenseHook} 15 min?`, 
+            sms: `Dr. ${candidate.last_name} - ${candidate.specialty} locums with ZERO call. ${rates.hourly}/hr at ${job.facility_name}, ${location}. ${scheduleText}. ${licenseHook} 15 min?`, 
             style: 'no_call_emphasis' 
           },
           { 
-            sms: `Dr. ${candidate.last_name} - If call is burning you out: ${job.facility_name} locums, ${rates.hourly}/hr, zero call. ${clinical.facilityType}, ${location}. Worth discussing?`, 
+            sms: `Dr. ${candidate.last_name} - If call is burning you out: ${job.facility_name} locums, ${rates.hourly}/hr, zero call. ${facilityText}, ${location}. Worth discussing?`, 
             style: 'burnout_relief' 
           },
           { 
-            sms: `Dr. ${candidate.last_name} - Locums ${candidate.specialty}: ${rates.hourly}/hr, NO CALL. ${job.city} (${clinical.facilityType}). ${clinical.schedule}. ${licenseHook} Quick call?`, 
+            sms: `Dr. ${candidate.last_name} - Locums ${candidate.specialty}: ${rates.hourly}/hr, NO CALL. ${job.city} (${facilityText}). ${scheduleText}. ${licenseHook} Quick call?`, 
             style: 'direct' 
           }
         ],
         compensation: [
           { 
-            sms: `Dr. ${candidate.last_name} - ${rates.hourly}/hr locums ${candidate.specialty} at ${job.facility_name}, ${location}. ${rates.daily}/day, ${clinical.callStatus}. ${licenseHook} 15 min to discuss?`, 
+            sms: `Dr. ${candidate.last_name} - ${rates.hourly}/hr locums ${candidate.specialty} at ${job.facility_name}, ${location}. ${dailyRate ? `${dailyRate}/day, ` : ''}${callText}. ${licenseHook} 15 min to discuss?`, 
             style: 'rate_focused' 
           },
           { 
-            sms: `Dr. ${candidate.last_name} - Locums ${candidate.specialty}: ${rates.hourly}/hr (${rates.weekly}/week). ${job.city}, ${clinical.callStatus}, ${clinical.facilityType}. ${licenseHook} Worth a call?`, 
+            sms: `Dr. ${candidate.last_name} - Locums ${candidate.specialty}: ${rates.hourly}/hr${weeklyRate ? ` (${weeklyRate}/week)` : ''}. ${job.city}, ${callText}, ${facilityText}. ${licenseHook} Worth a call?`, 
             style: 'weekly_rate' 
           },
           { 
-            sms: `Dr. ${candidate.last_name} - ${rates.hourly}/hr ${candidate.specialty} locums. ${job.facility_name}, ${clinical.callStatus}. Routine case mix, sustainable pace. 15 min on clinical fit?`, 
+            sms: `Dr. ${candidate.last_name} - ${rates.hourly}/hr ${candidate.specialty} locums. ${job.facility_name}, ${callText}. Routine case mix, sustainable pace. 15 min on clinical fit?`, 
             style: 'sustainable' 
           }
         ],
         non_trauma: [
           { 
-            sms: `Dr. ${candidate.last_name} - ${clinical.facilityType} ${candidate.specialty} locums: ${rates.hourly}/hr, ${clinical.callStatus}. ${job.facility_name}, ${location}. Sustainable pace. ${licenseHook} 15 min?`, 
+            sms: `Dr. ${candidate.last_name} - ${facilityText} ${candidate.specialty} locums: ${rates.hourly}/hr, ${callText}. ${job.facility_name}, ${location}. Sustainable pace. ${licenseHook} 15 min?`, 
             style: 'non_trauma_focus' 
           },
           { 
-            sms: `Dr. ${candidate.last_name} - Locums ${candidate.specialty} at ${clinical.facilityType} center: ${rates.hourly}/hr, routine case mix. ${job.city}, ${clinical.callStatus}. Quick call on scope?`, 
+            sms: `Dr. ${candidate.last_name} - Locums ${candidate.specialty} at ${facilityText}: ${rates.hourly}/hr, routine case mix. ${job.city}, ${callText}. Quick call on scope?`, 
             style: 'routine_case' 
           },
           { 
-            sms: `Dr. ${candidate.last_name} - No trauma chaos: ${rates.hourly}/hr ${candidate.specialty} locums at ${job.facility_name}. ${clinical.callStatus}, ${clinical.schedule}. ${licenseHook} 15 min?`, 
+            sms: `Dr. ${candidate.last_name} - No trauma chaos: ${rates.hourly}/hr ${candidate.specialty} locums at ${job.facility_name}. ${callText}, ${scheduleText}. ${licenseHook} 15 min?`, 
             style: 'anti_trauma' 
           }
         ],
         location: [
           { 
-            sms: `Dr. ${candidate.last_name} - Locums ${candidate.specialty} in ${job.city} (LA County): ${rates.hourly}/hr, ${clinical.callStatus}. ${job.facility_name}, ${clinical.facilityType}. ${licenseHook} 15 min?`, 
+            sms: `Dr. ${candidate.last_name} - Locums ${candidate.specialty} in ${job.city}: ${rates.hourly}/hr, ${callText}. ${job.facility_name}, ${facilityText}. ${licenseHook} 15 min?`, 
             style: 'location_first' 
           },
           { 
-            sms: `Dr. ${candidate.last_name} - ${job.facility_name} (${location}): ${rates.hourly}/hr ${candidate.specialty} locums, ${clinical.callStatus}. ${licenseHook} Quick call on clinical fit?`, 
+            sms: `Dr. ${candidate.last_name} - ${job.facility_name} (${location}): ${rates.hourly}/hr ${candidate.specialty} locums, ${callText}. ${licenseHook} Quick call on clinical fit?`, 
             style: 'facility_focus' 
           },
           { 
-            sms: `Dr. ${candidate.last_name} - ${location} ${candidate.specialty} locums: ${rates.hourly}/hr at ${job.facility_name}. ${clinical.callStatus}, ${clinical.schedule}. Worth 15 min to discuss?`, 
+            sms: `Dr. ${candidate.last_name} - ${location} ${candidate.specialty} locums: ${rates.hourly}/hr at ${job.facility_name}. ${callText}, ${scheduleText}. Worth 15 min to discuss?`, 
             style: 'metro_focus' 
           }
         ],
         board_eligible: [
           { 
-            sms: `Dr. ${candidate.last_name} - Board Eligible accepted: ${rates.hourly}/hr ${candidate.specialty} locums at ${job.facility_name}. ${clinical.callStatus}, ${location}. Start earning now. 15 min?`, 
+            sms: `Dr. ${candidate.last_name} - Board Eligible accepted: ${rates.hourly}/hr ${candidate.specialty} locums at ${job.facility_name}. ${callText}, ${location}. Start earning now. 15 min?`, 
             style: 'be_accepted' 
           },
           { 
-            sms: `Dr. ${candidate.last_name} - Recent fellowship? ${job.facility_name} takes Board Eligible: ${rates.hourly}/hr, ${clinical.callStatus}. ${location}. Earn while prepping boards. Quick call?`, 
+            sms: `Dr. ${candidate.last_name} - Recent fellowship? ${job.facility_name} takes Board Eligible: ${rates.hourly}/hr, ${callText}. ${location}. Earn while prepping boards. Quick call?`, 
             style: 'new_grad' 
           },
           { 
-            sms: `Dr. ${candidate.last_name} - Don't wait for boards: ${rates.hourly}/hr ${candidate.specialty} locums at ${job.facility_name}. BE within 5 years OK. ${clinical.callStatus}. 15 min?`, 
+            sms: `Dr. ${candidate.last_name} - Don't wait for boards: ${rates.hourly}/hr ${candidate.specialty} locums at ${job.facility_name}. BE within 5 years OK. ${callText}. 15 min?`, 
             style: 'immediate_start' 
           }
         ]
