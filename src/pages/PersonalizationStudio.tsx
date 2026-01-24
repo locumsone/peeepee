@@ -441,12 +441,14 @@ export default function PersonalizationStudio() {
             toast.success(`Playbook loaded (${data.content.length.toLocaleString()} chars)`);
             await savePlaybookToCampaign(playbook.id, playbook.title, data.content);
           } else {
-            throw new Error("Edge function didn't return content");
+            throw new Error(data?.error || "Edge function didn't return content");
           }
-        } catch (fetchError) {
-          // Fallback: Prompt user to paste content or use agent to fetch
-          toast.info("Could not auto-fetch. Paste your playbook content below, or ask: 'Load playbook from Notion page " + playbook.id + "'");
-          setPlaybookContent(`# ${playbook.title}\n\n[Paste your playbook content here]\n\nOR ask the agent: "Load playbook from Notion page ${playbook.id}"`);
+        } catch (fetchError: any) {
+          // Edge function failed (likely 404 - page not shared with integration)
+          // Show helpful guidance with the page ID for the agent to fetch via MCP
+          console.log("Edge function failed, using fallback:", fetchError);
+          toast.info(`Playbook selected! Say: "Load playbook ${playbook.id}" and I'll fetch it via Notion.`);
+          setPlaybookContent(`# ${playbook.title}\n\n**The Notion API key doesn't have access to this page.**\n\nTo load this playbook, ask the agent:\n> "Load playbook from Notion page ${playbook.id}"\n\nThe agent has MCP access to Notion and can fetch it for you.`);
         }
       }
     } catch (error) {
