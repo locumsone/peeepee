@@ -86,12 +86,28 @@ interface NotionPlaybook {
   fullContent?: string; // Full Notion page content when fetched
 }
 
+interface PlaybookCache {
+  notion_id: string;
+  title: string;
+  content: string;
+  extracted_rates: {
+    hourly?: string;
+    daily?: string;
+    weekly?: string;
+    annual?: string;
+    call_status?: string;
+    procedures?: string;
+  };
+  synced_at: string;
+}
+
 export default function PersonalizationStudio() {
   const navigate = useNavigate();
   
   const [jobId, setJobId] = useState<string | null>(null);
   const [job, setJob] = useState<Job | null>(null);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [campaignId, setCampaignId] = useState<string | null>(null);
   
   // Playbook state
   const [playbookSearch, setPlaybookSearch] = useState("");
@@ -100,6 +116,8 @@ export default function PersonalizationStudio() {
   const [selectedPlaybook, setSelectedPlaybook] = useState<NotionPlaybook | null>(null);
   const [playbookContent, setPlaybookContent] = useState<string>("");
   const [isLoadingPlaybook, setIsLoadingPlaybook] = useState(false);
+  const [cachedPlaybook, setCachedPlaybook] = useState<PlaybookCache | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
   
   // Generation state
   const [isGenerating, setIsGenerating] = useState(false);
@@ -128,6 +146,7 @@ export default function PersonalizationStudio() {
     const storedJobId = sessionStorage.getItem("campaign_job_id");
     const storedCandidates = sessionStorage.getItem("campaign_candidates") || sessionStorage.getItem("selectedCandidates");
     const storedJob = sessionStorage.getItem("campaign_job");
+    const storedCampaignId = sessionStorage.getItem("campaign_id");
     
     if (!storedJobId || !storedCandidates) {
       toast.error("Missing campaign data");
@@ -136,6 +155,7 @@ export default function PersonalizationStudio() {
     }
     
     setJobId(storedJobId);
+    if (storedCampaignId) setCampaignId(storedCampaignId);
     
     try {
       const parsed = JSON.parse(storedCandidates);
@@ -153,21 +173,125 @@ export default function PersonalizationStudio() {
       }
     }
     
-    // Fetch fresh job data
-    const fetchJob = async () => {
-      const { data } = await supabase
+    // Fetch fresh job data and campaign playbook
+    const fetchData = async () => {
+      // Get job
+      const { data: jobData } = await supabase
         .from("jobs")
         .select("*")
         .eq("id", storedJobId)
         .single();
       
-      if (data) {
-        setJob(data);
-        sessionStorage.setItem("campaign_job", JSON.stringify(data));
+      if (jobData) {
+        setJob(jobData);
+        sessionStorage.setItem("campaign_job", JSON.stringify(jobData));
+      }
+      
+      // Check for existing campaign with cached playbook
+      if (storedCampaignId) {
+        const { data: campaignData } = await supabase
+          .from("campaigns")
+          .select("playbook_data, playbook_notion_id, playbook_synced_at")
+          .eq("id", storedCampaignId)
+          .maybeSingle();
+        
+        if (campaignData?.playbook_data) {
+          const cached = campaignData.playbook_data as unknown as PlaybookCache;
+          setCachedPlaybook(cached);
+          setPlaybookContent(cached.content);
+          setSelectedPlaybook({
+            id: cached.notion_id,
+            title: cached.title,
+            url: `https://notion.so/${cached.notion_id}`,
+          });
+          toast.success(`Loaded cached playbook: ${cached.title}`);
+          console.log("=== CACHED PLAYBOOK LOADED ===");
+          console.log("Synced at:", cached.synced_at);
+          console.log("Extracted rates:", cached.extracted_rates);
+        }
       }
     };
-    fetchJob();
+    fetchData();
   }, [navigate]);
+  
+  // Extract rates from playbook content
+  const extractRatesFromContent = (content: string) => {
+    const hourlyMatch = content.match(/\$(\d{2,4})(?:\.00)?(?:\s*)?(?:\/\s*hour|\/hour|\/hr|per hour)/i)
+      || content.match(/Hourly Rate:\*?\*?\s*\$(\d{2,4})/i);
+    const dailyMatch = content.match(/Daily (?:Rate|Earnings):\*?\*?\s*\$([\d,]+)/i)
+      || content.match(/\$([\d,]+)(?:\s*)?(?:\/\s*day|\/day|per day)/i);
+    const weeklyMatch = content.match(/Weekly (?:Rate|Earnings):\*?\*?\s*\$([\d,]+)/i)
+      || content.match(/\$([\d,]+)(?:\s*)?(?:\/\s*week|\/week|per week)/i);
+    const annualMatch = content.match(/Annual Potential:\*?\*?\s*\$([\d,]+)/i)
+      || content.match(/\$([\d,]+,000)\s*(?:annual|annually|per year)/i);
+    const callMatch = content.match(/On-Call:\*?\*?\s*(NO|None|Zero|YES)/i)
+      || content.match(/(Zero call|NO CALL|no on-?call)/i);
+    const proceduresMatch = content.match(/(?:Procedures?|Scope|Case Types?).*?:([\s\S]*?)(?=\n\*\*|\n##|$)/i);
+
+    return {
+      hourly: hourlyMatch ? hourlyMatch[1] : undefined,
+      daily: dailyMatch ? dailyMatch[1].replace(',', '') : undefined,
+      weekly: weeklyMatch ? weeklyMatch[1].replace(',', '') : undefined,
+      annual: annualMatch ? annualMatch[1] : undefined,
+      call_status: callMatch ? callMatch[0] : undefined,
+      procedures: proceduresMatch ? proceduresMatch[1].trim().substring(0, 200) : undefined,
+    };
+  };
+  
+  // Save playbook to campaign
+  const savePlaybookToCampaign = async (notionId: string, title: string, content: string) => {
+    if (!campaignId) {
+      console.log("No campaign ID - playbook will only be stored in session");
+      return;
+    }
+    
+    const extractedRates = extractRatesFromContent(content);
+    
+    const playbookData: PlaybookCache = {
+      notion_id: notionId,
+      title,
+      content,
+      extracted_rates: extractedRates,
+      synced_at: new Date().toISOString(),
+    };
+    
+    const { error } = await supabase
+      .from("campaigns")
+      .update({
+        playbook_data: JSON.parse(JSON.stringify(playbookData)),
+        playbook_notion_id: notionId,
+        playbook_synced_at: new Date().toISOString(),
+      })
+      .eq("id", campaignId);
+    
+    if (error) {
+      console.error("Failed to save playbook to campaign:", error);
+      toast.error("Failed to cache playbook");
+    } else {
+      setCachedPlaybook(playbookData);
+      toast.success(`Playbook cached with $${extractedRates.hourly}/hr rate`);
+      console.log("=== PLAYBOOK SAVED TO CAMPAIGN ===");
+      console.log("Campaign ID:", campaignId);
+      console.log("Extracted rates:", extractedRates);
+    }
+  };
+  
+  // Sync playbook from Notion (refresh cache)
+  const handleSyncPlaybook = async () => {
+    if (!cachedPlaybook?.notion_id) {
+      toast.error("No playbook to sync - select one first");
+      return;
+    }
+    
+    setIsSyncing(true);
+    toast.info("Syncing playbook from Notion... Ask the agent to fetch page: " + cachedPlaybook.notion_id);
+    
+    // The actual sync happens when agent calls setNotionPlaybookContent
+    // This just shows the UI state
+    setTimeout(() => {
+      setIsSyncing(false);
+    }, 2000);
+  };
   
   // Search Notion for playbooks using MCP
   const handleSearchNotionPlaybooks = async () => {
@@ -231,6 +355,9 @@ export default function PersonalizationStudio() {
         } else {
           console.warn("⚠️ No hourly rate found in playbook content - extraction may fail");
         }
+        
+        // Save to campaign cache
+        await savePlaybookToCampaign(playbook.id, playbook.title, playbook.fullContent);
       } else {
         // Fallback: Prompt user to paste content or use agent to fetch
         toast.info("Playbook selected. Ask the agent to fetch full content from Notion, or paste content below.");
@@ -246,13 +373,14 @@ export default function PersonalizationStudio() {
   
   // Function to receive full Notion content from agent
   // This is called when the agent fetches the playbook via MCP
-  const setNotionPlaybookContent = (content: string, playbookId?: string) => {
+  const setNotionPlaybookContent = async (content: string, playbookId?: string) => {
     if (!content || content.length < 100) {
       toast.error("Playbook content too short - ensure full document is fetched");
       return;
     }
     
     setPlaybookContent(content);
+    setIsSyncing(false);
     
     // Log for validation
     console.log("=== NOTION PLAYBOOK RECEIVED ===");
@@ -275,6 +403,14 @@ export default function PersonalizationStudio() {
       toast.success(`Playbook loaded with $${hourlyMatch[1]}/hr rate`);
     } else {
       toast.warning("Playbook loaded but hourly rate not detected - verify content");
+    }
+    
+    // Save to campaign cache
+    const notionId = playbookId || selectedPlaybook?.id || cachedPlaybook?.notion_id;
+    const title = selectedPlaybook?.title || cachedPlaybook?.title || "Recruitment Playbook";
+    
+    if (notionId) {
+      await savePlaybookToCampaign(notionId, title, content);
     }
   };
   
@@ -509,6 +645,48 @@ Locums One`;
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                  {/* Cached Playbook Banner */}
+                  {cachedPlaybook && (
+                    <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/20">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <CheckCircle2 className="h-4 w-4 text-green-600" />
+                          <span className="text-sm font-medium text-green-700">Cached Playbook</span>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="h-7 text-xs"
+                          onClick={handleSyncPlaybook}
+                          disabled={isSyncing}
+                        >
+                          {isSyncing ? (
+                            <RefreshCw className="h-3 w-3 mr-1 animate-spin" />
+                          ) : (
+                            <RefreshCw className="h-3 w-3 mr-1" />
+                          )}
+                          Sync
+                        </Button>
+                      </div>
+                      <p className="text-xs text-green-700 mt-1">{cachedPlaybook.title}</p>
+                      <div className="flex items-center gap-2 mt-2 text-xs text-green-600">
+                        {cachedPlaybook.extracted_rates.hourly && (
+                          <Badge variant="outline" className="text-green-600 border-green-500/30 text-xs">
+                            ${cachedPlaybook.extracted_rates.hourly}/hr
+                          </Badge>
+                        )}
+                        {cachedPlaybook.extracted_rates.call_status && (
+                          <Badge variant="outline" className="text-green-600 border-green-500/30 text-xs">
+                            {cachedPlaybook.extracted_rates.call_status}
+                          </Badge>
+                        )}
+                        <span className="text-muted-foreground">
+                          Synced {new Date(cachedPlaybook.synced_at).toLocaleDateString()}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                  
                   {/* Notion Search */}
                   <div className="space-y-2">
                     <Label className="text-xs">Search Notion Playbooks</Label>

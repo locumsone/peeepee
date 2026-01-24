@@ -968,6 +968,9 @@ export type Database = {
           job_id: string | null
           leads_count: number | null
           name: string | null
+          playbook_data: Json | null
+          playbook_notion_id: string | null
+          playbook_synced_at: string | null
           sender_account: string | null
           status: string | null
         }
@@ -980,6 +983,9 @@ export type Database = {
           job_id?: string | null
           leads_count?: number | null
           name?: string | null
+          playbook_data?: Json | null
+          playbook_notion_id?: string | null
+          playbook_synced_at?: string | null
           sender_account?: string | null
           status?: string | null
         }
@@ -992,6 +998,9 @@ export type Database = {
           job_id?: string | null
           leads_count?: number | null
           name?: string | null
+          playbook_data?: Json | null
+          playbook_notion_id?: string | null
+          playbook_synced_at?: string | null
           sender_account?: string | null
           status?: string | null
         }
