@@ -334,46 +334,54 @@ export default function PersonalizationStudio() {
     }
   };
   
-  // Search Notion for playbooks using MCP
+  // Search Notion for playbooks using MCP - stores search term for agent to use
   const handleSearchNotionPlaybooks = async () => {
-    const searchTerm = playbookSearch.trim() || `${job?.specialty || 'physician'} playbook`;
+    const searchTerm = playbookSearch.trim();
+    
+    if (!searchTerm) {
+      toast.error("Enter a playbook name to search (e.g., 'Lakewood', 'IR', 'GI')");
+      return;
+    }
     
     setIsSearchingPlaybooks(true);
+    setNotionPlaybooks([]); // Clear previous results
     
-    try {
-      // The Notion MCP connector is available - it will search the user's workspace
-      // For now, we'll provide guidance since MCP tools are agent-side
-      toast.info("Searching Notion for playbooks matching: " + searchTerm);
-      
-      // Simulate MCP search - in production the agent uses notion-search tool
-      // and returns results which we'd display here
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
-      // Example results that would come from MCP notion-search
-      const mockResults: NotionPlaybook[] = [
-        {
-          id: "playbook-gi",
-          title: `${job?.specialty || 'Physician'} - ${job?.facility_name || 'Facility'} InMail Playbook`,
-          url: "https://notion.so/workspace/playbook",
-          summary: "110 personalized templates with tier-based messaging and compensation breakdowns"
-        },
-        {
-          id: "playbook-general", 
-          title: "Locums One Master Outreach Playbook",
-          url: "https://notion.so/workspace/master-playbook",
-          summary: "Universal hooks, objection handling, and value propositions"
-        }
-      ];
-      
-      setNotionPlaybooks(mockResults);
-      toast.success(`Found ${mockResults.length} playbooks. Select one to load templates.`);
-    } catch (error) {
-      console.error("Notion search error:", error);
-      toast.error("Failed to search Notion. Try pasting content directly.");
-    } finally {
-      setIsSearchingPlaybooks(false);
+    // Store search term for agent to use with Notion MCP
+    sessionStorage.setItem("notion_playbook_search", searchTerm);
+    
+    toast.info(`Search for "${searchTerm}" in Notion - use the agent to fetch playbooks`);
+    toast.info("Tell the agent: 'Search Notion for " + searchTerm + " playbook and load it'", { duration: 5000 });
+    
+    // The agent should use notion-search MCP tool and call setNotionSearchResults
+    setIsSearchingPlaybooks(false);
+  };
+  
+  // Function to receive search results from agent's Notion MCP search
+  const setNotionSearchResults = (results: { id: string; title: string; url?: string; summary?: string }[]) => {
+    const playbooks: NotionPlaybook[] = results.map(r => ({
+      id: r.id,
+      title: r.title,
+      url: r.url || `https://notion.so/${r.id.replace(/-/g, '')}`,
+      summary: r.summary,
+    }));
+    
+    setNotionPlaybooks(playbooks);
+    setIsSearchingPlaybooks(false);
+    
+    if (playbooks.length > 0) {
+      toast.success(`Found ${playbooks.length} playbooks. Select one to load.`);
+    } else {
+      toast.warning("No playbooks found for that search term");
     }
   };
+  
+  // Expose for agent to call
+  useEffect(() => {
+    (window as any).setNotionSearchResults = setNotionSearchResults;
+    return () => {
+      delete (window as any).setNotionSearchResults;
+    };
+  }, []);
   
   // Load selected playbook content - now expects REAL Notion content
   // The full playbook content should be passed from the Notion MCP fetch
