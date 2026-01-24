@@ -6,8 +6,73 @@ const corsHeaders = {
 };
 
 interface FetchRequest {
-  page_id: string;
+  page_id?: string;
   campaign_id?: string;
+  search_query?: string; // NEW: Search mode
+}
+
+interface NotionSearchResult {
+  id: string;
+  title: string;
+  url: string;
+  parent_type?: string;
+}
+
+// Search Notion for playbooks
+async function searchNotionPlaybooks(query: string): Promise<NotionSearchResult[]> {
+  const notionApiKey = Deno.env.get("NOTION_API_KEY");
+  
+  if (!notionApiKey) {
+    throw new Error("NOTION_API_KEY not configured");
+  }
+  
+  try {
+    const response = await fetch("https://api.notion.com/v1/search", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${notionApiKey}`,
+        "Notion-Version": "2022-06-28",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        query: query,
+        filter: { property: "object", value: "page" },
+        page_size: 10,
+      }),
+    });
+    
+    if (!response.ok) {
+      const error = await response.text();
+      console.error("Notion search error:", error);
+      throw new Error(`Notion search failed: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    // Extract results
+    const results: NotionSearchResult[] = [];
+    for (const page of data.results || []) {
+      // Get title from properties
+      let title = "Untitled";
+      const titleProp = page.properties?.title || page.properties?.Name;
+      if (titleProp?.title?.[0]?.plain_text) {
+        title = titleProp.title[0].plain_text;
+      }
+      
+      results.push({
+        id: page.id,
+        title: title,
+        url: page.url || `https://notion.so/${page.id.replace(/-/g, '')}`,
+        parent_type: page.parent?.type,
+      });
+    }
+    
+    console.log(`Found ${results.length} playbooks for query "${query}"`);
+    return results;
+  } catch (error) {
+    console.error("Notion search failed:", error);
+    throw error;
+  }
 }
 
 // Notion API to fetch page content
@@ -16,7 +81,6 @@ async function fetchNotionPage(pageId: string): Promise<string> {
   
   if (!notionApiKey) {
     console.warn("NOTION_API_KEY not set - using fallback method");
-    // Return empty to signal we can't fetch directly
     return "";
   }
   
@@ -122,10 +186,28 @@ Deno.serve(async (req) => {
       global: { headers: { Authorization: authHeader } },
     });
 
-    const { page_id, campaign_id }: FetchRequest = await req.json();
+    const { page_id, campaign_id, search_query }: FetchRequest = await req.json();
     
+    // MODE 1: Search for playbooks
+    if (search_query) {
+      console.log("=== SEARCHING NOTION PLAYBOOKS ===");
+      console.log("Query:", search_query);
+      
+      const results = await searchNotionPlaybooks(search_query);
+      
+      return new Response(
+        JSON.stringify({ 
+          results,
+          query: search_query,
+          count: results.length,
+        }),
+        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+    
+    // MODE 2: Fetch specific page
     if (!page_id) {
-      throw new Error("page_id is required");
+      throw new Error("Either page_id or search_query is required");
     }
     
     console.log("=== FETCHING NOTION PLAYBOOK ===");
