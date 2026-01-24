@@ -75,7 +75,44 @@ async function searchNotionPlaybooks(query: string): Promise<NotionSearchResult[
   }
 }
 
-// Notion API to fetch page content
+// Fetch all blocks with pagination (Notion limits to 100 per request)
+async function fetchAllBlocks(blockId: string, notionApiKey: string): Promise<any[]> {
+  const allBlocks: any[] = [];
+  let cursor: string | undefined = undefined;
+  let hasMore = true;
+  
+  while (hasMore) {
+    const requestUrl: string = cursor 
+      ? `https://api.notion.com/v1/blocks/${blockId}/children?page_size=100&start_cursor=${cursor}`
+      : `https://api.notion.com/v1/blocks/${blockId}/children?page_size=100`;
+    
+    const res: Response = await fetch(requestUrl, {
+      headers: {
+        "Authorization": `Bearer ${notionApiKey}`,
+        "Notion-Version": "2022-06-28",
+        "Content-Type": "application/json",
+      },
+    });
+    
+    if (!res.ok) {
+      const errorText = await res.text();
+      console.error("Notion API error:", errorText);
+      throw new Error(`Notion API error: ${res.status}`);
+    }
+    
+    const json: { results?: any[]; has_more?: boolean; next_cursor?: string | null } = await res.json();
+    allBlocks.push(...(json.results || []));
+    
+    hasMore = json.has_more === true;
+    cursor = json.next_cursor || undefined;
+    
+    console.log(`Fetched ${json.results?.length || 0} blocks, has_more: ${hasMore}`);
+  }
+  
+  return allBlocks;
+}
+
+// Notion API to fetch page content with full pagination
 async function fetchNotionPage(pageId: string): Promise<string> {
   const notionApiKey = Deno.env.get("NOTION_API_KEY");
   
@@ -88,30 +125,26 @@ async function fetchNotionPage(pageId: string): Promise<string> {
   const cleanPageId = pageId.replace(/-/g, "");
   
   try {
-    // Fetch page blocks from Notion API
-    const response = await fetch(
-      `https://api.notion.com/v1/blocks/${cleanPageId}/children?page_size=100`,
-      {
-        headers: {
-          "Authorization": `Bearer ${notionApiKey}`,
-          "Notion-Version": "2022-06-28",
-          "Content-Type": "application/json",
-        },
-      }
-    );
+    // Fetch ALL blocks with pagination
+    const allBlocks = await fetchAllBlocks(cleanPageId, notionApiKey);
+    console.log(`Total blocks fetched: ${allBlocks.length}`);
     
-    if (!response.ok) {
-      const error = await response.text();
-      console.error("Notion API error:", error);
-      throw new Error(`Notion API error: ${response.status}`);
-    }
-    
-    const data = await response.json();
-    
-    // Extract text content from blocks
+    // Extract text content from all blocks
     let content = "";
-    for (const block of data.results || []) {
+    for (const block of allBlocks) {
       content += extractBlockText(block) + "\n";
+      
+      // If block has children, fetch them recursively
+      if (block.has_children) {
+        try {
+          const childBlocks = await fetchAllBlocks(block.id, notionApiKey);
+          for (const childBlock of childBlocks) {
+            content += "  " + extractBlockText(childBlock) + "\n";
+          }
+        } catch (e) {
+          console.warn(`Failed to fetch children for block ${block.id}:`, e);
+        }
+      }
     }
     
     return content;
