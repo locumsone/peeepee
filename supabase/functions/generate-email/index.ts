@@ -15,20 +15,24 @@ interface EmailRequest {
   playbook_content?: string; // Notion playbook reference
 }
 
-// Sherlock Meowmes personality for AI-generated content
-const SHERLOCK_MEOWMES_PERSONA = `You are "Sherlock Meowmes" 🔮 - an elite recruitment intelligence agent who uncovers hidden connections and crafts irresistibly personalized outreach.
+// Professional email generation persona
+const EMAIL_PERSONA = `You are a senior healthcare recruitment specialist crafting personalized outreach emails.
 
-YOUR PERSONALITY:
-- Clever and perceptive - you notice details others miss
-- Witty but professional - your emails are memorable, not goofy
-- Data-driven sleuth - you back up claims with specific numbers
-- Master of positioning - you frame opportunities as uniquely perfect for THIS candidate
+YOUR STYLE:
+- Professional, warm, and direct
+- Lead with specific insights about the candidate's background
+- Highlight concrete value propositions (compensation, schedule, location fit)
+- Reference specific professional details (fellowship, hospital affiliations, licenses)
+- Include precise compensation figures
+- Sound like an experienced recruiter, not a marketing bot
 
-YOUR SIGNATURE MOVES:
-- Open with a surprising insight about their background (fellowship, publications, unique experience)
-- Connect dots between their career and the opportunity in unexpected ways
-- Use specific numbers to build credibility (exact rates, RVUs, license counts)
-- End with a soft but intriguing CTA that invites conversation`;
+FORBIDDEN:
+- Emojis of any kind
+- Section headers with emojis or quirky labels like "Intelligence Brief"
+- Overly casual language or persona signatures
+- Generic greetings like "Hope this finds you well"
+- Buzzwords like "synergy", "leverage", "circle back"
+- Salesy pressure tactics`;
 
 const EMAIL_PLAYBOOKS = {
   fellowship: `Generate a DETAILED email for an IR FELLOWSHIP-TRAINED RADIOLOGIST. Include:
@@ -138,6 +142,9 @@ Deno.serve(async (req) => {
       .eq('id', job_id)
       .single();
 
+    // Use pay_rate for candidate-facing communications (not bill_rate)
+    const payRate = job.pay_rate || (job.bill_rate ? job.bill_rate * 0.73 : 0);
+
     if (jobError || !job) {
       throw new Error(`Job not found: ${jobError?.message}`);
     }
@@ -161,14 +168,14 @@ Deno.serve(async (req) => {
     const hasJobStateLicense = job.state && candidate.licenses?.includes(job.state);
     const hasIMLCLicense = research?.has_imlc || false;
 
-    // Calculate compensation details
-    const hourlyRate = job.bill_rate || 0;
+    // Calculate compensation details using PAY RATE (what candidate earns)
+    const hourlyRate = payRate;
     const dailyRate = hourlyRate * 9;
     const weeklyRate = dailyRate * 5;
     const annualPotential = weeklyRate * 52;
 
-    // Build the system prompt with Sherlock Meowmes persona
-    const systemPrompt = `${SHERLOCK_MEOWMES_PERSONA}
+    // Build the system prompt with professional persona
+    const systemPrompt = `${EMAIL_PERSONA}
 
 You are creating personalized emails for physician locums opportunities. Your emails are detailed, compelling, and data-driven.
 
@@ -188,11 +195,11 @@ ${playbook_content.substring(0, 3000)}
 ---
 ` : ''}
 
-CANDIDATE PROFILE (🔮 Your Intelligence):
+CANDIDATE PROFILE:
 - Name: Dr. ${candidate.first_name} ${candidate.last_name}
 - Specialty: ${candidate.specialty}
 - Location: ${candidate.city || 'Unknown'}, ${candidate.state || 'Unknown'}
-- Licenses: ${licenseCount} states${hasJobStateLicense ? ` (includes ${job.state} ✓)` : ''}${hasIMLCLicense ? ' (IMLC ✓)' : ''}
+- Licenses: ${licenseCount} states${hasJobStateLicense ? ` (includes ${job.state})` : ''}${hasIMLCLicense ? ' (IMLC eligible)' : ''}
 - Experience: ${candidate.years_of_experience ? `${candidate.years_of_experience} years` : 'Experienced'}
 - Board Certified: ${candidate.board_certified ? 'Yes' : 'Unknown'}
 ${research?.credentials_summary ? `- Credentials: ${research.credentials_summary}` : ''}
@@ -218,7 +225,7 @@ ${jobMatch?.talking_points?.length ? `- Talking Points: ${jobMatch.talking_point
 ${hook ? `- Personalization Hook: ${hook}` : ''}
 
 LICENSE ADVANTAGE:
-${hasJobStateLicense ? `✓ Already licensed in ${job.state} - priority credentialing available` : hasIMLCLicense ? '✓ IMLC license - expedited Texas licensing available' : `○ May need ${job.state} license (90-day credentialing standard)`}`;
+${hasJobStateLicense ? `Already licensed in ${job.state} - priority credentialing available` : hasIMLCLicense ? 'IMLC license - expedited Texas licensing available' : `May need ${job.state} license (90-day credentialing standard)`}`;
 
     const playbook = EMAIL_PLAYBOOKS[template_type] || EMAIL_PLAYBOOKS.initial;
     const userPrompt = `${playbook}
