@@ -62,6 +62,7 @@ NEVER DO:
 - Exceed 300 characters`;
 
 // Extract playbook rates - DYNAMIC extraction, NO hardcoded defaults
+// Enhanced patterns to match Notion markdown format
 function extractPlaybookRates(playbookContent: string): {
   hourly: string | null;
   daily: string | null;
@@ -74,36 +75,59 @@ function extractPlaybookRates(playbookContent: string): {
     return { hourly: null, daily: null, weekly: null, annual: null, extracted: false };
   }
 
-  // Multiple patterns for each rate type - cast wide net
+  console.log("PLAYBOOK CONTENT LENGTH:", playbookContent.length);
+  console.log("PLAYBOOK SAMPLE (first 1000 chars):", playbookContent.substring(0, 1000));
+
+  // Multiple patterns for each rate type - ordered by specificity
+  // Notion markdown uses **Bold** format
   const hourlyPatterns = [
-    /\*\*Hourly\*\*[:\s]*\$?([\d,]+)/i,
-    /Hourly\s*(?:Rate)?[:\s]*\$?([\d,]+)/i,
-    /\$([\d,]+)\s*(?:\/\s*)?(?:per\s*)?(?:hour|hr)/i,
-    /pay\s*rate[:\s]*\$?([\d,]+)/i,
+    // Notion markdown patterns: **Hourly Rate:** $500/hour
+    /\*\*Hourly Rate:\*\*\s*\$(\d{2,4})(?:\/hour)?/i,
+    /\*\*Hourly:\*\*\s*\$(\d{2,4})/i,
+    // Plain text patterns
+    /Hourly Rate:\s*\$(\d{2,4})/i,
+    /Hourly:\s*\$(\d{2,4})/i,
+    // Inline patterns: $500/hour, $500/hr, $500 per hour
+    /\$(\d{2,4})\/hour/i,
+    /\$(\d{2,4})\/hr/i,
+    /\$(\d{2,4})\s+per\s+hour/i,
+    // Generic fallback
+    /pay\s*rate[:\s]*\$?(\d{2,4})/i,
   ];
   
   const dailyPatterns = [
-    /\*\*Daily\*\*[:\s]*\$?([\d,]+)/i,
-    /Daily\s*(?:Rate|Earnings)?[:\s]*\$?([\d,]+)/i,
-    /\$([\d,]+)\s*(?:\/\s*)?(?:per\s*)?day/i,
+    /\*\*Daily Earnings:\*\*\s*\$([\d,]+)/i,
+    /\*\*Daily:\*\*\s*\$([\d,]+)/i,
+    /Daily Earnings:\s*\$([\d,]+)/i,
+    /Daily Rate:\s*\$([\d,]+)/i,
+    /\$([\d,]+)\/day/i,
+    /\$([\d,]+)\s+per\s+day/i,
   ];
   
   const weeklyPatterns = [
-    /\*\*Weekly\*\*[:\s]*\$?([\d,]+)/i,
-    /Weekly\s*(?:Rate|Earnings)?[:\s]*\$?([\d,]+)/i,
-    /\$([\d,]+)\s*(?:\/\s*)?(?:per\s*)?week/i,
+    /\*\*Weekly Earnings:\*\*\s*\$([\d,]+)/i,
+    /\*\*Weekly:\*\*\s*\$([\d,]+)/i,
+    /Weekly Earnings:\s*\$([\d,]+)/i,
+    /Weekly Rate:\s*\$([\d,]+)/i,
+    /\$([\d,]+)\/week/i,
+    /\$([\d,]+)\s+per\s+week/i,
   ];
   
   const annualPatterns = [
-    /\*\*Annual\*\*[:\s]*\$?([\d,]+(?:,\d+)*)/i,
-    /Annual\s*(?:Potential|Earnings)?[:\s]*\$?([\d,]+(?:,\d+)*)/i,
-    /\$([\d,.]+)\s*(?:M|million)?\s*(?:\/\s*)?(?:per\s*)?(?:year|annually)/i,
+    /\*\*Annual Potential:\*\*\s*\$([\d,]+)/i,
+    /\*\*Annual:\*\*\s*\$([\d,]+)/i,
+    /Annual Potential:\s*\$([\d,]+)/i,
+    /Annual Earnings:\s*\$([\d,]+)/i,
+    /\$([\d,]+(?:,\d{3})*)\s+(?:annual|annually|per\s+year)/i,
   ];
 
   const findMatch = (patterns: RegExp[]): string | null => {
     for (const pattern of patterns) {
       const match = playbookContent.match(pattern);
-      if (match) return match[1].replace(/,/g, '');
+      if (match) {
+        console.log(`RATE PATTERN MATCHED: ${pattern} -> ${match[1]}`);
+        return match[1].replace(/,/g, '');
+      }
     }
     return null;
   };
@@ -117,7 +141,6 @@ function extractPlaybookRates(playbookContent: string): {
     if (!raw) return null;
     const num = parseInt(raw, 10);
     if (isNaN(num)) return null;
-    // Format with commas for readability
     return `$${num.toLocaleString('en-US')}`;
   };
 
@@ -126,10 +149,16 @@ function extractPlaybookRates(playbookContent: string): {
     daily: formatRate(dailyRaw),
     weekly: formatRate(weeklyRaw),
     annual: formatRate(annualRaw),
-    extracted: hourlyRaw !== null, // At minimum need hourly rate
+    extracted: hourlyRaw !== null,
   };
 
-  console.log("PLAYBOOK RATES EXTRACTED:", result);
+  console.log("=== PLAYBOOK RATES EXTRACTED ===");
+  console.log("Hourly:", result.hourly || "NOT FOUND");
+  console.log("Daily:", result.daily || "NOT FOUND");
+  console.log("Weekly:", result.weekly || "NOT FOUND");
+  console.log("Annual:", result.annual || "NOT FOUND");
+  console.log("Extraction success:", result.extracted);
+  
   return result;
 }
 
