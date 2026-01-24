@@ -48,84 +48,199 @@ FORBIDDEN:
 - Headers with emojis or "Intelligence Brief"
 - Bill rate (only show pay rate to candidates)`;
 
-// Extract playbook rates from content - USE EXACT VALUES, NEVER CALCULATE
+// Extract playbook rates - DYNAMIC extraction, NO hardcoded defaults
 function extractPlaybookRates(playbookContent: string): {
-  hourly: string;
-  daily: string;
-  weekly: string;
-  annual: string;
+  hourly: string | null;
+  daily: string | null;
+  weekly: string | null;
+  annual: string | null;
+  extracted: boolean;
 } {
-  const defaults = {
-    hourly: "$500",
-    daily: "$4,500",
-    weekly: "$22,500",
-    annual: "$1,170,000"
-  };
-
-  if (!playbookContent) return defaults;
-
-  // Extract exact rates from playbook - look for the CORRECT rates section
-  const hourlyMatch = playbookContent.match(/\*\*Hourly\*\*[:\s]*\*?\*?\$?([\d,]+)/i) ||
-                      playbookContent.match(/Hourly[:\s]*\$?([\d,]+)(?:\/hour)?/i);
-  const dailyMatch = playbookContent.match(/\*\*Daily\*\*[:\s]*\*?\*?\$?([\d,]+)/i) ||
-                     playbookContent.match(/Daily[:\s]*\$?([\d,]+)/i);
-  const weeklyMatch = playbookContent.match(/\*\*Weekly\*\*[:\s]*\*?\*?\$?([\d,]+)/i) ||
-                      playbookContent.match(/Weekly[:\s]*\$?([\d,]+)/i);
-  const annualMatch = playbookContent.match(/\*\*Annual\*\*[:\s]*\*?\*?\$?([\d,]+(?:,\d+)*)/i) ||
-                      playbookContent.match(/Annual[:\s]*\$?([\d,]+(?:,\d+)*)/i);
-
-  return {
-    hourly: hourlyMatch ? `$${hourlyMatch[1].replace(/,/g, '')}` : defaults.hourly,
-    daily: dailyMatch ? `$${dailyMatch[1]}` : defaults.daily,
-    weekly: weeklyMatch ? `$${weeklyMatch[1]}` : defaults.weekly,
-    annual: annualMatch ? `$${annualMatch[1]}` : defaults.annual
-  };
-}
-
-// Extract clinical details from playbook
-function extractClinicalDetails(playbookContent: string): {
-  procedures: string;
-  callStatus: string;
-  schedule: string;
-  rvus: string;
-  facilityType: string;
-  credentialingDays: string;
-  techStack: string;
-} {
-  const defaults = {
-    procedures: "CT/US biopsies, drains, ports, PICC lines, nephrostomy tubes, abscess drainage",
-    callStatus: "Zero call",
-    schedule: "M-F 8am-5pm",
-    rvus: "~50 RVUs/shift",
-    facilityType: "Non-trauma center",
-    credentialingDays: "40 days",
-    techStack: "PowerScribe 4.0"
-  };
-
-  if (!playbookContent) return defaults;
-
-  // Extract call status
-  let callStatus = defaults.callStatus;
-  if (playbookContent.toLowerCase().includes("no call") || 
-      playbookContent.toLowerCase().includes("zero call") ||
-      playbookContent.toLowerCase().includes("on-call:** no")) {
-    callStatus = "Zero call";
+  if (!playbookContent) {
+    console.warn("PLAYBOOK: No playbook content provided");
+    return { hourly: null, daily: null, weekly: null, annual: null, extracted: false };
   }
 
-  // Extract RVUs
-  const rvuMatch = playbookContent.match(/(\d+)\s*RVU/i);
-  const rvus = rvuMatch ? `~${rvuMatch[1]} RVUs/shift` : defaults.rvus;
+  // Multiple patterns for each rate type - cast wide net
+  const hourlyPatterns = [
+    /\*\*Hourly\*\*[:\s]*\$?([\d,]+)/i,
+    /Hourly\s*(?:Rate)?[:\s]*\$?([\d,]+)/i,
+    /\$([\d,]+)\s*(?:\/\s*)?(?:per\s*)?(?:hour|hr)/i,
+    /pay\s*rate[:\s]*\$?([\d,]+)/i,
+  ];
+  
+  const dailyPatterns = [
+    /\*\*Daily\*\*[:\s]*\$?([\d,]+)/i,
+    /Daily\s*(?:Rate|Earnings)?[:\s]*\$?([\d,]+)/i,
+    /\$([\d,]+)\s*(?:\/\s*)?(?:per\s*)?day/i,
+  ];
+  
+  const weeklyPatterns = [
+    /\*\*Weekly\*\*[:\s]*\$?([\d,]+)/i,
+    /Weekly\s*(?:Rate|Earnings)?[:\s]*\$?([\d,]+)/i,
+    /\$([\d,]+)\s*(?:\/\s*)?(?:per\s*)?week/i,
+  ];
+  
+  const annualPatterns = [
+    /\*\*Annual\*\*[:\s]*\$?([\d,]+(?:,\d+)*)/i,
+    /Annual\s*(?:Potential|Earnings)?[:\s]*\$?([\d,]+(?:,\d+)*)/i,
+    /\$([\d,.]+)\s*(?:M|million)?\s*(?:\/\s*)?(?:per\s*)?(?:year|annually)/i,
+  ];
 
-  // Extract credentialing
-  const credMatch = playbookContent.match(/(\d+)[\s-]*day(?:s)?\s*(?:credentialing)?/i);
-  const credentialingDays = credMatch ? `${credMatch[1]} days` : defaults.credentialingDays;
-
-  return {
-    ...defaults,
-    callStatus,
-    rvus,
-    credentialingDays
+  const findMatch = (patterns: RegExp[]): string | null => {
+    for (const pattern of patterns) {
+      const match = playbookContent.match(pattern);
+      if (match) return match[1].replace(/,/g, '');
+    }
+    return null;
   };
+
+  const hourlyRaw = findMatch(hourlyPatterns);
+  const dailyRaw = findMatch(dailyPatterns);
+  const weeklyRaw = findMatch(weeklyPatterns);
+  const annualRaw = findMatch(annualPatterns);
+
+  const formatRate = (raw: string | null): string | null => {
+    if (!raw) return null;
+    const num = parseInt(raw, 10);
+    if (isNaN(num)) return null;
+    return `$${num.toLocaleString('en-US')}`;
+  };
+
+  const result = {
+    hourly: formatRate(hourlyRaw),
+    daily: formatRate(dailyRaw),
+    weekly: formatRate(weeklyRaw),
+    annual: formatRate(annualRaw),
+    extracted: hourlyRaw !== null,
+  };
+
+  console.log("PLAYBOOK RATES EXTRACTED:", result);
+  return result;
+}
+
+// Extract clinical details - DYNAMIC extraction, NO hardcoded defaults
+function extractClinicalDetails(playbookContent: string): {
+  callStatus: string | null;
+  schedule: string | null;
+  facilityType: string | null;
+  credentialingDays: string | null;
+  procedures: string | null;
+  rvus: string | null;
+  techStack: string | null;
+  extracted: boolean;
+} {
+  if (!playbookContent) {
+    console.warn("PLAYBOOK: No playbook content provided for clinical details");
+    return { callStatus: null, schedule: null, facilityType: null, credentialingDays: null, procedures: null, rvus: null, techStack: null, extracted: false };
+  }
+
+  // Call status
+  let callStatus: string | null = null;
+  if (/no\s*call|zero\s*call|on-?call[:\s]*no/i.test(playbookContent)) {
+    callStatus = "Zero call";
+  } else if (/1\s*:\s*(\d+)\s*call/i.test(playbookContent)) {
+    const match = playbookContent.match(/1\s*:\s*(\d+)\s*call/i);
+    callStatus = match ? `1:${match[1]} call` : null;
+  } else if (/light\s*call/i.test(playbookContent)) {
+    callStatus = "Light call";
+  }
+
+  // Schedule
+  let schedule: string | null = null;
+  const schedulePatterns = [
+    /schedule[:\s]*([^\n]+)/i,
+    /hours[:\s]*([^\n]+)/i,
+    /(M-F\s*\d+[ap]?m?\s*-\s*\d+[ap]?m?)/i,
+  ];
+  for (const pattern of schedulePatterns) {
+    const match = playbookContent.match(pattern);
+    if (match) {
+      schedule = match[1].trim().replace(/\*+/g, '');
+      break;
+    }
+  }
+
+  // Facility type
+  let facilityType: string | null = null;
+  if (/non-?trauma|non trauma/i.test(playbookContent)) {
+    facilityType = "Non-trauma center";
+  } else if (/level\s*[iI1]\s*trauma/i.test(playbookContent)) {
+    facilityType = "Level I trauma center";
+  } else if (/level\s*[iI]{2,}|level\s*2/i.test(playbookContent)) {
+    facilityType = "Level II trauma center";
+  } else if (/community\s*hospital/i.test(playbookContent)) {
+    facilityType = "Community hospital";
+  } else if (/academic/i.test(playbookContent)) {
+    facilityType = "Academic medical center";
+  }
+
+  // Credentialing days
+  let credentialingDays: string | null = null;
+  const credPatterns = [
+    /credentialing[:\s]*(?:~)?(\d+)\s*days?/i,
+    /(\d+)[\s-]*day\s*credentialing/i,
+    /timeline[:\s]*(\d+)\s*days?/i,
+  ];
+  for (const pattern of credPatterns) {
+    const match = playbookContent.match(pattern);
+    if (match) {
+      credentialingDays = `${match[1]} days`;
+      break;
+    }
+  }
+
+  // Procedures
+  let procedures: string | null = null;
+  const procPatterns = [
+    /procedures?[:\s]*([^\n]+)/i,
+    /scope[:\s]*([^\n]+)/i,
+    /case\s*types?[:\s]*([^\n]+)/i,
+  ];
+  for (const pattern of procPatterns) {
+    const match = playbookContent.match(pattern);
+    if (match) {
+      procedures = match[1].trim().replace(/\*+/g, '');
+      break;
+    }
+  }
+
+  // RVUs
+  let rvus: string | null = null;
+  const rvuMatch = playbookContent.match(/~?(\d+)\s*RVUs?(?:\s*\/\s*shift)?/i);
+  if (rvuMatch) {
+    rvus = `~${rvuMatch[1]} RVUs/shift`;
+  }
+
+  // Tech stack
+  let techStack: string | null = null;
+  const techPatterns = [
+    /tech[:\s]*([^\n]+)/i,
+    /emr[:\s]*([^\n]+)/i,
+    /pacs[:\s]*([^\n]+)/i,
+    /powerscribe[^\n]*/i,
+  ];
+  for (const pattern of techPatterns) {
+    const match = playbookContent.match(pattern);
+    if (match) {
+      techStack = match[0].trim().replace(/\*+/g, '');
+      break;
+    }
+  }
+
+  const result = {
+    callStatus,
+    schedule,
+    facilityType,
+    credentialingDays,
+    procedures,
+    rvus,
+    techStack,
+    extracted: callStatus !== null || schedule !== null || procedures !== null,
+  };
+
+  console.log("PLAYBOOK CLINICAL EXTRACTED:", result);
+  return result;
 }
 
 Deno.serve(async (req) => {
@@ -183,6 +298,18 @@ Deno.serve(async (req) => {
     const rates = extractPlaybookRates(playbook_content || '');
     const clinical = extractClinicalDetails(playbook_content || '');
 
+    // Log extracted data for validation
+    console.log("PLAYBOOK EXTRACTION VALIDATION:", {
+      source: "playbook_content provided: " + (!!playbook_content),
+      rates,
+      clinical
+    });
+
+    // Validate required rate data - fail if missing
+    if (!rates.hourly) {
+      throw new Error("RATE NOT FOUND IN PLAYBOOK - cannot generate message without verified hourly compensation. Please ensure playbook contains rate information.");
+    }
+
     // Check for existing personalization
     let hook = personalization_hook;
     if (!hook) {
@@ -209,10 +336,11 @@ Deno.serve(async (req) => {
     const licenseCount = candidate.licenses?.length || 0;
     const hasJobStateLicense = job.state && candidate.licenses?.includes(job.state);
 
-    // Build personalization hooks
+    // Build personalization hooks - use null coalescing for optional clinical data
+    const credDays = clinical.credentialingDays || "expedited";
     const personalizationHooks: string[] = [];
     if (hasJobStateLicense) {
-      personalizationHooks.push(`Your ${job.state} license = ${clinical.credentialingDays} credentialing vs. 6+ months for others`);
+      personalizationHooks.push(`Your ${job.state} license = ${credDays} credentialing vs. 6+ months for others`);
     }
     if (candidate.company_name) {
       personalizationHooks.push(`Your work at ${candidate.company_name} suggests you understand sustainable practice`);
@@ -221,23 +349,39 @@ Deno.serve(async (req) => {
       personalizationHooks.push(`Your ${licenseCount} state licenses indicate flexibility for multi-state work`);
     }
 
+    // Use null coalescing for optional clinical data in system prompt
+    const callText = clinical.callStatus || "flexible schedule";
+    const scheduleText = clinical.schedule || "Standard hours";
+    const facilityText = clinical.facilityType || "Hospital";
+    const procText = clinical.procedures || `${candidate.specialty} procedures`;
+    const rvuText = clinical.rvus || "sustainable volume";
+    const techText = clinical.techStack || "Modern EMR";
+    const dailyRate = rates.daily || "";
+    const weeklyRate = rates.weekly || "";
+    const annualRate = rates.annual || "";
+
+    // Build compensation line for prompt
+    let compLinePrompt = `${rates.hourly}`;
+    if (dailyRate) compLinePrompt += ` | ${dailyRate}`;
+    if (weeklyRate) compLinePrompt += ` | ${weeklyRate}`;
+
     // Build the clinical consultant prompt
     const systemPrompt = `${CLINICAL_CONSULTANT_PERSONA}
 
 PLAYBOOK RATES (USE EXACTLY - NEVER CALCULATE OR MODIFY):
 - Hourly: ${rates.hourly}/hour
-- Daily: ${rates.daily}
-- Weekly: ${rates.weekly}
-- Annual: ${rates.annual}
+${dailyRate ? `- Daily: ${dailyRate}` : ''}
+${weeklyRate ? `- Weekly: ${weeklyRate}` : ''}
+${annualRate ? `- Annual: ${annualRate}` : ''}
 
 CLINICAL DETAILS:
-- Procedures: ${clinical.procedures}
-- Call: ${clinical.callStatus}
-- Schedule: ${clinical.schedule}
-- Productivity: ${clinical.rvus} (sustainable pace)
-- Facility: ${clinical.facilityType}
-- Credentialing: ${clinical.credentialingDays}
-- Tech: ${clinical.techStack}
+- Procedures: ${procText}
+- Call: ${callText}
+- Schedule: ${scheduleText}
+- Productivity: ${rvuText} (sustainable pace)
+- Facility: ${facilityText}
+- Credentialing: ${credDays}
+- Tech: ${techText}
 
 CANDIDATE DATA:
 - Name: Dr. ${candidate.last_name}
@@ -275,9 +419,9 @@ Schedule & Call:
 [Contract duration]
 
 Compensation:
-${rates.hourly} | ${rates.daily} | ${rates.weekly}
+${compLinePrompt}
 [OT policy if relevant]
-[Annual potential: ${rates.annual}]
+${annualRate ? `[Annual potential: ${annualRate}]` : ''}
 
 Credentialing: [Their license advantage + timeline + temps if available]
 
@@ -291,11 +435,27 @@ Locums One`;
 
     // Fallback email generator - clinical consultant style
     const generateFallbackEmail = () => {
-      const subject = `${job.city} ${candidate.specialty} locums - ${clinical.callStatus.toLowerCase()}, ${rates.hourly}/hr`;
+      // Use null coalescing for optional clinical data
+      const callText = clinical.callStatus || "flexible call";
+      const scheduleText = clinical.schedule || "Standard hours";
+      const facilityText = clinical.facilityType || "Hospital";
+      const procText = clinical.procedures || `${candidate.specialty} procedures`;
+      const rvuText = clinical.rvus || "sustainable volume";
+      const techText = clinical.techStack || "Modern EMR";
+      const dailyRate = rates.daily || "";
+      const weeklyRate = rates.weekly || "";
+      const annualRate = rates.annual || "";
+
+      const subject = `${job.city} ${candidate.specialty} locums - ${callText.toLowerCase()}, ${rates.hourly}/hr`;
       
       const licenseAdvantage = hasJobStateLicense 
-        ? `Your ${job.state} license means ${clinical.credentialingDays} credentialing vs. 6+ months for out-of-state physicians.`
+        ? `Your ${job.state} license means ${credDays} credentialing vs. 6+ months for out-of-state physicians.`
         : `With your ${licenseCount} state licenses, obtaining ${job.state} licensure positions you well for this opportunity.`;
+
+      // Build compensation line dynamically based on what's available
+      let compLine = `${rates.hourly} hourly`;
+      if (dailyRate) compLine += ` | ${dailyRate} daily`;
+      if (weeklyRate) compLine += ` | ${weeklyRate} weekly`;
 
       const body = `Dr. ${candidate.last_name},
 
@@ -304,23 +464,21 @@ ${candidate.company_name
   : `Your ${candidate.specialty} background and ${job.state} presence make you a strong fit for ${job.facility_name}'s locums need.`}
 
 Clinical Scope:
-${clinical.facilityType} hospital in ${job.city}, ${job.state}
-Case types: ${clinical.procedures}
-Volume: ${clinical.rvus} (sustainable for experienced ${candidate.specialty})
-Tech: ${clinical.techStack}
-Not a trauma center - routine case mix
+${facilityText} in ${job.city}, ${job.state}
+Case types: ${procText}
+Volume: ${rvuText} (sustainable for experienced ${candidate.specialty})
+Tech: ${techText}
 
 Schedule & Call:
-${clinical.schedule}
-${clinical.callStatus} - no evenings, no weekends, no pager
+${scheduleText}
+${callText}
 Long-term locums (ongoing coverage need)
 
 Compensation:
-${rates.hourly} hourly | ${rates.daily} daily | ${rates.weekly} weekly
-Annual potential: ${rates.annual}
-OT available after 9 hours daily
+${compLine}
+${annualRate ? `Annual potential: ${annualRate}` : ''}
 
-Credentialing: ${licenseAdvantage} ${clinical.credentialingDays} timeline with temps available for clean files.
+Credentialing: ${licenseAdvantage}
 
 Why you specifically: Your ${candidate.specialty} expertise and ${hasJobStateLicense ? `active ${job.state} license` : `multi-state licensing`} mean you can start faster than most candidates while handling the procedural scope ${job.facility_name} requires.
 
