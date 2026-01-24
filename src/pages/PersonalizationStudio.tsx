@@ -335,11 +335,29 @@ export default function PersonalizationStudio() {
   };
   
   // Search Notion for playbooks via edge function
+  // Falls back to showing guidance if edge function fails (due to API key scope)
   const handleSearchNotionPlaybooks = async () => {
     const searchTerm = playbookSearch.trim();
     
     if (!searchTerm) {
       toast.error("Enter a playbook name to search (e.g., 'Lakewood', 'IR', 'GI')");
+      return;
+    }
+    
+    // Check if user pasted a Notion URL - extract ID and load directly
+    const notionUrlMatch = searchTerm.match(/notion\.so\/(?:[^\/]+\/)?([a-f0-9]{32}|[a-f0-9-]{36})/i);
+    if (notionUrlMatch) {
+      const pageId = notionUrlMatch[1];
+      toast.info("Notion URL detected! Loading playbook...");
+      
+      // Create a playbook entry and try to load it
+      const playbook: NotionPlaybook = {
+        id: pageId,
+        title: "Loading from Notion...",
+        url: searchTerm,
+      };
+      setSelectedPlaybook(playbook);
+      handleSelectPlaybook(playbook);
       return;
     }
     
@@ -374,15 +392,14 @@ export default function PersonalizationStudio() {
       if (playbooks.length > 0) {
         toast.success(`Found ${count} playbooks matching "${searchTerm}"`);
       } else {
-        toast.warning(`No playbooks found for "${searchTerm}". Try a different term.`);
+        // Edge function didn't find results - likely API key scope issue
+        // Guide user to paste a Notion URL instead
+        toast.warning(`No results via API. Try pasting a Notion page URL directly (e.g., https://notion.so/your-playbook-page)`);
       }
     } catch (error: any) {
       console.error("Notion search error:", error);
-      if (error.message?.includes("NOTION_API_KEY")) {
-        toast.error("Notion API key not configured. Ask admin to add NOTION_API_KEY secret.");
-      } else {
-        toast.error("Search failed: " + (error.message || "Unknown error"));
-      }
+      // On any error, guide user to paste URL
+      toast.warning("Search unavailable. Paste a Notion page URL directly to load your playbook.");
     } finally {
       setIsSearchingPlaybooks(false);
     }
@@ -413,9 +430,24 @@ export default function PersonalizationStudio() {
         // Save to campaign cache
         await savePlaybookToCampaign(playbook.id, playbook.title, playbook.fullContent);
       } else {
-        // Fallback: Prompt user to paste content or use agent to fetch
-        toast.info("Playbook selected. Ask the agent to fetch full content from Notion, or paste content below.");
-        setPlaybookContent(`# ${playbook.title}\n\n[Waiting for full content from Notion...]\n\nPaste your playbook content here, or ask the agent to fetch it using the Notion page ID: ${playbook.id}`);
+        // Try fetching via edge function first
+        try {
+          const { data, error } = await supabase.functions.invoke('fetch-notion-playbook', {
+            body: { page_id: playbook.id, campaign_id: campaignId },
+          });
+          
+          if (!error && data?.content && data.content.length > 500) {
+            setPlaybookContent(data.content);
+            toast.success(`Playbook loaded (${data.content.length.toLocaleString()} chars)`);
+            await savePlaybookToCampaign(playbook.id, playbook.title, data.content);
+          } else {
+            throw new Error("Edge function didn't return content");
+          }
+        } catch (fetchError) {
+          // Fallback: Prompt user to paste content or use agent to fetch
+          toast.info("Could not auto-fetch. Paste your playbook content below, or ask: 'Load playbook from Notion page " + playbook.id + "'");
+          setPlaybookContent(`# ${playbook.title}\n\n[Paste your playbook content here]\n\nOR ask the agent: "Load playbook from Notion page ${playbook.id}"`);
+        }
       }
     } catch (error) {
       console.error("Playbook load error:", error);
