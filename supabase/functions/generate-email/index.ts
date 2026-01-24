@@ -8,66 +8,125 @@ const corsHeaders = {
 interface EmailRequest {
   candidate_id: string;
   job_id: string;
-  template_type: 'initial' | 'followup' | 'value_prop' | 'fellowship' | 'custom';
   personalization_hook?: string;
-  custom_instructions?: string;
-  include_full_details?: boolean;
-  playbook_content?: string; // Notion playbook reference
+  custom_context?: string;
+  playbook_content?: string;
 }
 
-// Professional email generation persona
-const EMAIL_PERSONA = `You are a senior healthcare recruitment specialist crafting personalized outreach emails.
+// Clinical Consultant Persona - NOT a recruiter
+const CLINICAL_CONSULTANT_PERSONA = `You are a clinical consultant who understands medicine—NOT a recruiter running a sales script.
 
-YOUR STYLE:
-- Professional, warm, and direct
-- Lead with specific insights about the candidate's background
-- Highlight concrete value propositions (compensation, schedule, location fit)
-- Reference specific professional details (fellowship, hospital affiliations, licenses)
-- Include precise compensation figures
-- Sound like an experienced recruiter, not a marketing bot
+YOU UNDERSTAND:
+- Procedural scope and what procedures actually entail
+- RVU expectations and sustainable vs. sweatshop pace
+- Call burden and why "no call" is clinically significant
+- Credentialing timelines and state licensure implications
+- Burnout vectors in different practice settings
+
+LANGUAGE TRANSLATION - NEVER use recruiter speak:
+WRONG (Recruiter)          → RIGHT (Clinical Consultant)
+"Exciting procedures"      → "CT/US biopsies, ports, nephrostomy, drains"
+"Elite compensation"       → "$500/hour" (exact rate)
+"Great work-life balance"  → "Zero call. M-F 8-5. Done at 5."
+"Amazing opportunity"      → "Long-term locums, non-trauma case mix"
+"Fast-paced environment"   → "~50 RVUs/shift (sustainable pace)"
+"Competitive salary"       → State the actual rate or don't mention
+"We have an opening"       → "I have a locums opportunity that fits your background"
+"I'd love to connect!"     → "Worth 15 minutes to discuss clinical fit?"
+
+TONE RULES:
+- No exclamation points in body text
+- Contractions okay (you're, it's, don't)
+- Short paragraphs, scannable
+- End with low-pressure CTA that gives them an out
+- Add "If it's not the right fit, I'll tell you directly"
 
 FORBIDDEN:
+- Generic "I came across your profile" openers
 - Emojis of any kind
-- Section headers with emojis or quirky labels like "Intelligence Brief"
-- Overly casual language or persona signatures
-- Generic greetings like "Hope this finds you well"
-- Buzzwords like "synergy", "leverage", "circle back"
-- Salesy pressure tactics`;
+- Words: "elite", "amazing", "exciting", "fantastic", "incredible"
+- Headers with emojis or "Intelligence Brief"
+- Bill rate (only show pay rate to candidates)`;
 
-const EMAIL_PLAYBOOKS = {
-  fellowship: `Generate a DETAILED email for an IR FELLOWSHIP-TRAINED RADIOLOGIST. Include:
-- Recognition of their fellowship training institution
-- Specific procedural scope (thrombectomy, angio, biopsies, drains)
-- Elite compensation breakdown (hourly, daily, weekly, annual)
-- Schedule details (M-F, call frequency)
-- Location benefits (Texas no income tax, cost of living)
-- Why their training = competitive advantage
-- Clear next steps`,
+// Extract playbook rates from content - USE EXACT VALUES, NEVER CALCULATE
+function extractPlaybookRates(playbookContent: string): {
+  hourly: string;
+  daily: string;
+  weekly: string;
+  annual: string;
+} {
+  const defaults = {
+    hourly: "$500",
+    daily: "$4,500",
+    weekly: "$22,500",
+    annual: "$1,170,000"
+  };
 
-  value_prop: `Generate a VALUE-FOCUSED email emphasizing compensation. Include:
-- Lead with the money ($X/hr = $Y annual)
-- Financial comparison to typical employed position
-- Tax advantages if applicable
-- Work-life balance benefits
-- Flexibility of locums
-- Geographic arbitrage opportunity`,
+  if (!playbookContent) return defaults;
 
-  initial: `Generate a PROFESSIONAL INITIAL OUTREACH email. Include:
-- Personal connection (reference their background/specialty)
-- Brief opportunity overview
-- Key differentiators (rate, location, scope)
-- Soft call-to-action
-- Professional signature`,
+  // Extract exact rates from playbook - look for the CORRECT rates section
+  const hourlyMatch = playbookContent.match(/\*\*Hourly\*\*[:\s]*\*?\*?\$?([\d,]+)/i) ||
+                      playbookContent.match(/Hourly[:\s]*\$?([\d,]+)(?:\/hour)?/i);
+  const dailyMatch = playbookContent.match(/\*\*Daily\*\*[:\s]*\*?\*?\$?([\d,]+)/i) ||
+                     playbookContent.match(/Daily[:\s]*\$?([\d,]+)/i);
+  const weeklyMatch = playbookContent.match(/\*\*Weekly\*\*[:\s]*\*?\*?\$?([\d,]+)/i) ||
+                      playbookContent.match(/Weekly[:\s]*\$?([\d,]+)/i);
+  const annualMatch = playbookContent.match(/\*\*Annual\*\*[:\s]*\*?\*?\$?([\d,]+(?:,\d+)*)/i) ||
+                      playbookContent.match(/Annual[:\s]*\$?([\d,]+(?:,\d+)*)/i);
 
-  followup: `Generate a FOLLOW-UP email for someone who hasn't responded. Include:
-- Reference to previous outreach
-- New angle or additional value
-- Urgency without pressure
-- Easy response options
-- Brief and respectful tone`,
+  return {
+    hourly: hourlyMatch ? `$${hourlyMatch[1].replace(/,/g, '')}` : defaults.hourly,
+    daily: dailyMatch ? `$${dailyMatch[1]}` : defaults.daily,
+    weekly: weeklyMatch ? `$${weeklyMatch[1]}` : defaults.weekly,
+    annual: annualMatch ? `$${annualMatch[1]}` : defaults.annual
+  };
+}
 
-  custom: `Generate a personalized email based on the provided instructions.`
-};
+// Extract clinical details from playbook
+function extractClinicalDetails(playbookContent: string): {
+  procedures: string;
+  callStatus: string;
+  schedule: string;
+  rvus: string;
+  facilityType: string;
+  credentialingDays: string;
+  techStack: string;
+} {
+  const defaults = {
+    procedures: "CT/US biopsies, drains, ports, PICC lines, nephrostomy tubes, abscess drainage",
+    callStatus: "Zero call",
+    schedule: "M-F 8am-5pm",
+    rvus: "~50 RVUs/shift",
+    facilityType: "Non-trauma center",
+    credentialingDays: "40 days",
+    techStack: "PowerScribe 4.0"
+  };
+
+  if (!playbookContent) return defaults;
+
+  // Extract call status
+  let callStatus = defaults.callStatus;
+  if (playbookContent.toLowerCase().includes("no call") || 
+      playbookContent.toLowerCase().includes("zero call") ||
+      playbookContent.toLowerCase().includes("on-call:** no")) {
+    callStatus = "Zero call";
+  }
+
+  // Extract RVUs
+  const rvuMatch = playbookContent.match(/(\d+)\s*RVU/i);
+  const rvus = rvuMatch ? `~${rvuMatch[1]} RVUs/shift` : defaults.rvus;
+
+  // Extract credentialing
+  const credMatch = playbookContent.match(/(\d+)[\s-]*day(?:s)?\s*(?:credentialing)?/i);
+  const credentialingDays = credMatch ? `${credMatch[1]} days` : defaults.credentialingDays;
+
+  return {
+    ...defaults,
+    callStatus,
+    rvus,
+    credentialingDays
+  };
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -96,23 +155,12 @@ Deno.serve(async (req) => {
     });
 
     const body: EmailRequest = await req.json();
-    const { 
-      candidate_id, 
-      job_id, 
-      template_type = 'initial', 
-      personalization_hook, 
-      custom_instructions,
-      include_full_details = false,
-      playbook_content 
-    } = body;
+    const { candidate_id, job_id, personalization_hook, custom_context, playbook_content } = body;
 
-    // Fetch candidate with research data
+    // Fetch candidate data
     const { data: candidate, error: candidateError } = await supabase
       .from('candidates')
-      .select(`
-        id, first_name, last_name, specialty, state, city, licenses, npi,
-        years_of_experience, board_certified, email, personal_email
-      `)
+      .select('id, first_name, last_name, specialty, state, city, licenses, company_name')
       .eq('id', candidate_id)
       .single();
 
@@ -120,41 +168,27 @@ Deno.serve(async (req) => {
       throw new Error(`Candidate not found: ${candidateError?.message}`);
     }
 
-    // Fetch candidate research
-    const { data: research } = await supabase
-      .from('candidate_research')
-      .select('*')
-      .eq('candidate_id', candidate_id)
-      .single();
-
-    // Fetch job match data
-    const { data: jobMatch } = await supabase
-      .from('candidate_job_matches')
-      .select('*')
-      .eq('candidate_id', candidate_id)
-      .eq('job_id', job_id)
-      .single();
-
     // Fetch job data
     const { data: job, error: jobError } = await supabase
       .from('jobs')
-      .select('*')
+      .select('id, job_name, facility_name, city, state, specialty, bill_rate, pay_rate')
       .eq('id', job_id)
       .single();
-
-    // Use pay_rate for candidate-facing communications (not bill_rate)
-    const payRate = job.pay_rate || (job.bill_rate ? job.bill_rate * 0.73 : 0);
 
     if (jobError || !job) {
       throw new Error(`Job not found: ${jobError?.message}`);
     }
 
-    // Fetch personalization hooks if not provided
+    // Extract rates from playbook (NEVER calculate - use exact values)
+    const rates = extractPlaybookRates(playbook_content || '');
+    const clinical = extractClinicalDetails(playbook_content || '');
+
+    // Check for existing personalization
     let hook = personalization_hook;
     if (!hook) {
       const { data: personalization } = await supabase
         .from('candidate_personalization')
-        .select('email_opener, hooks, linkedin_note')
+        .select('email_opener, hooks')
         .eq('candidate_id', candidate_id)
         .eq('job_id', job_id)
         .single();
@@ -164,181 +198,138 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Get job match data for talking points
+    const { data: jobMatch } = await supabase
+      .from('candidate_job_matches')
+      .select('talking_points, icebreaker, match_reasons')
+      .eq('candidate_id', candidate_id)
+      .eq('job_id', job_id)
+      .single();
+
     const licenseCount = candidate.licenses?.length || 0;
     const hasJobStateLicense = job.state && candidate.licenses?.includes(job.state);
-    const hasIMLCLicense = research?.has_imlc || false;
 
-    // Calculate compensation details using PAY RATE (what candidate earns)
-    const hourlyRate = payRate;
-    const dailyRate = hourlyRate * 9;
-    const weeklyRate = dailyRate * 5;
-    const annualPotential = weeklyRate * 52;
+    // Build personalization hooks
+    const personalizationHooks: string[] = [];
+    if (hasJobStateLicense) {
+      personalizationHooks.push(`Your ${job.state} license = ${clinical.credentialingDays} credentialing vs. 6+ months for others`);
+    }
+    if (candidate.company_name) {
+      personalizationHooks.push(`Your work at ${candidate.company_name} suggests you understand sustainable practice`);
+    }
+    if (licenseCount >= 10) {
+      personalizationHooks.push(`Your ${licenseCount} state licenses indicate flexibility for multi-state work`);
+    }
 
-    // Build the system prompt with professional persona
-    const systemPrompt = `${EMAIL_PERSONA}
+    // Build the clinical consultant prompt
+    const systemPrompt = `${CLINICAL_CONSULTANT_PERSONA}
 
-You are creating personalized emails for physician locums opportunities. Your emails are detailed, compelling, and data-driven.
+PLAYBOOK RATES (USE EXACTLY - NEVER CALCULATE OR MODIFY):
+- Hourly: ${rates.hourly}/hour
+- Daily: ${rates.daily}
+- Weekly: ${rates.weekly}
+- Annual: ${rates.annual}
 
-CRITICAL RULES:
-1. Use markdown formatting for structure (headers, bullets, bold)
-2. Personalize based on candidate background - find the UNIQUE angle
-3. Include specific numbers (compensation, RVUs, schedule)
-4. Professional but engaging tone - memorable, not generic
-5. Clear call-to-action
-6. Reference their specific qualifications and career trajectory
+CLINICAL DETAILS:
+- Procedures: ${clinical.procedures}
+- Call: ${clinical.callStatus}
+- Schedule: ${clinical.schedule}
+- Productivity: ${clinical.rvus} (sustainable pace)
+- Facility: ${clinical.facilityType}
+- Credentialing: ${clinical.credentialingDays}
+- Tech: ${clinical.techStack}
 
-${playbook_content ? `
-RECRUITMENT PLAYBOOK REFERENCE:
-Use the following playbook as your positioning guide. Extract key messaging strategies, value propositions, and objection handling approaches:
----
-${playbook_content.substring(0, 3000)}
----
-` : ''}
-
-CANDIDATE PROFILE:
-- Name: Dr. ${candidate.first_name} ${candidate.last_name}
+CANDIDATE DATA:
+- Name: Dr. ${candidate.last_name}
 - Specialty: ${candidate.specialty}
-- Location: ${candidate.city || 'Unknown'}, ${candidate.state || 'Unknown'}
-- Licenses: ${licenseCount} states${hasJobStateLicense ? ` (includes ${job.state})` : ''}${hasIMLCLicense ? ' (IMLC eligible)' : ''}
-- Experience: ${candidate.years_of_experience ? `${candidate.years_of_experience} years` : 'Experienced'}
-- Board Certified: ${candidate.board_certified ? 'Yes' : 'Unknown'}
-${research?.credentials_summary ? `- Credentials: ${research.credentials_summary}` : ''}
-${research?.professional_highlights?.length ? `- Professional Highlights: ${research.professional_highlights.join(', ')}` : ''}
-${research?.verified_specialty ? `- Verified Specialty: ${research.verified_specialty}` : ''}
+- Location: ${candidate.city || ''}, ${candidate.state}
+- Licenses: ${licenseCount} states${hasJobStateLicense ? ` (includes ${job.state})` : ''}
+- Current employer: ${candidate.company_name || 'Unknown'}
 
-JOB DETAILS:
-- Position: ${job.job_name}
-- Facility: ${job.facility_name}
+JOB DATA:
+- Position: ${job.specialty} at ${job.facility_name}
 - Location: ${job.city}, ${job.state}
-- Specialty: ${job.specialty}
-- Compensation: $${hourlyRate}/hour
-  - Daily: $${dailyRate.toLocaleString()} (9-hour day)
-  - Weekly: $${weeklyRate.toLocaleString()} (M-F)
-  - Annual Potential: $${annualPotential.toLocaleString()}
-${job.start_date ? `- Start Date: ${job.start_date}` : ''}
 
-MATCH ANALYSIS:
-${jobMatch?.match_score ? `- Match Score: ${jobMatch.match_score}%` : ''}
-${jobMatch?.match_reasons?.length ? `- Strengths: ${jobMatch.match_reasons.join(', ')}` : ''}
-${jobMatch?.icebreaker ? `- Icebreaker: ${jobMatch.icebreaker}` : ''}
-${jobMatch?.talking_points?.length ? `- Talking Points: ${jobMatch.talking_points.join('; ')}` : ''}
-${hook ? `- Personalization Hook: ${hook}` : ''}
+PERSONALIZATION HOOKS TO USE (at least 2):
+${personalizationHooks.map((h, i) => `${i + 1}. ${h}`).join('\n')}
+${hook ? `\nADDITIONAL CONTEXT: ${hook}` : ''}
+${custom_context ? `\nCUSTOM CONTEXT: ${custom_context}` : ''}
 
-LICENSE ADVANTAGE:
-${hasJobStateLicense ? `Already licensed in ${job.state} - priority credentialing available` : hasIMLCLicense ? 'IMLC license - expedited Texas licensing available' : `May need ${job.state} license (90-day credentialing standard)`}`;
+EMAIL STRUCTURE TO FOLLOW:
+Subject: [Location] [Specialty] locums - [clinical detail], [call status], ${rates.hourly}/hr
 
-    const playbook = EMAIL_PLAYBOOKS[template_type] || EMAIL_PLAYBOOKS.initial;
-    const userPrompt = `${playbook}
+Dr. [Last Name],
 
-${custom_instructions ? `ADDITIONAL INSTRUCTIONS: ${custom_instructions}` : ''}
+[OPENER: 1-2 sentences connecting THEIR specific background to this outreach. Reference their training, current employer, or experience. Never generic.]
 
-${include_full_details ? 'Include COMPREHENSIVE details about compensation breakdown, scope of work, schedule, location benefits, requirements, and credentialing process.' : 'Keep the email concise but compelling.'}
+Clinical Scope:
+[Setting/facility type]
+Case types: [SPECIFIC procedures]
+Volume: [RVUs] ([sustainability comment])
+Tech: [EMR/PACS]
+[What it's NOT - no trauma, no call, etc.]
 
-Generate the email with:
-1. A compelling subject line
-2. The email body in markdown format
+Schedule & Call:
+[Days/hours]
+[Call status - be explicit: "Zero call" not "light call"]
+[Contract duration]
 
-Return as JSON: {"subject": "...", "body": "..."}`;
+Compensation:
+${rates.hourly} | ${rates.daily} | ${rates.weekly}
+[OT policy if relevant]
+[Annual potential: ${rates.annual}]
 
-    // Fallback email generator when AI is unavailable
+Credentialing: [Their license advantage + timeline + temps if available]
+
+Why I'm reaching out to you specifically: [2-3 sentences connecting THEIR background to THIS role]
+
+[CLOSER: 15-minute offer + permission to decline + no pressure]
+
+Best regards,
+[Recruiter Name]
+Locums One`;
+
+    // Fallback email generator - clinical consultant style
     const generateFallbackEmail = () => {
-      const templates = {
-        initial: {
-          subject: `${job.specialty} Opportunity at ${job.facility_name} - $${hourlyRate}/hr`,
-          body: `Dear Dr. ${candidate.first_name},
+      const subject = `${job.city} ${candidate.specialty} locums - ${clinical.callStatus.toLowerCase()}, ${rates.hourly}/hr`;
+      
+      const licenseAdvantage = hasJobStateLicense 
+        ? `Your ${job.state} license means ${clinical.credentialingDays} credentialing vs. 6+ months for out-of-state physicians.`
+        : `With your ${licenseCount} state licenses, obtaining ${job.state} licensure positions you well for this opportunity.`;
 
-I came across your profile and was impressed by your ${candidate.specialty} background${candidate.years_of_experience ? ` and ${candidate.years_of_experience} years of experience` : ''}.
+      const body = `Dr. ${candidate.last_name},
 
-I'm reaching out about an exciting locums opportunity at **${job.facility_name}** in **${job.city}, ${job.state}**.
+${candidate.company_name 
+  ? `Your work at ${candidate.company_name}, combined with your ${candidate.specialty} background, aligns directly with what ${job.facility_name} needs for their locums coverage.`
+  : `Your ${candidate.specialty} background and ${job.state} presence make you a strong fit for ${job.facility_name}'s locums need.`}
 
-**Position Highlights:**
-- **Compensation:** $${hourlyRate}/hour ($${dailyRate.toLocaleString()}/day)
-- **Annual Potential:** $${annualPotential.toLocaleString()}+
-- **Location:** ${job.city}, ${job.state}
-${hasJobStateLicense ? `- **License Status:** ✓ Already licensed in ${job.state}` : ''}
+Clinical Scope:
+${clinical.facilityType} hospital in ${job.city}, ${job.state}
+Case types: ${clinical.procedures}
+Volume: ${clinical.rvus} (sustainable for experienced ${candidate.specialty})
+Tech: ${clinical.techStack}
+Not a trauma center - routine case mix
 
-${job.state === 'TX' ? 'Texas offers no state income tax, maximizing your take-home pay.' : ''}
+Schedule & Call:
+${clinical.schedule}
+${clinical.callStatus} - no evenings, no weekends, no pager
+Long-term locums (ongoing coverage need)
 
-Would you have 10 minutes this week to discuss the details?
+Compensation:
+${rates.hourly} hourly | ${rates.daily} daily | ${rates.weekly} weekly
+Annual potential: ${rates.annual}
+OT available after 9 hours daily
 
-Best regards`
-        },
-        fellowship: {
-          subject: `Fellowship-Trained ${job.specialty} - $${hourlyRate}/hr at ${job.facility_name}`,
-          body: `Dear Dr. ${candidate.first_name},
+Credentialing: ${licenseAdvantage} ${clinical.credentialingDays} timeline with temps available for clean files.
 
-Your fellowship training in ${candidate.specialty} makes you an ideal candidate for an elite opportunity at **${job.facility_name}**.
+Why you specifically: Your ${candidate.specialty} expertise and ${hasJobStateLicense ? `active ${job.state} license` : `multi-state licensing`} mean you can start faster than most candidates while handling the procedural scope ${job.facility_name} requires.
 
-**Compensation Package:**
-- **Hourly:** $${hourlyRate}/hour
-- **Daily (9 hrs):** $${dailyRate.toLocaleString()}
-- **Weekly (M-F):** $${weeklyRate.toLocaleString()}
-- **Annual Potential:** $${annualPotential.toLocaleString()}+
+If this fits what you're looking for, worth 15 minutes to walk through the clinical details. If it's not the right fit, I'll tell you directly - no pressure.
 
-**Why This Role:**
-- Full procedural scope matching your fellowship training
-- ${job.city}, ${job.state} location${job.state === 'TX' ? ' (no state income tax)' : ''}
-${hasJobStateLicense ? `- Already licensed in ${job.state} - expedited start` : ''}
+Best regards,
+Locums One`;
 
-Your specialized training commands premium compensation. Let's discuss how this role aligns with your career goals.
-
-Best regards`
-        },
-        value_prop: {
-          subject: `$${annualPotential.toLocaleString()}/yr Potential - ${job.specialty} Locums`,
-          body: `Dear Dr. ${candidate.first_name},
-
-Let me be direct about the numbers:
-
-**Compensation Breakdown:**
-- **$${hourlyRate}/hour** (above market rate)
-- **$${dailyRate.toLocaleString()}/day** (9-hour shifts)
-- **$${weeklyRate.toLocaleString()}/week** (Monday-Friday)
-- **$${annualPotential.toLocaleString()}+/year** (full-time equivalent)
-
-This ${job.specialty} position at **${job.facility_name}** in ${job.city}, ${job.state} offers:
-${job.state === 'TX' ? '- No state income tax (significant savings)\n' : ''}- Flexibility to control your schedule
-- Premium rates reflecting your expertise
-${hasJobStateLicense ? `- Immediate start (already ${job.state} licensed)` : ''}
-
-A 10-minute call can clarify if this matches your financial and lifestyle goals.
-
-Best regards`
-        },
-        followup: {
-          subject: `Following Up: ${job.specialty} Opportunity - ${job.city}, ${job.state}`,
-          body: `Dear Dr. ${candidate.first_name},
-
-I wanted to follow up on the ${job.specialty} opportunity at **${job.facility_name}** I shared previously.
-
-Quick recap:
-- **$${hourlyRate}/hr** compensation
-- **${job.city}, ${job.state}** location
-- Flexible scheduling
-
-I understand you're busy. If now isn't the right time, I'd welcome the chance to connect when your availability changes.
-
-A simple "interested" or "not now" reply helps me serve you better.
-
-Best regards`
-        },
-        custom: {
-          subject: `${job.specialty} Opportunity - ${job.facility_name}`,
-          body: `Dear Dr. ${candidate.first_name},
-
-I have an exciting ${job.specialty} opportunity at **${job.facility_name}** in **${job.city}, ${job.state}** that I think would be a great fit for your background.
-
-**Key Details:**
-- Compensation: $${hourlyRate}/hour
-- Location: ${job.city}, ${job.state}
-
-Would you be open to a brief conversation to discuss?
-
-Best regards`
-        }
-      };
-
-      return templates[template_type] || templates.initial;
+      return { subject, body };
     };
 
     let emailResult = { subject: '', body: '' };
@@ -355,7 +346,17 @@ Best regards`
           model: "google/gemini-3-flash-preview",
           messages: [
             { role: "system", content: systemPrompt },
-            { role: "user", content: userPrompt }
+            { role: "user", content: `Generate a professional clinical consultant email for Dr. ${candidate.last_name}. 
+
+CRITICAL REQUIREMENTS:
+1. Use EXACT rates from playbook: ${rates.hourly}/hr, ${rates.daily}/day, ${rates.weekly}/week, ${rates.annual}/year
+2. Include "locums" in subject and body
+3. Reference at least 2 personalization hooks
+4. No emojis, no exclamation points in body
+5. Sound like a clinical consultant who understands medicine, not a recruiter
+6. NEVER use "elite", "amazing", "exciting" or similar recruiter buzzwords
+
+Return as JSON: {"subject": "...", "body": "..."}` }
           ],
           temperature: 0.7,
         }),
@@ -363,7 +364,7 @@ Best regards`
 
       if (!aiResponse.ok) {
         const errorText = await aiResponse.text();
-        console.warn("AI API unavailable, using fallback templates:", errorText);
+        console.warn("AI API unavailable, using fallback:", errorText);
         emailResult = generateFallbackEmail();
         usedFallback = true;
       } else {
@@ -371,7 +372,7 @@ Best regards`
         const content = aiData.choices?.[0]?.message?.content || '';
         
         try {
-          const jsonMatch = content.match(/\{[\s\S]*\}/);
+          const jsonMatch = content.match(/\{[\s\S]*"subject"[\s\S]*"body"[\s\S]*\}/);
           if (jsonMatch) {
             emailResult = JSON.parse(jsonMatch[0]);
           } else {
@@ -380,15 +381,12 @@ Best regards`
           }
         } catch (parseError) {
           console.warn("Failed to parse AI response, using fallback:", content);
-          emailResult = {
-            subject: `${job.specialty} Opportunity - ${job.city}, ${job.state}`,
-            body: content || generateFallbackEmail().body
-          };
-          usedFallback = !content;
+          emailResult = generateFallbackEmail();
+          usedFallback = true;
         }
       }
     } catch (fetchError) {
-      console.warn("AI fetch failed, using fallback templates:", fetchError);
+      console.warn("AI fetch failed, using fallback:", fetchError);
       emailResult = generateFallbackEmail();
       usedFallback = true;
     }
@@ -398,20 +396,17 @@ Best regards`
         success: true,
         candidate: {
           id: candidate.id,
-          name: `Dr. ${candidate.first_name} ${candidate.last_name}`,
+          name: `Dr. ${candidate.last_name}`,
           specialty: candidate.specialty,
-          email: candidate.email || candidate.personal_email,
         },
         job: {
           id: job.id,
           name: job.job_name,
           location: `${job.city}, ${job.state}`,
-          rate: hourlyRate,
         },
         email: emailResult,
-        template_type,
-        personalization_used: !!hook,
-        match_score: jobMatch?.match_score,
+        rates_used: rates,
+        personalization_hooks: personalizationHooks,
         used_fallback: usedFallback,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
