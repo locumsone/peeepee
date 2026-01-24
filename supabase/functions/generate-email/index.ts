@@ -204,45 +204,157 @@ Generate the email with:
 
 Return as JSON: {"subject": "...", "body": "..."}`;
 
-    const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${lovableKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt }
-        ],
-        temperature: 0.7,
-      }),
-    });
+    // Fallback email generator when AI is unavailable
+    const generateFallbackEmail = () => {
+      const templates = {
+        initial: {
+          subject: `${job.specialty} Opportunity at ${job.facility_name} - $${hourlyRate}/hr`,
+          body: `Dear Dr. ${candidate.first_name},
 
-    if (!aiResponse.ok) {
-      const errorText = await aiResponse.text();
-      console.error("AI API error:", errorText);
-      throw new Error(`AI API error: ${aiResponse.status}`);
-    }
+I came across your profile and was impressed by your ${candidate.specialty} background${candidate.years_of_experience ? ` and ${candidate.years_of_experience} years of experience` : ''}.
 
-    const aiData = await aiResponse.json();
-    const content = aiData.choices?.[0]?.message?.content || '';
-    
-    // Parse JSON from response
-    let emailResult = { subject: '', body: '' };
-    try {
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        emailResult = JSON.parse(jsonMatch[0]);
-      }
-    } catch (parseError) {
-      console.error("Failed to parse AI response:", content);
-      // Use content as body if JSON parsing fails
-      emailResult = {
-        subject: `${job.specialty} Opportunity - ${job.city}, ${job.state}`,
-        body: content
+I'm reaching out about an exciting locums opportunity at **${job.facility_name}** in **${job.city}, ${job.state}**.
+
+**Position Highlights:**
+- **Compensation:** $${hourlyRate}/hour ($${dailyRate.toLocaleString()}/day)
+- **Annual Potential:** $${annualPotential.toLocaleString()}+
+- **Location:** ${job.city}, ${job.state}
+${hasJobStateLicense ? `- **License Status:** ✓ Already licensed in ${job.state}` : ''}
+
+${job.state === 'TX' ? 'Texas offers no state income tax, maximizing your take-home pay.' : ''}
+
+Would you have 10 minutes this week to discuss the details?
+
+Best regards`
+        },
+        fellowship: {
+          subject: `Fellowship-Trained ${job.specialty} - $${hourlyRate}/hr at ${job.facility_name}`,
+          body: `Dear Dr. ${candidate.first_name},
+
+Your fellowship training in ${candidate.specialty} makes you an ideal candidate for an elite opportunity at **${job.facility_name}**.
+
+**Compensation Package:**
+- **Hourly:** $${hourlyRate}/hour
+- **Daily (9 hrs):** $${dailyRate.toLocaleString()}
+- **Weekly (M-F):** $${weeklyRate.toLocaleString()}
+- **Annual Potential:** $${annualPotential.toLocaleString()}+
+
+**Why This Role:**
+- Full procedural scope matching your fellowship training
+- ${job.city}, ${job.state} location${job.state === 'TX' ? ' (no state income tax)' : ''}
+${hasJobStateLicense ? `- Already licensed in ${job.state} - expedited start` : ''}
+
+Your specialized training commands premium compensation. Let's discuss how this role aligns with your career goals.
+
+Best regards`
+        },
+        value_prop: {
+          subject: `$${annualPotential.toLocaleString()}/yr Potential - ${job.specialty} Locums`,
+          body: `Dear Dr. ${candidate.first_name},
+
+Let me be direct about the numbers:
+
+**Compensation Breakdown:**
+- **$${hourlyRate}/hour** (above market rate)
+- **$${dailyRate.toLocaleString()}/day** (9-hour shifts)
+- **$${weeklyRate.toLocaleString()}/week** (Monday-Friday)
+- **$${annualPotential.toLocaleString()}+/year** (full-time equivalent)
+
+This ${job.specialty} position at **${job.facility_name}** in ${job.city}, ${job.state} offers:
+${job.state === 'TX' ? '- No state income tax (significant savings)\n' : ''}- Flexibility to control your schedule
+- Premium rates reflecting your expertise
+${hasJobStateLicense ? `- Immediate start (already ${job.state} licensed)` : ''}
+
+A 10-minute call can clarify if this matches your financial and lifestyle goals.
+
+Best regards`
+        },
+        followup: {
+          subject: `Following Up: ${job.specialty} Opportunity - ${job.city}, ${job.state}`,
+          body: `Dear Dr. ${candidate.first_name},
+
+I wanted to follow up on the ${job.specialty} opportunity at **${job.facility_name}** I shared previously.
+
+Quick recap:
+- **$${hourlyRate}/hr** compensation
+- **${job.city}, ${job.state}** location
+- Flexible scheduling
+
+I understand you're busy. If now isn't the right time, I'd welcome the chance to connect when your availability changes.
+
+A simple "interested" or "not now" reply helps me serve you better.
+
+Best regards`
+        },
+        custom: {
+          subject: `${job.specialty} Opportunity - ${job.facility_name}`,
+          body: `Dear Dr. ${candidate.first_name},
+
+I have an exciting ${job.specialty} opportunity at **${job.facility_name}** in **${job.city}, ${job.state}** that I think would be a great fit for your background.
+
+**Key Details:**
+- Compensation: $${hourlyRate}/hour
+- Location: ${job.city}, ${job.state}
+
+Would you be open to a brief conversation to discuss?
+
+Best regards`
+        }
       };
+
+      return templates[template_type] || templates.initial;
+    };
+
+    let emailResult = { subject: '', body: '' };
+    let usedFallback = false;
+
+    try {
+      const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${lovableKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "google/gemini-3-flash-preview",
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt }
+          ],
+          temperature: 0.7,
+        }),
+      });
+
+      if (!aiResponse.ok) {
+        const errorText = await aiResponse.text();
+        console.warn("AI API unavailable, using fallback templates:", errorText);
+        emailResult = generateFallbackEmail();
+        usedFallback = true;
+      } else {
+        const aiData = await aiResponse.json();
+        const content = aiData.choices?.[0]?.message?.content || '';
+        
+        try {
+          const jsonMatch = content.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            emailResult = JSON.parse(jsonMatch[0]);
+          } else {
+            emailResult = generateFallbackEmail();
+            usedFallback = true;
+          }
+        } catch (parseError) {
+          console.warn("Failed to parse AI response, using fallback:", content);
+          emailResult = {
+            subject: `${job.specialty} Opportunity - ${job.city}, ${job.state}`,
+            body: content || generateFallbackEmail().body
+          };
+          usedFallback = !content;
+        }
+      }
+    } catch (fetchError) {
+      console.warn("AI fetch failed, using fallback templates:", fetchError);
+      emailResult = generateFallbackEmail();
+      usedFallback = true;
     }
 
     return new Response(
@@ -264,6 +376,7 @@ Return as JSON: {"subject": "...", "body": "..."}`;
         template_type,
         personalization_used: !!hook,
         match_score: jobMatch?.match_score,
+        used_fallback: usedFallback,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
