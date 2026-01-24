@@ -334,7 +334,7 @@ export default function PersonalizationStudio() {
     }
   };
   
-  // Search Notion for playbooks using MCP - stores search term for agent to use
+  // Search Notion for playbooks via edge function
   const handleSearchNotionPlaybooks = async () => {
     const searchTerm = playbookSearch.trim();
     
@@ -346,42 +346,47 @@ export default function PersonalizationStudio() {
     setIsSearchingPlaybooks(true);
     setNotionPlaybooks([]); // Clear previous results
     
-    // Store search term for agent to use with Notion MCP
-    sessionStorage.setItem("notion_playbook_search", searchTerm);
-    
-    toast.info(`Search for "${searchTerm}" in Notion - use the agent to fetch playbooks`);
-    toast.info("Tell the agent: 'Search Notion for " + searchTerm + " playbook and load it'", { duration: 5000 });
-    
-    // The agent should use notion-search MCP tool and call setNotionSearchResults
-    setIsSearchingPlaybooks(false);
-  };
-  
-  // Function to receive search results from agent's Notion MCP search
-  const setNotionSearchResults = (results: { id: string; title: string; url?: string; summary?: string }[]) => {
-    const playbooks: NotionPlaybook[] = results.map(r => ({
-      id: r.id,
-      title: r.title,
-      url: r.url || `https://notion.so/${r.id.replace(/-/g, '')}`,
-      summary: r.summary,
-    }));
-    
-    setNotionPlaybooks(playbooks);
-    setIsSearchingPlaybooks(false);
-    
-    if (playbooks.length > 0) {
-      toast.success(`Found ${playbooks.length} playbooks. Select one to load.`);
-    } else {
-      toast.warning("No playbooks found for that search term");
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        toast.error("Please log in to search Notion");
+        return;
+      }
+      
+      const response = await supabase.functions.invoke("fetch-notion-playbook", {
+        body: { search_query: searchTerm },
+      });
+      
+      if (response.error) {
+        throw new Error(response.error.message || "Search failed");
+      }
+      
+      const { results, count } = response.data || { results: [], count: 0 };
+      
+      const playbooks: NotionPlaybook[] = (results || []).map((r: any) => ({
+        id: r.id,
+        title: r.title,
+        url: r.url,
+      }));
+      
+      setNotionPlaybooks(playbooks);
+      
+      if (playbooks.length > 0) {
+        toast.success(`Found ${count} playbooks matching "${searchTerm}"`);
+      } else {
+        toast.warning(`No playbooks found for "${searchTerm}". Try a different term.`);
+      }
+    } catch (error: any) {
+      console.error("Notion search error:", error);
+      if (error.message?.includes("NOTION_API_KEY")) {
+        toast.error("Notion API key not configured. Ask admin to add NOTION_API_KEY secret.");
+      } else {
+        toast.error("Search failed: " + (error.message || "Unknown error"));
+      }
+    } finally {
+      setIsSearchingPlaybooks(false);
     }
   };
-  
-  // Expose for agent to call
-  useEffect(() => {
-    (window as any).setNotionSearchResults = setNotionSearchResults;
-    return () => {
-      delete (window as any).setNotionSearchResults;
-    };
-  }, []);
   
   // Load selected playbook content - now expects REAL Notion content
   // The full playbook content should be passed from the Notion MCP fetch
