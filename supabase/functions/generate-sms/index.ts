@@ -31,21 +31,22 @@ interface JobData {
   state: string;
   specialty: string;
   bill_rate?: number;
+  pay_rate?: number;
 }
 
-// Sherlock Meowmes personality for SMS
-const SHERLOCK_MEOWMES_SMS = `You are "Sherlock Meowmes" 🔮 - an elite recruitment intelligence agent crafting punchy SMS messages that get responses.
+// Professional SMS generation persona
+const SMS_PERSONA = `You are a senior healthcare recruiter crafting brief, professional SMS messages.
 
 YOUR SMS STYLE:
-- Perceptive opener - reference something specific about them
-- Intriguing, not salesy - create curiosity
-- Numbers talk - include the rate or key metric
-- Soft hook - invite a conversation, don't demand
+- Direct and respectful opener with Dr. + first name
+- Lead with the key value (rate, location, schedule)
+- Create genuine interest without being salesy
+- Soft call-to-action (question, not demand)
 
 FORBIDDEN:
-- Generic greetings ("Hope this finds you well")
+- Emojis of any kind
+- Generic greetings
 - Pushy language ("Don't miss out!")
-- Emojis (unless specifically requested)
 - Anything over 160 characters`;
 
 const SMS_TEMPLATES = {
@@ -106,12 +107,15 @@ Deno.serve(async (req) => {
       throw new Error(`Candidate not found: ${candidateError?.message}`);
     }
 
-    // Fetch job data
+    // Fetch job data - include pay_rate
     const { data: job, error: jobError } = await supabase
       .from('jobs')
-      .select('id, job_name, facility_name, city, state, specialty, bill_rate')
+      .select('id, job_name, facility_name, city, state, specialty, bill_rate, pay_rate')
       .eq('id', job_id)
       .single();
+
+    // Use pay_rate for candidate-facing messages (not bill_rate)
+    const payRate = job?.pay_rate || (job?.bill_rate ? job.bill_rate * 0.73 : null);
 
     if (jobError || !job) {
       throw new Error(`Job not found: ${jobError?.message}`);
@@ -135,8 +139,8 @@ Deno.serve(async (req) => {
     const licenseCount = candidate.licenses?.length || 0;
     const hasJobStateLicense = job.state && candidate.licenses?.includes(job.state);
 
-    // Build system prompt with Sherlock Meowmes persona
-    const systemPrompt = `${SHERLOCK_MEOWMES_SMS}
+    // Build system prompt with professional persona
+    const systemPrompt = `${SMS_PERSONA}
 
 ${playbook_content ? `
 RECRUITMENT PLAYBOOK REFERENCE:
@@ -151,7 +155,7 @@ CRITICAL RULES:
 2. Use Dr. + first name (never full name)
 3. Lead with the hook or value proposition
 4. End with a soft CTA (question, not demand)
-5. No emojis unless specifically requested
+5. No emojis
 6. Sound human, not robotic
 7. Create curiosity or urgency
 
@@ -161,7 +165,7 @@ PERSONALIZATION DATA:
 - Licenses: ${licenseCount} states${hasJobStateLicense ? ` (includes ${job.state})` : ''}
 - Job: ${job.job_name} at ${job.facility_name}
 - Location: ${job.city}, ${job.state}
-- Rate: ${job.bill_rate ? `$${job.bill_rate}/hr` : 'Competitive'}
+- Pay Rate: ${payRate ? `$${payRate}/hr` : 'Competitive'}
 ${hook ? `- Personalization Hook: ${hook}` : ''}
 ${custom_context ? `- Additional Context: ${custom_context}` : ''}`;
 
@@ -169,7 +173,7 @@ ${custom_context ? `- Additional Context: ${custom_context}` : ''}`;
 
     // Fallback SMS generator when AI is unavailable
     const generateFallbackSMS = () => {
-      const rate = job.bill_rate ? `$${job.bill_rate}/hr` : 'Top rate';
+      const rate = payRate ? `$${payRate}/hr` : 'Top rate';
       const location = `${job.city}, ${job.state}`;
       
       const templates = {
