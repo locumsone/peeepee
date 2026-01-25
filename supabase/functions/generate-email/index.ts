@@ -337,9 +337,32 @@ CRITICAL: When describing the facility, use the FACILITY DATA fields exactly as 
    - Never invent teaching affiliations, trauma designations, or clinical details
    - If data is missing, omit it rather than guess
 
-4. UNIQUE SUBJECT LINE: Create a subject specific to Dr. ${candidate.last_name}'s background.
-   - Mention their ${hasJobStateLicense ? `${job.state} license` : `${licenseCount} state licenses`}
-   - Include location, specialty, rate, and one differentiator
+=== DYNAMIC SUBJECT LINE GENERATION (CRITICAL) ===
+Generate a UNIQUE, PERSONALIZED subject line for THIS specific candidate.
+
+SUBJECT LINE REQUIREMENTS:
+1. Make it specific to Dr. ${candidate.last_name}'s background:
+   ${hasJobStateLicense ? `- They have a ${job.state} license - use this!` : `- They have ${licenseCount} state licenses`}
+   ${candidate.company_name ? `- Currently at ${candidate.company_name}` : ''}
+   - Specialty: ${candidate.specialty}
+
+2. Include from playbook (vary which you emphasize):
+   ${callStatus ? `- Call status: "${callStatus}" (strong differentiator)` : ''}
+   - Rate: ${hourlyRate}
+   - Location: ${locationCity}, ${locationState}
+   ${differentiators ? `- Key differentiator: ${differentiators}` : ''}
+
+3. VARY THE FORMAT - don't always lead with the same element:
+   - Sometimes lead with rate: "${hourlyRate}/hr ${candidate.specialty} in ${locationCity}"
+   - Sometimes lead with call: "${callStatus} ${contractType} - ${locationMetro}"
+   - Sometimes lead with their license: "${hasJobStateLicense ? `${job.state}` : candidate.state} ${candidate.specialty}? ${facilityName} ${contractType}"
+   - Sometimes lead with differentiator from selling points
+
+4. Keep under 60 characters when possible
+
+5. Use playbook tone/positioning to inform emphasis:
+   ${sellingPoints ? `- Selling points to consider: ${sellingPoints.substring(0, 100)}...` : ''}
+   ${messagingTone ? `- Messaging tone: ${messagingTone}` : ''}
 
 === END CRITICAL RULES ===
 
@@ -367,7 +390,7 @@ ${duration ? `- Duration: ${duration}` : ''}
 ${credentialingDays ? `- Timeline: ${credentialingDays} days` : ''}
 ${playbook.credentialing?.temps_available ? '- Temps available while credentialing' : ''}
 
-=== POSITIONING GUIDANCE (FOLLOW THIS) ===
+=== POSITIONING GUIDANCE (USE FOR SUBJECT LINE & BODY) ===
 ${sellingPoints ? `Selling Points: ${sellingPoints}` : ''}
 ${idealCandidate ? `Ideal Candidate: ${idealCandidate}` : ''}
 ${messagingTone ? `Messaging Tone: ${messagingTone}` : ''}
@@ -475,7 +498,15 @@ ${signatureBlock}`;
             { role: "system", content: systemPrompt },
             { 
               role: "user", 
-              content: `Generate a professional outreach email for Dr. ${candidate.last_name}. Return ONLY valid JSON with "subject" and "body" fields. No markdown, no code blocks.`
+              content: `Generate a professional outreach email for Dr. ${candidate.last_name}.
+
+IMPORTANT - SUBJECT LINE:
+Create a UNIQUE subject line that feels personal to THIS specific candidate. 
+- Reference something specific about them: ${hasJobStateLicense ? `their ${job.state} license` : candidate.company_name ? `their work at ${candidate.company_name}` : `their ${candidate.specialty} background`}
+- Vary the format from other emails (don't always lead with location)
+- Make it feel like it was written specifically for Dr. ${candidate.last_name}, not a mass blast
+
+Return ONLY valid JSON with "subject" and "body" fields. No markdown, no code blocks.`
             }
           ],
           temperature: 0.7,
