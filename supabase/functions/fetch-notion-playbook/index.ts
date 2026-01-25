@@ -171,14 +171,21 @@ function extractPosition(content: string): StructuredPlaybookCache['position'] {
     /(?:Facility|Hospital|Site|Client)(?:\s*Name)?:\*?\*?\s*([^\n]+)/i,
   ];
   
-  // Facility type
+  // Facility type - PRIORITY ORDER MATTERS
+  // Non-trauma and community should be checked FIRST because playbooks often mention 
+  // "NOT Level I trauma" or compare to trauma centers - we want to capture the actual facility type
   const facilityTypePatterns = [
-    /(Level\s*[I]+\s*Trauma)/i,
-    /(Non-?trauma)/i,
-    /(Academic)/i,
-    /(Community)/i,
-    /(ASC|Ambulatory)/i,
-    /(Teaching)/i,
+    // Explicit non-trauma statements (highest priority)
+    /(Non-?trauma(?:\s+(?:community\s+)?hospital)?)/i,
+    /(Community(?:\s+hospital)?)/i,
+    // Then check for specific trauma levels only if explicitly stated AS the facility
+    /(?:This is a|Facility is a?|Hospital is a?)\s*(Level\s*[IV]+\s*Trauma)/i,
+    /Trauma Level:\s*(Level\s*[IV]+)/i,
+    // Other facility types
+    /(ASC|Ambulatory\s*Surgery\s*Center)/i,
+    /(Academic(?:\s+Medical\s+Center)?)/i,
+    /(Teaching(?:\s+Hospital)?)/i,
+    /(Critical\s+Access)/i,
   ];
   
   // Location
