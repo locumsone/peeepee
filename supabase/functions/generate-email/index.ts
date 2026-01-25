@@ -273,7 +273,33 @@ Deno.serve(async (req) => {
     if (weeklyRate) compLinePrompt += ` | ${weeklyRate}`;
 
     // Build the clinical consultant prompt with structured data
-    const systemPrompt = `${CLINICAL_CONSULTANT_PERSONA}
+    // CRITICAL: Accuracy rules at TOP so AI sees them first
+    const systemPrompt = `=== CRITICAL ACCURACY RULES - FOLLOW EXACTLY ===
+
+1. COMPENSATION: Use rates EXACTLY as provided in playbook data. Never calculate, round, or modify.
+   - If playbook says "${hourlyRate}", write "${hourlyRate}" - never any other number
+   - Daily/weekly/annual must match playbook exactly
+
+2. FACILITY TYPE: This is a ${facilityType}.
+   - NEVER say "Level I trauma" or "Level II trauma" unless playbook explicitly states it
+   - NEVER assume trauma level - only use what playbook explicitly states
+   - Say "community hospital" or "non-trauma center" if that's what the playbook says
+
+3. CALL STATUS: Emphasize "${callStatus}" as the key differentiator - this is rare for IR positions
+
+4. NO HALLUCINATION: Only include facts that exist in the playbook data.
+   - Do not invent facility details, trauma designations, or teaching affiliations
+   - Do not assume characteristics based on location (LA metro ≠ trauma center)
+   - If information is not in the playbook, do not include it
+
+5. TONE: Be direct and clinical, not salesy or recruiter-y.
+   - Lead with the key differentiator (zero call, rate, or facility type)
+   - Use specific numbers from playbook
+   - Permission-based CTAs ("worth 15 min to discuss?" not "let's schedule a call!")
+
+=== END CRITICAL RULES ===
+
+${CLINICAL_CONSULTANT_PERSONA}
 
 === COMPENSATION (USE EXACTLY - NEVER CALCULATE OR MODIFY) ===
 - Rate: ${hourlyRate}/hour
@@ -320,32 +346,6 @@ ${personalizationHooks.map((h, i) => `${i + 1}. ${h}`).join('\n')}
 ${hook ? `\nADDITIONAL CONTEXT: ${hook}` : ''}
 ${custom_context ? `\nCUSTOM CONTEXT: ${custom_context}` : ''}
 ${jobMatch?.icebreaker ? `\nICEBREAKER: ${jobMatch.icebreaker}` : ''}
-
-=== CRITICAL RULES - FOLLOW EXACTLY ===
-1. COMPENSATION: Use rates EXACTLY as provided - "${hourlyRate}" means write "${hourlyRate}", NEVER calculate, round, or modify.
-   - Daily: ${dailyRate || 'not specified'}
-   - Weekly: ${weeklyRate || 'not specified'}
-   - Annual: ${annualRate || 'not specified'}
-
-2. FACILITY TYPE: Use ONLY what is stated above: "${facilityType}"
-   - If NOT a trauma center, NEVER say "Level I trauma" or "Level II trauma"
-   - If facility type is "non-trauma", "community hospital", or doesn't specify trauma level → DO NOT mention trauma level
-   - This is a critical error we must avoid
-
-3. CALL STATUS: Use EXACTLY what is stated: "${callStatus}"
-   - If "ZERO CALL" or "NO CALL" → emphasize this is RARE for IR positions
-
-4. NO HALLUCINATION: Only include facts from the playbook data above.
-   - Do NOT invent certifications, affiliations, or facility details
-   - Do NOT assume metro area characteristics not stated
-   - If information is missing, do NOT include it
-
-5. TONE: Be direct and clinical, not salesy.
-   - Lead with key differentiator (usually zero call or rate)
-   - Use specific numbers from playbook
-   - Permission-based CTAs ("worth 15 min to discuss?" not "let's schedule!")
-
-6. PERSONALIZATION: Reference candidate's background, but NEVER fabricate facility details to match their experience.
 
 EMAIL STRUCTURE TO FOLLOW:
 Subject: [Location] [Specialty] ${contractType} - [clinical detail], [call status], ${hourlyRate}/hr
