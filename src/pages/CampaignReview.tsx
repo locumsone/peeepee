@@ -10,6 +10,7 @@ import {
   QualityGate,
   PersonalizationPanel,
   LaunchControl,
+  EnrichmentPanel,
 } from "@/components/campaign-review";
 import type {
   Job,
@@ -182,6 +183,7 @@ export default function CampaignReview() {
           <IntegrationStatus channels={channels} senderEmail={senderEmail} onStatusChange={handleIntegrationStatusChange} />
         </div>
         <div className="space-y-6">
+          <EnrichmentPanel candidates={candidates} jobId={jobId} onCandidatesUpdate={handleCandidatesUpdate} />
           <PersonalizationPanel jobId={jobId} candidates={candidates} onCandidatesUpdate={handleCandidatesUpdate} />
         </div>
         <div className="space-y-6">
