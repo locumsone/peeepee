@@ -38,7 +38,7 @@ import {
   ArrowLeft, ArrowRight, Sparkles, RefreshCw, Edit2, Check, X,
   Users, Target, Search, CheckCircle2, AlertTriangle, Lightbulb, Cat,
   FileText, ExternalLink, Mail, MessageSquare, Eye, Copy, BookOpen,
-  DollarSign, MapPin, Phone, Calendar, ChevronDown
+  DollarSign, MapPin, Phone, Calendar, ChevronDown, Download
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PlaybookCacheCard, StructuredPlaybookCache } from "@/components/playbook/PlaybookCacheCard";
@@ -736,6 +736,64 @@ Locums One`;
     toast.success("Copied to clipboard");
   };
   
+  // Export all drafted messages as CSV
+  const handleExportMessages = () => {
+    const draftedCandidates = candidates.filter(c => c.email_body || c.sms_message);
+    
+    if (draftedCandidates.length === 0) {
+      toast.error("No drafted messages to export. Generate messages first.");
+      return;
+    }
+    
+    // Create CSV content
+    const headers = [
+      "First Name",
+      "Last Name", 
+      "Email",
+      "Phone",
+      "Specialty",
+      "Email Subject",
+      "Email Body",
+      "SMS Message"
+    ];
+    
+    const escapeCSV = (value: string | undefined | null): string => {
+      if (!value) return "";
+      // Escape quotes and wrap in quotes if contains comma, newline, or quote
+      const escaped = value.replace(/"/g, '""');
+      if (escaped.includes(',') || escaped.includes('\n') || escaped.includes('"')) {
+        return `"${escaped}"`;
+      }
+      return escaped;
+    };
+    
+    const rows = draftedCandidates.map(c => [
+      escapeCSV(c.first_name),
+      escapeCSV(c.last_name),
+      escapeCSV(c.personal_email || c.email),
+      escapeCSV(c.personal_mobile || c.phone),
+      escapeCSV(c.specialty),
+      escapeCSV(c.email_subject),
+      escapeCSV(c.email_body),
+      escapeCSV(c.sms_message)
+    ].join(','));
+    
+    const csvContent = [headers.join(','), ...rows].join('\n');
+    
+    // Create and download file
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `personalized-messages-${new Date().toISOString().split('T')[0]}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    
+    toast.success(`Exported ${draftedCandidates.length} drafted messages`);
+  };
+  
   const handleNext = () => {
     sessionStorage.setItem("campaign_candidates", JSON.stringify(candidates));
     navigate("/campaigns/new/sequence");
@@ -778,6 +836,16 @@ Locums One`;
                 <Badge variant="secondary" className="text-green-600">
                   ${payRate}/hr pay
                 </Badge>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleExportMessages}
+                  disabled={generatedCount === 0}
+                  className="gap-2"
+                >
+                  <Download className="h-4 w-4" />
+                  Export
+                </Button>
               </div>
             </div>
           </div>
