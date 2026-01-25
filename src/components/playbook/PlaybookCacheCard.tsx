@@ -6,7 +6,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { 
   DollarSign, MapPin, Clock, Calendar, Phone, Building2, 
   ChevronDown, ChevronUp, Target, Lightbulb, MessageSquare,
-  AlertTriangle, RefreshCw, CheckCircle2, XCircle
+  AlertTriangle, RefreshCw, CheckCircle2, XCircle, Briefcase, FileText
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -74,6 +74,7 @@ interface PlaybookCacheCardProps {
 
 export function PlaybookCacheCard({ cache, onSync, isSyncing }: PlaybookCacheCardProps) {
   const [isPositioningOpen, setIsPositioningOpen] = useState(false);
+  const [isPositionOpen, setIsPositionOpen] = useState(false);
   
   // Calculate cache age
   const syncedAt = new Date(cache.synced_at);
@@ -84,6 +85,7 @@ export function PlaybookCacheCard({ cache, onSync, isSyncing }: PlaybookCacheCar
   // Validation checks
   const hasCompensation = !!(cache.compensation.hourly || cache.compensation.salary_range);
   const hasPositioning = !!(cache.positioning.selling_points || cache.positioning.differentiators);
+  const hasPosition = !!(cache.position.title || cache.position.facility_name || cache.position.facility_type);
   const isReadyForGeneration = hasCompensation;
   
   return (
@@ -218,7 +220,77 @@ export function PlaybookCacheCard({ cache, onSync, isSyncing }: PlaybookCacheCar
               No positioning content
             </Badge>
           )}
+          {!hasPosition && (
+            <Badge variant="outline" className="bg-blue-500/10 text-blue-600 border-blue-500/30">
+              No position data
+            </Badge>
+          )}
         </div>
+        
+        {/* Position Section (Expandable) */}
+        {hasPosition && (
+          <Collapsible open={isPositionOpen} onOpenChange={setIsPositionOpen}>
+            <CollapsibleTrigger asChild>
+              <Button variant="ghost" size="sm" className="w-full justify-between">
+                <span className="flex items-center gap-2">
+                  <Briefcase className="h-4 w-4" />
+                  Position Details
+                </span>
+                {isPositionOpen ? (
+                  <ChevronUp className="h-4 w-4" />
+                ) : (
+                  <ChevronDown className="h-4 w-4" />
+                )}
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="space-y-3 pt-2">
+              {/* Position Title */}
+              {cache.position.title && (
+                <PositioningItem 
+                  icon={<FileText className="h-4 w-4 text-indigo-500" />}
+                  label="Position Title"
+                  content={cache.position.title}
+                />
+              )}
+              
+              {/* Facility Name */}
+              {cache.position.facility_name && (
+                <PositioningItem 
+                  icon={<Building2 className="h-4 w-4 text-blue-500" />}
+                  label="Facility"
+                  content={cache.position.facility_name}
+                />
+              )}
+              
+              {/* Facility Type */}
+              {cache.position.facility_type && (
+                <PositioningItem 
+                  icon={<Target className="h-4 w-4 text-purple-500" />}
+                  label="Facility Type"
+                  content={cache.position.facility_type}
+                />
+              )}
+              
+              {/* Location Metro */}
+              {cache.position.location_metro && (
+                <PositioningItem 
+                  icon={<MapPin className="h-4 w-4 text-green-500" />}
+                  label="Metro Area"
+                  content={cache.position.location_metro}
+                />
+              )}
+              
+              {/* Contract Type */}
+              {cache.position.contract_type && (
+                <PositioningItem 
+                  icon={<Briefcase className="h-4 w-4 text-orange-500" />}
+                  label="Contract Type"
+                  content={cache.position.contract_type}
+                />
+              )}
+            </CollapsibleContent>
+          </Collapsible>
+        )}
         
         {/* Positioning Section (Expandable) */}
         {hasPositioning && (

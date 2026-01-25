@@ -335,11 +335,15 @@ ${annualRate ? `- Annual: ${annualRate}` : ''}
 ${duration ? `- Duration: ${duration}` : ''}
 - Tech: ${techStack}
 
-=== POSITION ===
+=== POSITION (USE IN SUBJECT AND BODY) ===
+- Position Title: ${playbook.position?.title || job.job_name || `${candidate.specialty} ${contractType}`}
 - Facility: ${facilityName}
-- Type: ${facilityType}
+- Facility Type: ${facilityType} (NEVER invent trauma designation)
 - Location: ${locationCity}, ${locationState}
-- Contract: ${contractType}
+- Metro Area: ${playbook.position?.location_metro || locationCity + ' metro'}
+- Contract Type: ${contractType}
+
+NOTE: Use position data for accurate subject lines and facility descriptions. Never assume trauma level or teaching status.
 
 === CREDENTIALING ===
 - Required License: ${requiredLicense}
