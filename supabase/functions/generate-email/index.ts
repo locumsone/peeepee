@@ -319,11 +319,56 @@ Deno.serve(async (req) => {
     };
     const specialtyAbbrev = getSpecialtyAbbrev(specialty);
     
-    // Pre-compute the EXACT subject line - AI must use this verbatim
-    const callBenefit = callStatus.toLowerCase().includes('no call') || callStatus.toLowerCase().includes('zero') 
-      ? 'No Call' 
-      : schedule.split(' ')[0] || 'M-F';
-    const preComputedSubject = `${hourlyRate}/hr ${specialtyAbbrev} ${locationCity} - ${callBenefit}`;
+    // ========== SUBJECT LINE VARIETY ENGINE ==========
+    // Hash candidate ID to deterministically select format (ensures same candidate always gets same format)
+    const hashCode = (str: string): number => {
+      let hash = 0;
+      for (let i = 0; i < str.length; i++) {
+        const char = str.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash; // Convert to 32bit integer
+      }
+      return Math.abs(hash);
+    };
+    const candidateHash = hashCode(candidate.id || "default");
+    
+    // Extract multiple benefits from playbook for variety
+    const hasNoCall = callStatus.toLowerCase().includes('no call') || callStatus.toLowerCase().includes('zero');
+    const hasMF = schedule.toLowerCase().includes('m-f') || schedule.toLowerCase().includes('mon-fri');
+    const hasNoNights = schedule.toLowerCase().includes('no night');
+    const hasNoWeekends = schedule.toLowerCase().includes('no weekend');
+    const hasDayShift = schedule.toLowerCase().includes('day shift') || schedule.toLowerCase().includes('7a');
+    const hasFlexible = schedule.toLowerCase().includes('flexible');
+    
+    // Build benefit pool based on what's in the playbook
+    const benefitPool: string[] = [];
+    if (hasNoCall) benefitPool.push('No Call', 'Zero Call');
+    if (hasMF) benefitPool.push('M-F Only');
+    if (hasNoNights) benefitPool.push('No Nights');
+    if (hasNoWeekends) benefitPool.push('No Weekends');
+    if (hasDayShift) benefitPool.push('Days Only');
+    if (hasFlexible) benefitPool.push('Flex Sched');
+    // Fallback if nothing found
+    if (benefitPool.length === 0) {
+      benefitPool.push(hasNoCall ? 'No Call' : 'M-F');
+    }
+    
+    // Select benefit based on candidate hash
+    const selectedBenefit = benefitPool[candidateHash % benefitPool.length];
+    
+    // Subject line format templates - 6 variations
+    const subjectFormats = [
+      `${hourlyRate}/hr ${specialtyAbbrev} ${locationCity} - ${selectedBenefit}`,     // Rate first
+      `${specialtyAbbrev} ${locationCity} - ${hourlyRate}/hr ${selectedBenefit}`,     // Specialty first
+      `${locationCity} ${specialtyAbbrev} - ${hourlyRate} + ${selectedBenefit}`,      // City first
+      `${hourlyRate}/hr + ${selectedBenefit} - ${specialtyAbbrev} ${locationCity}`,   // Rate + Benefit first
+      `${specialtyAbbrev} ${selectedBenefit} - ${hourlyRate}/hr ${locationCity}`,     // Specialty + Benefit
+      `${locationCity}: ${hourlyRate}/hr ${specialtyAbbrev} (${selectedBenefit})`,    // City: format
+    ];
+    
+    // Select format based on candidate hash (different seed for variety)
+    const formatIndex = (candidateHash >> 3) % subjectFormats.length;
+    const preComputedSubject = subjectFormats[formatIndex];
     
     // Derive facility description from trauma_level
     const getFacilityDescription = (): string => {
