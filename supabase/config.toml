@@ -17,3 +17,6 @@ verify_jwt = false
 
 [functions.refine-message]
 verify_jwt = false
+
+[functions.enrich-contact]
+verify_jwt = false
