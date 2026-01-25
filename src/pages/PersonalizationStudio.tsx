@@ -26,6 +26,12 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import {
@@ -37,6 +43,7 @@ import {
 import { cn } from "@/lib/utils";
 import { PlaybookCacheCard, StructuredPlaybookCache } from "@/components/playbook/PlaybookCacheCard";
 import { useUserSignature } from "@/hooks/useUserSignature";
+import { MessageRefiner } from "@/components/personalization/MessageRefiner";
 
 const steps = [
   { number: 1, label: "Job" },
@@ -139,10 +146,10 @@ export default function PersonalizationStudio() {
   const [showPreview, setShowPreview] = useState(false);
   const [activePreviewTab, setActivePreviewTab] = useState<string>("email");
   
-  // Editing state
-  const [editingId, setEditingId] = useState<string | null>(null);
+  // Editing state - now using AI refiner
+  const [editingCandidate, setEditingCandidate] = useState<Candidate | null>(null);
   const [editingField, setEditingField] = useState<'email' | 'sms' | null>(null);
-  const [editingContent, setEditingContent] = useState("");
+  const [showRefiner, setShowRefiner] = useState(false);
   
   // Compute pay rate
   const payRate = useMemo(() => {
@@ -686,25 +693,35 @@ Locums One`;
     return `Dr. ${candidate.last_name}, $${payRate}/hr ${job?.specialty} role in ${job?.state}. Interested in details? Reply YES`;
   };
   
-  // Save edited content
-  const handleSaveEdit = () => {
-    if (!editingId || !editingField) return;
+  // Open AI refiner for editing
+  const handleOpenRefiner = (candidate: Candidate, field: 'email' | 'sms') => {
+    setEditingCandidate(candidate);
+    setEditingField(field);
+    setShowRefiner(true);
+  };
+  
+  // Apply refined content from AI assistant
+  const handleApplyRefinement = (refinedSubject: string | undefined, refinedBody: string) => {
+    if (!editingCandidate || !editingField) return;
     
     setCandidates(prev => prev.map(c => {
-      if (c.id === editingId) {
+      if (c.id === editingCandidate.id) {
         if (editingField === 'email') {
-          return { ...c, email_body: editingContent };
+          return { 
+            ...c, 
+            email_subject: refinedSubject || c.email_subject,
+            email_body: refinedBody 
+          };
         } else if (editingField === 'sms') {
-          return { ...c, sms_message: editingContent };
+          return { ...c, sms_message: refinedBody };
         }
       }
       return c;
     }));
     
-    setEditingId(null);
+    setShowRefiner(false);
+    setEditingCandidate(null);
     setEditingField(null);
-    setEditingContent("");
-    toast.success("Message updated");
   };
   
   // Open preview modal
@@ -1043,11 +1060,7 @@ Locums One`;
                                       size="icon"
                                       variant="ghost"
                                       className="h-7 w-7"
-                                      onClick={() => {
-                                        setEditingId(candidate.id);
-                                        setEditingField('email');
-                                        setEditingContent(candidate.email_body || "");
-                                      }}
+                                      onClick={() => handleOpenRefiner(candidate, 'email')}
                                     >
                                       <Edit2 className="h-3 w-3" />
                                     </Button>
@@ -1155,32 +1168,42 @@ Locums One`;
         </DialogContent>
       </Dialog>
       
-      {/* Edit Modal */}
-      <Dialog open={!!editingId} onOpenChange={() => setEditingId(null)}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>
-              Edit {editingField === 'email' ? 'Email' : 'SMS'}
-            </DialogTitle>
-          </DialogHeader>
-          
-          <Textarea
-            value={editingContent}
-            onChange={(e) => setEditingContent(e.target.value)}
-            className="min-h-[300px]"
-          />
-          
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setEditingId(null)}>
-              Cancel
-            </Button>
-            <Button onClick={handleSaveEdit}>
-              <Check className="h-4 w-4 mr-2" />
-              Save Changes
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* AI Message Refiner Sheet */}
+      <Sheet open={showRefiner} onOpenChange={(open) => {
+        if (!open) {
+          setShowRefiner(false);
+          setEditingCandidate(null);
+          setEditingField(null);
+        }
+      }}>
+        <SheetContent side="right" className="w-[400px] sm:w-[450px] p-0">
+          {editingCandidate && editingField && (
+            <MessageRefiner
+              messageType={editingField}
+              currentSubject={editingField === 'email' ? editingCandidate.email_subject : undefined}
+              currentBody={editingField === 'email' ? (editingCandidate.email_body || "") : (editingCandidate.sms_message || "")}
+              candidateContext={{
+                name: `Dr. ${editingCandidate.last_name}`,
+                specialty: editingCandidate.specialty,
+                licenses: editingCandidate.licenses,
+              }}
+              jobContext={{
+                rate: `$${payRate}`,
+                location: `${job?.city || ''}, ${job?.state || ''}`,
+                call_status: isStructuredCache(cachedPlaybook) ? cachedPlaybook.clinical?.call_status || '' : '',
+                facility_name: job?.facility_name || '',
+              }}
+              playbookData={isStructuredCache(cachedPlaybook) ? cachedPlaybook : undefined}
+              onApply={handleApplyRefinement}
+              onClose={() => {
+                setShowRefiner(false);
+                setEditingCandidate(null);
+                setEditingField(null);
+              }}
+            />
+          )}
+        </SheetContent>
+      </Sheet>
     </Layout>
   );
 }
