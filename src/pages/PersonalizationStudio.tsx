@@ -581,20 +581,53 @@ export default function PersonalizationStudio() {
         const batchResults = await Promise.all(
           batch.map(async (candidate) => {
             try {
-              // Build playbook_data from cachedPlaybook if it's structured
-              const structuredPlaybook = cachedPlaybook && isStructuredCache(cachedPlaybook) ? cachedPlaybook : undefined;
+              // Build playbook_data from cachedPlaybook - handle both structured and legacy formats
+              let playbookDataToSend: any = null;
+              if (cachedPlaybook) {
+                if (isStructuredCache(cachedPlaybook)) {
+                  playbookDataToSend = cachedPlaybook;
+                } else {
+                  // Convert legacy cache to a format the edge function can use
+                  const legacy = cachedPlaybook as LegacyPlaybookCache;
+                  playbookDataToSend = {
+                    notion_id: legacy.notion_id,
+                    title: legacy.title,
+                    compensation: {
+                      hourly: legacy.extracted_rates?.hourly ? `$${legacy.extracted_rates.hourly}` : undefined,
+                      daily: legacy.extracted_rates?.daily,
+                      weekly: legacy.extracted_rates?.weekly,
+                      annual: legacy.extracted_rates?.annual,
+                    },
+                    clinical: {
+                      call_status: legacy.extracted_rates?.call_status,
+                      procedures: legacy.extracted_rates?.procedures,
+                    },
+                    raw_content: legacy.content,
+                  };
+                }
+              }
+              
+              if (!playbookDataToSend) {
+                console.warn(`No playbook data for candidate ${candidate.id}, using fallback`);
+                return {
+                  id: candidate.id,
+                  email_subject: generateFallbackSubject(candidate),
+                  email_body: generateFallbackEmail(candidate),
+                  sms_message: generateFallbackSms(candidate),
+                };
+              }
               
               // Get user signature data for personalized sign-offs
               const signatureData = getSignatureData();
               
-              // Call edge function for email with structured playbook data and signature
+              // Call edge function for email with playbook data and signature
               const { data: emailData, error: emailError } = await supabase.functions.invoke('generate-email', {
                 body: {
                   candidate_id: candidate.id,
                   job_id: jobId,
                   campaign_id: campaignId,
                   personalization_hook: candidate.personalization_hook,
-                  playbook_data: structuredPlaybook,
+                  playbook_data: playbookDataToSend,
                   signature: signatureData,
                 },
               });
@@ -603,14 +636,14 @@ export default function PersonalizationStudio() {
                 console.error("Email generation error:", emailError);
               }
               
-              // Call edge function for SMS with structured playbook data and signature
+              // Call edge function for SMS with playbook data and signature
               const { data: smsData, error: smsError } = await supabase.functions.invoke('generate-sms', {
                 body: {
                   candidate_id: candidate.id,
                   job_id: jobId,
                   campaign_id: campaignId,
                   personalization_hook: candidate.personalization_hook,
-                  playbook_data: structuredPlaybook,
+                  playbook_data: playbookDataToSend,
                   signature: signatureData,
                 },
               });
