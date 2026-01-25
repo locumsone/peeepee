@@ -31,9 +31,11 @@ import { toast } from "sonner";
 import {
   ArrowLeft, ArrowRight, Sparkles, RefreshCw, Edit2, Check, X,
   Users, Target, Search, CheckCircle2, AlertTriangle, Lightbulb, Cat,
-  FileText, ExternalLink, Mail, MessageSquare, Eye, Copy, BookOpen
+  FileText, ExternalLink, Mail, MessageSquare, Eye, Copy, BookOpen,
+  DollarSign, MapPin, Phone, Calendar, ChevronDown
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { PlaybookCacheCard, StructuredPlaybookCache } from "@/components/playbook/PlaybookCacheCard";
 
 const steps = [
   { number: 1, label: "Job" },
@@ -86,7 +88,8 @@ interface NotionPlaybook {
   fullContent?: string; // Full Notion page content when fetched
 }
 
-interface PlaybookCache {
+// Legacy interface for backwards compatibility
+interface LegacyPlaybookCache {
   notion_id: string;
   title: string;
   content: string;
@@ -99,6 +102,11 @@ interface PlaybookCache {
     procedures?: string;
   };
   synced_at: string;
+}
+
+// Type guard to check if cache is structured or legacy
+function isStructuredCache(cache: any): cache is StructuredPlaybookCache {
+  return cache && typeof cache.compensation === 'object' && typeof cache.positioning === 'object';
 }
 
 export default function PersonalizationStudio() {
@@ -116,7 +124,7 @@ export default function PersonalizationStudio() {
   const [selectedPlaybook, setSelectedPlaybook] = useState<NotionPlaybook | null>(null);
   const [playbookContent, setPlaybookContent] = useState<string>("");
   const [isLoadingPlaybook, setIsLoadingPlaybook] = useState(false);
-  const [cachedPlaybook, setCachedPlaybook] = useState<PlaybookCache | null>(null);
+  const [cachedPlaybook, setCachedPlaybook] = useState<StructuredPlaybookCache | LegacyPlaybookCache | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   
   // Generation state
@@ -196,18 +204,32 @@ export default function PersonalizationStudio() {
           .maybeSingle();
         
         if (campaignData?.playbook_data) {
-          const cached = campaignData.playbook_data as unknown as PlaybookCache;
+          const cached = campaignData.playbook_data as unknown as StructuredPlaybookCache | LegacyPlaybookCache;
           setCachedPlaybook(cached);
-          setPlaybookContent(cached.content);
-          setSelectedPlaybook({
-            id: cached.notion_id,
-            title: cached.title,
-            url: `https://notion.so/${cached.notion_id}`,
-          });
-          toast.success(`Loaded cached playbook: ${cached.title}`);
-          console.log("=== CACHED PLAYBOOK LOADED ===");
-          console.log("Synced at:", cached.synced_at);
-          console.log("Extracted rates:", cached.extracted_rates);
+          
+          // Handle both structured and legacy cache formats
+          if (isStructuredCache(cached)) {
+            // New structured format - no raw content stored
+            setSelectedPlaybook({
+              id: cached.notion_id,
+              title: cached.title,
+              url: cached.notion_url || `https://notion.so/${cached.notion_id}`,
+            });
+            toast.success(`Loaded structured playbook: ${cached.title}`);
+            console.log("=== STRUCTURED PLAYBOOK CACHE LOADED ===");
+            console.log("Compensation:", cached.compensation);
+            console.log("Clinical:", cached.clinical);
+          } else {
+            // Legacy format with raw content
+            setPlaybookContent((cached as LegacyPlaybookCache).content || "");
+            setSelectedPlaybook({
+              id: cached.notion_id,
+              title: cached.title,
+              url: `https://notion.so/${cached.notion_id}`,
+            });
+            toast.success(`Loaded legacy cache: ${cached.title}`);
+            console.log("=== LEGACY PLAYBOOK CACHE LOADED ===");
+          }
         }
       }
     };
@@ -238,41 +260,58 @@ export default function PersonalizationStudio() {
     };
   };
   
-  // Save playbook to campaign
+  // Save playbook to campaign using NEW structured cache via edge function
   const savePlaybookToCampaign = async (notionId: string, title: string, content: string) => {
     if (!campaignId) {
       console.log("No campaign ID - playbook will only be stored in session");
       return;
     }
     
-    const extractedRates = extractRatesFromContent(content);
-    
-    const playbookData: PlaybookCache = {
-      notion_id: notionId,
-      title,
-      content,
-      extracted_rates: extractedRates,
-      synced_at: new Date().toISOString(),
-    };
-    
-    const { error } = await supabase
-      .from("campaigns")
-      .update({
-        playbook_data: JSON.parse(JSON.stringify(playbookData)),
-        playbook_notion_id: notionId,
-        playbook_synced_at: new Date().toISOString(),
-      })
-      .eq("id", campaignId);
-    
-    if (error) {
+    try {
+      // Call edge function to parse content into structured cache
+      const { data, error } = await supabase.functions.invoke('fetch-notion-playbook', {
+        body: { 
+          page_id: notionId,
+          campaign_id: campaignId,
+          raw_content: content, // Send raw content to be parsed
+        },
+      });
+      
+      if (error) throw error;
+      
+      if (data?.structured_cache) {
+        setCachedPlaybook(data.structured_cache);
+        const rate = data.structured_cache.compensation?.hourly || 'not found';
+        toast.success(`Playbook cached with ${rate} rate (${data.cache_size} chars)`);
+        console.log("=== STRUCTURED PLAYBOOK SAVED ===");
+        console.log("Cache size:", data.cache_size, "chars (limit: 5000)");
+        console.log("Validation:", data.validation);
+      } else {
+        // Fallback: Save legacy format
+        const extractedRates = extractRatesFromContent(content);
+        const legacyCache: LegacyPlaybookCache = {
+          notion_id: notionId,
+          title,
+          content: content.substring(0, 4500), // Truncate if needed
+          extracted_rates: extractedRates,
+          synced_at: new Date().toISOString(),
+        };
+        
+        await supabase
+          .from("campaigns")
+          .update({
+            playbook_data: JSON.parse(JSON.stringify(legacyCache)),
+            playbook_notion_id: notionId,
+            playbook_synced_at: new Date().toISOString(),
+          })
+          .eq("id", campaignId);
+        
+        setCachedPlaybook(legacyCache);
+        toast.success(`Playbook cached (legacy) with $${extractedRates.hourly}/hr rate`);
+      }
+    } catch (error) {
       console.error("Failed to save playbook to campaign:", error);
-      toast.error("Failed to cache playbook");
-    } else {
-      setCachedPlaybook(playbookData);
-      toast.success(`Playbook cached with $${extractedRates.hourly}/hr rate`);
-      console.log("=== PLAYBOOK SAVED TO CAMPAIGN ===");
-      console.log("Campaign ID:", campaignId);
-      console.log("Extracted rates:", extractedRates);
+      toast.error("Failed to cache playbook - saved raw content");
     }
   };
   
@@ -298,31 +337,19 @@ export default function PersonalizationStudio() {
       if (error) throw error;
       
       if (data?.content && data.content.length > 500) {
-        // Update local state with fresh content
-        setPlaybookContent(data.content);
+        // Use structured parsing via edge function
+        const { data: parseData } = await supabase.functions.invoke('fetch-notion-playbook', {
+          body: { 
+            page_id: cachedPlaybook.notion_id,
+            campaign_id: campaignId,
+            raw_content: data.content,
+          },
+        });
         
-        // Extract rates and update cache
-        const extractedRates = extractRatesFromContent(data.content);
-        const newCache: PlaybookCache = {
-          notion_id: cachedPlaybook.notion_id,
-          title: cachedPlaybook.title,
-          content: data.content,
-          extracted_rates: extractedRates,
-          synced_at: new Date().toISOString(),
-        };
-        
-        // Save to campaign
-        await supabase
-          .from("campaigns")
-          .update({
-            playbook_data: JSON.parse(JSON.stringify(newCache)),
-            playbook_synced_at: new Date().toISOString(),
-          })
-          .eq("id", campaignId);
-        
-        setCachedPlaybook(newCache);
-        toast.success(`Synced! Rate: $${extractedRates.hourly || 'not found'}/hr`);
-        console.log("=== PLAYBOOK SYNCED FROM NOTION ===", extractedRates);
+        if (parseData?.structured_cache) {
+          setCachedPlaybook(parseData.structured_cache);
+          toast.success(`Synced! Rate: ${parseData.structured_cache.compensation?.hourly || 'not found'}`);
+        }
       } else {
         throw new Error("Empty or invalid content received");
       }
@@ -735,12 +762,22 @@ Locums One`;
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {/* Cached Playbook Banner with Validation */}
-                  {cachedPlaybook && (() => {
-                    const syncedAt = new Date(cachedPlaybook.synced_at);
+                  {/* New Structured Cache Display */}
+                  {cachedPlaybook && isStructuredCache(cachedPlaybook) && (
+                    <PlaybookCacheCard 
+                      cache={cachedPlaybook}
+                      onSync={handleSyncPlaybook}
+                      isSyncing={isSyncing}
+                    />
+                  )}
+                  
+                  {/* Legacy Cache Display */}
+                  {cachedPlaybook && !isStructuredCache(cachedPlaybook) && (() => {
+                    const legacy = cachedPlaybook as LegacyPlaybookCache;
+                    const syncedAt = new Date(legacy.synced_at);
                     const hoursSinceSync = (Date.now() - syncedAt.getTime()) / (1000 * 60 * 60);
                     const isStale = hoursSinceSync > 24;
-                    const hasValidRate = !!cachedPlaybook.extracted_rates.hourly;
+                    const hasValidRate = !!legacy.extracted_rates?.hourly;
                     
                     return (
                       <div className={cn(
@@ -760,7 +797,7 @@ Locums One`;
                               "text-sm font-medium",
                               isStale || !hasValidRate ? "text-amber-700" : "text-green-700"
                             )}>
-                              {isStale ? "Stale Cache" : !hasValidRate ? "Missing Rate" : "Cached Playbook"}
+                              {isStale ? "Stale Cache" : !hasValidRate ? "Missing Rate" : "Legacy Cache"}
                             </span>
                           </div>
                           <Button
@@ -770,56 +807,21 @@ Locums One`;
                             onClick={handleSyncPlaybook}
                             disabled={isSyncing}
                           >
-                            {isSyncing ? (
-                              <RefreshCw className="h-3 w-3 mr-1 animate-spin" />
-                            ) : (
-                              <RefreshCw className="h-3 w-3 mr-1" />
-                            )}
-                            Sync
+                            <RefreshCw className={cn("h-3 w-3 mr-1", isSyncing && "animate-spin")} />
+                            Upgrade Cache
                           </Button>
                         </div>
-                        <p className={cn(
-                          "text-xs mt-1",
-                          isStale || !hasValidRate ? "text-amber-700" : "text-green-700"
-                        )}>{cachedPlaybook.title}</p>
-                        
-                        {/* Extracted Rates Display */}
+                        <p className="text-xs mt-1 text-muted-foreground">{legacy.title}</p>
                         <div className="flex flex-wrap items-center gap-2 mt-2 text-xs">
-                          {cachedPlaybook.extracted_rates.hourly ? (
-                            <Badge className="bg-green-600 text-white text-xs font-bold">
-                              ${cachedPlaybook.extracted_rates.hourly}/hr
-                            </Badge>
-                          ) : (
-                            <Badge variant="destructive" className="text-xs">
-                              No hourly rate found
+                          {legacy.extracted_rates?.hourly && (
+                            <Badge className="bg-green-600 text-white text-xs">
+                              ${legacy.extracted_rates.hourly}/hr
                             </Badge>
                           )}
-                          {cachedPlaybook.extracted_rates.daily && (
-                            <Badge variant="outline" className="text-green-600 border-green-500/30 text-xs">
-                              ${cachedPlaybook.extracted_rates.daily}/day
-                            </Badge>
-                          )}
-                          {cachedPlaybook.extracted_rates.weekly && (
-                            <Badge variant="outline" className="text-green-600 border-green-500/30 text-xs">
-                              ${cachedPlaybook.extracted_rates.weekly}/wk
-                            </Badge>
-                          )}
-                          {cachedPlaybook.extracted_rates.call_status && (
+                          {legacy.extracted_rates?.call_status && (
                             <Badge variant="outline" className="text-blue-600 border-blue-500/30 text-xs">
-                              {cachedPlaybook.extracted_rates.call_status}
+                              {legacy.extracted_rates.call_status}
                             </Badge>
-                          )}
-                        </div>
-                        
-                        {/* Sync Timestamp with Staleness Warning */}
-                        <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
-                          <span>
-                            Last synced: {syncedAt.toLocaleString()}
-                          </span>
-                          {isStale && (
-                            <span className="text-amber-600 font-medium">
-                              ({Math.round(hoursSinceSync)}h ago - consider syncing)
-                            </span>
                           )}
                         </div>
                       </div>
