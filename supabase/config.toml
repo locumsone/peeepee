@@ -8,3 +8,6 @@ verify_jwt = false
 
 [functions.launch-campaign]
 verify_jwt = false
+
+[functions.generate-sequence]
+verify_jwt = false
