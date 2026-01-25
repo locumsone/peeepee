@@ -5,4 +5,13 @@ export { QualityGate } from "./QualityGate";
 export { PersonalizationPanel } from "./PersonalizationPanel";
 export { LaunchControl } from "./LaunchControl";
 export { EnrichmentPanel } from "./EnrichmentPanel";
+
+// New linear redesign components
+export { ReviewStepCard } from "./ReviewStepCard";
+export { StepVerifyCampaign } from "./StepVerifyCampaign";
+export { StepPrepareCandidates } from "./StepPrepareCandidates";
+export { StepConnectChannels } from "./StepConnectChannels";
+export { StepPreviewMessage } from "./StepPreviewMessage";
+export { LaunchStatusBar } from "./LaunchStatusBar";
+
 export * from "./types";

@@ -1,17 +1,16 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
-import { Loader2 } from "lucide-react";
-import {
-  CampaignHeader,
-  CampaignSummaryCard,
-  IntegrationStatus,
-  QualityGate,
-  PersonalizationPanel,
-  LaunchControl,
-  EnrichmentPanel,
-} from "@/components/campaign-review";
+import { Loader2, RotateCcw, ArrowLeft } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { ReviewStepCard, StepStatus } from "@/components/campaign-review/ReviewStepCard";
+import { StepVerifyCampaign } from "@/components/campaign-review/StepVerifyCampaign";
+import { StepPrepareCandidates } from "@/components/campaign-review/StepPrepareCandidates";
+import { StepConnectChannels } from "@/components/campaign-review/StepConnectChannels";
+import { StepPreviewMessage } from "@/components/campaign-review/StepPreviewMessage";
+import { LaunchStatusBar } from "@/components/campaign-review/LaunchStatusBar";
 import type {
   Job,
   ChannelConfig,
@@ -25,6 +24,11 @@ const senderAccounts = [
   { group: "Primary", emails: ["rainey@locums.one", "tswift@locumsone.com"] },
   { group: "Secondary", emails: ["recruiting@locumsone.com", "outreach@locums.one"] },
 ];
+
+interface Blocker {
+  step: number;
+  message: string;
+}
 
 export default function CampaignReview() {
   const navigate = useNavigate();
@@ -46,6 +50,18 @@ export default function CampaignReview() {
     loadSessionData();
   }, []);
 
+  // Recalculate tier stats when candidates change
+  useEffect(() => {
+    const stats: TierStats = { tier1: 0, tier2: 0, tier3: 0, readyCount: 0, needsEnrichment: 0 };
+    candidates.forEach((c) => {
+      const tier = c.tier || (c.unified_score?.startsWith("A") ? 1 : c.unified_score?.startsWith("B") ? 2 : 3);
+      if (tier === 1) stats.tier1++; else if (tier === 2) stats.tier2++; else stats.tier3++;
+      const hasContact = (c.email || c.personal_email) || (c.phone || c.personal_mobile);
+      if (hasContact) stats.readyCount++; else stats.needsEnrichment++;
+    });
+    setTierStats(stats);
+  }, [candidates]);
+
   const loadSessionData = async () => {
     setIsLoading(true);
     try {
@@ -55,7 +71,7 @@ export default function CampaignReview() {
       if (storedJobId) {
         setJobId(storedJobId);
         if (storedJob) {
-        try {
+          try {
             const parsedJob = JSON.parse(storedJob);
             setJob(parsedJob);
             setCampaignName(`${parsedJob.specialty || parsedJob.job_name || "Campaign"} - ${parsedJob.facility_name || "Facility"} - ${new Date().toLocaleDateString()}`);
@@ -90,17 +106,7 @@ export default function CampaignReview() {
 
       setCandidates(parsedCandidates);
 
-      const stats: TierStats = { tier1: 0, tier2: 0, tier3: 0, readyCount: 0, needsEnrichment: 0 };
-      parsedCandidates.forEach((c) => {
-        const tier = c.tier || (c.unified_score?.startsWith("A") ? 1 : c.unified_score?.startsWith("B") ? 2 : 3);
-        if (tier === 1) stats.tier1++; else if (tier === 2) stats.tier2++; else stats.tier3++;
-        // FIX: Use OR instead of AND - candidate is ready if they have email OR phone
-        const hasContact = (c.email || c.personal_email) || (c.phone || c.personal_mobile);
-        if (hasContact) stats.readyCount++; else stats.needsEnrichment++;
-      });
-      setTierStats(stats);
-
-      // FIX: Check campaign_channels first (from SequenceStudio), then fallback to older keys
+      // Load channel config
       const storedCampaignChannels = sessionStorage.getItem("campaign_channels");
       const storedChannels = sessionStorage.getItem("channelConfig");
       const legacyChannels = sessionStorage.getItem("channels");
@@ -109,7 +115,6 @@ export default function CampaignReview() {
       if (storedCampaignChannels) {
         try { 
           const modern = JSON.parse(storedCampaignChannels);
-          // Transform modern format to expected ChannelConfig format
           if (modern.email) {
             channelConfig.email = { 
               sender: modern.email.sender || senderAccounts[0].emails[0], 
@@ -154,11 +159,9 @@ export default function CampaignReview() {
   };
 
   const handleStartOver = () => {
-    ["campaign_job", "campaign_job_id", "campaign_candidates", "campaign_candidate_ids", "channelConfig", "selectedCandidates", "channels"].forEach(k => sessionStorage.removeItem(k));
+    ["campaign_job", "campaign_job_id", "campaign_candidates", "campaign_candidate_ids", "channelConfig", "selectedCandidates", "channels", "campaign_channels"].forEach(k => sessionStorage.removeItem(k));
     navigate("/campaigns/new");
   };
-
-  const handleBack = () => navigate("/campaigns/new/channels");
 
   const handleCandidatesUpdate = (updatedCandidates: SelectedCandidate[]) => {
     setCandidates(updatedCandidates);
@@ -170,27 +173,184 @@ export default function CampaignReview() {
     if (details) setIntegrationDetails(details);
   };
 
-  if (isLoading) return <div className="flex items-center justify-center min-h-[60vh]"><div className="text-center"><Loader2 className="h-12 w-12 animate-spin text-primary mx-auto mb-4" /><p className="text-muted-foreground">Loading campaign data...</p></div></div>;
+  // Calculate step statuses
+  const stepStatuses = useMemo(() => {
+    const verify: StepStatus = job ? "complete" : "pending";
+    
+    let candidatesStatus: StepStatus = "pending";
+    if (candidates.length > 0) {
+      if (tierStats.needsEnrichment === 0) {
+        candidatesStatus = "complete";
+      } else {
+        candidatesStatus = "blocked";
+      }
+    }
 
-  if (!jobId || candidates.length === 0) return <div className="flex items-center justify-center min-h-[60vh]"><div className="text-center max-w-md"><h2 className="text-xl font-semibold text-foreground mb-2">No Campaign Data</h2><p className="text-muted-foreground mb-4">Please start from the beginning.</p><button onClick={handleStartOver} className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90">Start New Campaign</button></div></div>;
+    let channelsStatus: StepStatus = "pending";
+    const hasChannels = Object.keys(channels).some(k => channels[k as keyof ChannelConfig]);
+    if (hasChannels) {
+      channelsStatus = integrationsConnected ? "complete" : "blocked";
+    }
 
-  return (
-    <div className="container max-w-6xl mx-auto py-6 space-y-6">
-      <CampaignHeader campaignName={campaignName} onCampaignNameChange={setCampaignName} onStartOver={handleStartOver} onBack={handleBack} />
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="space-y-6">
-          <CampaignSummaryCard job={job} candidateCount={candidates.length} tierStats={tierStats} channels={channels} />
-          <IntegrationStatus channels={channels} senderEmail={senderEmail} onStatusChange={handleIntegrationStatusChange} />
-        </div>
-        <div className="space-y-6">
-          <EnrichmentPanel candidates={candidates} jobId={jobId} onCandidatesUpdate={handleCandidatesUpdate} />
-          <PersonalizationPanel jobId={jobId} candidates={candidates} onCandidatesUpdate={handleCandidatesUpdate} />
-        </div>
-        <div className="space-y-6">
-          <QualityGate jobId={jobId} campaignName={campaignName} candidates={candidates} channels={channels} senderEmail={senderEmail} integrationsConnected={integrationsConnected} integrationDetails={integrationDetails} onResultChange={setQualityResult} />
-          <LaunchControl jobId={jobId} campaignName={campaignName} candidates={candidates} channels={channels} senderEmail={senderEmail} qualityResult={qualityResult} integrationsConnected={integrationsConnected} />
+    const preview: StepStatus = candidates.length > 0 ? "complete" : "pending";
+
+    return { verify, candidates: candidatesStatus, channels: channelsStatus, preview };
+  }, [job, candidates, tierStats, channels, integrationsConnected]);
+
+  // Calculate blockers
+  const blockers = useMemo(() => {
+    const list: Blocker[] = [];
+    
+    if (!job) {
+      list.push({ step: 1, message: "No job selected" });
+    }
+    if (candidates.length === 0) {
+      list.push({ step: 2, message: "No candidates selected" });
+    } else if (tierStats.needsEnrichment > 0) {
+      list.push({ step: 2, message: `${tierStats.needsEnrichment} candidates missing contact info` });
+    }
+    if (!integrationsConnected && Object.keys(channels).some(k => channels[k as keyof ChannelConfig])) {
+      const disconnected = integrationDetails.filter(i => i.status === 'disconnected' || (!i.connected && i.status !== 'manual')).map(i => i.name);
+      if (disconnected.length > 0) {
+        list.push({ step: 3, message: `${disconnected.join(", ")} disconnected` });
+      }
+    }
+
+    return list;
+  }, [job, candidates, tierStats, channels, integrationsConnected, integrationDetails]);
+
+  // Collapsed summaries
+  const getVerifySummary = () => {
+    if (!job) return "";
+    const rate = job.hourly_rate || job.bill_rate || job.pay_rate;
+    return `${job.specialty || job.job_name || "Position"} @ ${job.facility_name || "Facility"}${rate ? ` - $${rate}/hr` : ""}`;
+  };
+
+  const getCandidatesSummary = () => {
+    return `${candidates.length} candidates · ${tierStats.readyCount} ready to contact`;
+  };
+
+  const getChannelsSummary = () => {
+    const activeChannels = Object.keys(channels).filter(k => channels[k as keyof ChannelConfig]);
+    return activeChannels.length > 0 ? `${activeChannels.length} channels connected` : "No channels";
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="text-center">
+          <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto mb-4" />
+          <p className="text-muted-foreground">Loading campaign data...</p>
         </div>
       </div>
+    );
+  }
+
+  if (!jobId || candidates.length === 0) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="text-center max-w-md">
+          <h2 className="text-xl font-semibold text-foreground mb-2">No Campaign Data</h2>
+          <p className="text-muted-foreground mb-4">Please start from the beginning to create a campaign.</p>
+          <Button onClick={handleStartOver}>Start New Campaign</Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen pb-32">
+      <div className="container max-w-4xl mx-auto py-6 space-y-6">
+        {/* Header */}
+        <div className="flex items-center justify-between">
+          <div className="space-y-1">
+            <h1 className="text-2xl font-bold text-foreground">Review & Launch</h1>
+            <Input
+              value={campaignName}
+              onChange={(e) => setCampaignName(e.target.value)}
+              className="text-lg font-medium bg-transparent border-none px-0 h-auto focus-visible:ring-0 text-muted-foreground hover:text-foreground"
+              placeholder="Campaign name..."
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" size="sm" onClick={() => navigate("/campaigns/new/channels")}>
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back
+            </Button>
+            <Button variant="outline" size="sm" onClick={handleStartOver}>
+              <RotateCcw className="h-4 w-4 mr-2" />
+              Start Over
+            </Button>
+          </div>
+        </div>
+
+        {/* Step 1: Verify Campaign */}
+        <ReviewStepCard
+          stepNumber={1}
+          title="Verify Campaign"
+          status={stepStatuses.verify}
+          collapsedSummary={getVerifySummary()}
+          defaultOpen={stepStatuses.verify !== "complete"}
+        >
+          <StepVerifyCampaign job={job} channels={channels} campaignName={campaignName} />
+        </ReviewStepCard>
+
+        {/* Step 2: Prepare Candidates */}
+        <ReviewStepCard
+          stepNumber={2}
+          title="Prepare Candidates"
+          subtitle={tierStats.needsEnrichment > 0 ? `${tierStats.needsEnrichment} candidates need contact info` : undefined}
+          status={stepStatuses.candidates}
+          collapsedSummary={getCandidatesSummary()}
+          defaultOpen={stepStatuses.candidates !== "complete"}
+          autoCollapseOnComplete={true}
+        >
+          <StepPrepareCandidates
+            candidates={candidates}
+            tierStats={tierStats}
+            jobId={jobId}
+            onCandidatesUpdate={handleCandidatesUpdate}
+          />
+        </ReviewStepCard>
+
+        {/* Step 3: Connect Channels */}
+        <ReviewStepCard
+          stepNumber={3}
+          title="Connect Channels"
+          status={stepStatuses.channels}
+          collapsedSummary={getChannelsSummary()}
+          defaultOpen={stepStatuses.channels !== "complete"}
+        >
+          <StepConnectChannels
+            channels={channels}
+            senderEmail={senderEmail}
+            onStatusChange={handleIntegrationStatusChange}
+          />
+        </ReviewStepCard>
+
+        {/* Step 4: Preview Message */}
+        <ReviewStepCard
+          stepNumber={4}
+          title="Preview Message"
+          status={stepStatuses.preview}
+          defaultOpen={false}
+          autoCollapseOnComplete={false}
+        >
+          <StepPreviewMessage candidates={candidates} />
+        </ReviewStepCard>
+      </div>
+
+      {/* Launch Status Bar */}
+      <LaunchStatusBar
+        jobId={jobId}
+        campaignName={campaignName}
+        candidates={candidates}
+        channels={channels}
+        senderEmail={senderEmail}
+        blockers={blockers}
+        qualityResult={qualityResult}
+        integrationsConnected={integrationsConnected}
+      />
     </div>
   );
 }

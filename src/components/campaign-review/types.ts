@@ -6,6 +6,8 @@ export interface Job {
   city?: string;
   state?: string;
   bill_rate?: number | null;
+  hourly_rate?: number | null;
+  pay_rate?: number | null;
   start_date?: string | null;
 }
 
@@ -87,10 +89,12 @@ export interface QualityCheckResult {
 
 export interface IntegrationStatus {
   name: string;
-  type: 'email' | 'sms' | 'voice' | 'linkedin';
-  status: 'connected' | 'disconnected' | 'checking' | 'manual';
+  type?: 'email' | 'sms' | 'voice' | 'linkedin';
+  status?: 'connected' | 'disconnected' | 'checking' | 'manual';
+  connected?: boolean;
   details?: string;
   account?: string;
+  error?: string;
 }
 
 export interface TierStats {
