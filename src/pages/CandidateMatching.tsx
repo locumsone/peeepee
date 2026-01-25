@@ -26,6 +26,15 @@ import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { ResearchInsights } from "@/components/candidates/ResearchInsights";
 
+// Connection object from personalization engine
+interface ConnectionMatch {
+  priority: number;
+  fact: string;
+  benefit: string;
+  line: string;
+  smsLine: string;
+}
+
 interface Candidate {
   id: string;
   first_name: string;
@@ -75,6 +84,9 @@ interface Candidate {
   is_local?: boolean;
   has_job_state_license?: boolean;
   priority_tier?: string;
+  // Connection engine fields
+  connection?: ConnectionMatch | null;
+  sms_hook?: string | null;
 }
 
 interface SummaryData {
@@ -698,6 +710,9 @@ const CandidateMatching = () => {
             verified_specialty: result.verified_specialty || c.verified_specialty,
             verified_licenses: result.verified_licenses || c.verified_licenses,
             from_cache: result.from_cache || false,
+            // NEW: Save connection engine data for email/SMS generation
+            connection: result.connection || c.connection,
+            sms_hook: result.sms_hook || c.sms_hook,
           };
         }));
         
