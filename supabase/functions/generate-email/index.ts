@@ -288,6 +288,43 @@ Deno.serve(async (req) => {
     const contractType = playbook.position?.contract_type || "locums";
     const specialty = job.specialty || candidate.specialty || "Physician";
     
+    // Abbreviate specialty for subject line (doctors know these abbreviations)
+    const getSpecialtyAbbrev = (spec: string): string => {
+      const abbrevMap: Record<string, string> = {
+        'interventional radiology': 'IR',
+        'diagnostic radiology': 'DR',
+        'emergency medicine': 'EM',
+        'internal medicine': 'IM',
+        'family medicine': 'FM',
+        'obstetrics and gynecology': 'OB/GYN',
+        'anesthesiology': 'Anesthesia',
+        'hospitalist': 'Hospitalist',
+        'psychiatry': 'Psych',
+        'orthopedic surgery': 'Ortho',
+        'general surgery': 'Surgery',
+        'cardiology': 'Cards',
+        'gastroenterology': 'GI',
+        'pulmonology': 'Pulm',
+        'nephrology': 'Nephro',
+        'neurology': 'Neuro',
+        'oncology': 'Onc',
+        'urology': 'Uro',
+      };
+      const lower = spec.toLowerCase();
+      for (const [full, abbrev] of Object.entries(abbrevMap)) {
+        if (lower.includes(full)) return abbrev;
+      }
+      // Return first word if no match (e.g., "Pediatrics" -> "Pediatrics")
+      return spec.split(' ')[0];
+    };
+    const specialtyAbbrev = getSpecialtyAbbrev(specialty);
+    
+    // Pre-compute the EXACT subject line - AI must use this verbatim
+    const callBenefit = callStatus.toLowerCase().includes('no call') || callStatus.toLowerCase().includes('zero') 
+      ? 'No Call' 
+      : schedule.split(' ')[0] || 'M-F';
+    const preComputedSubject = `${hourlyRate}/hr ${specialtyAbbrev} ${locationCity} - ${callBenefit}`;
+    
     // Derive facility description from trauma_level
     const getFacilityDescription = (): string => {
       if (traumaLevel === "None") return facilityType || "Non-trauma hospital";
@@ -338,33 +375,15 @@ CRITICAL: When describing the facility, use the FACILITY DATA fields exactly as 
    - Never invent teaching affiliations, trauma designations, or clinical details
    - If data is missing, omit it rather than guess
 
-=== SUBJECT LINE (MANDATORY FORMAT) ===
+=== SUBJECT LINE (USE THIS EXACT STRING - DO NOT MODIFY) ===
 
-YOUR SUBJECT LINE MUST BE EXACTLY THIS FORMAT:
-"${hourlyRate}/hr ${specialty} ${locationCity} - ${callStatus.toLowerCase().includes('no call') || callStatus.toLowerCase().includes('zero') ? 'No Call' : schedule}"
+YOUR SUBJECT LINE MUST BE EXACTLY: "${preComputedSubject}"
 
-Format: RATE + SPECIALTY + CITY + BENEFIT
+COPY THAT STRING EXACTLY INTO YOUR JSON RESPONSE. DO NOT CHANGE IT.
+DO NOT add candidate names, DO NOT use full specialty names, DO NOT rearrange.
 
-Examples of GOOD subject lines (what doctors actually open):
-- "$485/hr IR Lakewood - No Call"
-- "$520/hr Anesthesia Phoenix - M-F Only"  
-- "$500/hr EM Boston - Zero Call"
-- "$475/hr Hospitalist Denver - No Nights"
-
-Examples of BAD subject lines (get deleted immediately):
-- "Dr. Thomson - IR Ca ZERO CALL" (no rate = deleted)
-- "Lakewood Interventional Radiology - ZERO CALL" (too long, no rate)
-- "Exciting IR Opportunity in California" (recruiter spam)
-- "Quick question about your availability" (scam vibes)
-
-RULES:
-- RATE MUST BE FIRST - doctors scan for pay immediately
-- SPECIALTY after rate - so they know it's relevant to them
-- Under 50 characters total
-- City name, not state abbreviation
-- One key differentiator (No Call, M-F, Zero Call, No Nights)
-- NO: opportunity, exciting, reaching out, thought of you
-- NO question marks or exclamation points
+The subject line "${preComputedSubject}" is pre-computed and optimized.
+Just use it verbatim in your response.
 
 === END CRITICAL RULES ===
 
