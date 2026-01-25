@@ -69,6 +69,13 @@ interface Job {
   state?: string;
   bill_rate?: number;
   pay_rate?: number;
+  schedule?: string;
+  call_status?: string;
+  cred_days?: number;
+  procedures?: string[];
+  rvu_target?: string;
+  shift_type?: string;
+  facility_type?: string;
 }
 
 interface SelectedCandidate {
@@ -76,6 +83,8 @@ interface SelectedCandidate {
   first_name?: string;
   last_name?: string;
   specialty?: string;
+  city?: string;
+  state?: string;
   email?: string;
   personal_email?: string;
   phone?: string;
@@ -98,9 +107,19 @@ interface SequenceStep {
   content: string;
   enabled: boolean;
   fromPersonalization?: boolean;
+  angle?: string; // Psychological angle for follow-ups
 }
 
+// Angle labels for display
+const ANGLE_LABELS: Record<string, { label: string; color: string }> = {
+  'clinical_scope': { label: 'Clinical', color: 'bg-blue-500/10 text-blue-600 border-blue-500/30' },
+  'lifestyle': { label: 'Lifestyle', color: 'bg-green-500/10 text-green-600 border-green-500/30' },
+  'curiosity': { label: 'Curiosity', color: 'bg-amber-500/10 text-amber-600 border-amber-500/30' },
+  'breakup_resource': { label: 'Breakup', color: 'bg-purple-500/10 text-purple-600 border-purple-500/30' },
+};
+
 // Default sequence steps - SMS only on Day 1 to prevent spam
+// Each follow-up day has a DIFFERENT psychological angle
 const DEFAULT_SEQUENCE: SequenceStep[] = [
   {
     id: "step-1",
@@ -129,8 +148,8 @@ const DEFAULT_SEQUENCE: SequenceStep[] = [
     subject: "",
     content: "",
     enabled: true,
+    angle: "clinical_scope", // "What will I actually do?"
   },
-  // Day 5 email instead of SMS to prevent spam
   {
     id: "step-4",
     day: 5,
@@ -139,6 +158,7 @@ const DEFAULT_SEQUENCE: SequenceStep[] = [
     subject: "",
     content: "",
     enabled: true,
+    angle: "lifestyle", // "Will this fit my life?"
   },
   {
     id: "step-5",
@@ -148,10 +168,21 @@ const DEFAULT_SEQUENCE: SequenceStep[] = [
     subject: "",
     content: "",
     enabled: true,
+    angle: "curiosity", // "Am I missing something?"
   },
   {
     id: "step-6",
-    day: 10,
+    day: 14,
+    channel: "email",
+    type: "followup",
+    subject: "",
+    content: "",
+    enabled: true,
+    angle: "breakup_resource", // "Can this person help me later?"
+  },
+  {
+    id: "step-7",
+    day: 21,
     channel: "call",
     type: "initial",
     content: "AI-powered outreach call with ARIA",
@@ -376,6 +407,18 @@ export default function SequenceStudio() {
     }, 400);
     
     try {
+      // Get playbook data from sessionStorage for enhanced job info
+      const storedPlaybook = sessionStorage.getItem("campaign_playbook_data");
+      let playbookData = null;
+      
+      if (storedPlaybook) {
+        try {
+          playbookData = JSON.parse(storedPlaybook);
+        } catch (e) {
+          console.error("Failed to parse stored playbook:", e);
+        }
+      }
+      
       const { data, error } = await supabase.functions.invoke('generate-sequence', {
         body: {
           job_id: jobId,
@@ -387,6 +430,8 @@ export default function SequenceStudio() {
             first_name: previewCandidate.first_name,
             last_name: previewCandidate.last_name,
             specialty: previewCandidate.specialty,
+            city: previewCandidate.city,
+            state: previewCandidate.state,
           },
           job: {
             specialty: job.specialty,
@@ -394,7 +439,15 @@ export default function SequenceStudio() {
             city: job.city,
             state: job.state,
             pay_rate: payRate,
+            schedule: job.schedule,
+            call_status: job.call_status,
+            cred_days: job.cred_days,
+            procedures: job.procedures,
+            rvu_target: job.rvu_target,
+            shift_type: job.shift_type,
+            facility_type: job.facility_type,
           },
+          playbook_data: playbookData,
         },
       });
       
@@ -439,52 +492,90 @@ export default function SequenceStudio() {
     }
   };
   
-  // Fallback sequence generation
+  // Fallback sequence generation with psychological angles
   const generateFallbackSequence = () => {
+    const lastName = previewCandidate?.last_name || 'Doctor';
+    const location = `${job?.city}, ${job?.state}`.replace(/^, |, $/g, '');
+    const facilityName = job?.facility_name || 'the facility';
+    const specialty = job?.specialty || 'locum tenens';
+    
     setSequenceSteps(prev => prev.map(step => {
       if (step.type !== 'followup' || step.channel === 'call') return step;
       
-      const lastName = previewCandidate?.last_name || 'Doctor';
-      
+      // Day 3: Clinical Scope ("What will I do?")
       if (step.day === 3 && step.channel === 'email') {
         return {
           ...step,
-          subject: `Following up - ${job?.specialty} in ${job?.state || 'your area'}`,
+          subject: `Clinical scope at ${facilityName}`.substring(0, 55),
           content: `Dr. ${lastName},
 
-Just following up on my previous note about the ${job?.specialty} opportunity at ${job?.facility_name || 'the facility'}.
+Following up on the ${specialty} opportunity in ${job?.city}.
 
-The $${payRate}/hr rate is still available. Would 10 minutes work this week to discuss?
+Daily case mix includes:
+• Primary patient care
+• Consultation services  
+• Documentation
+• Care coordination
 
-Best,`,
+Sustainable daily volume, manageable schedule. The $${payRate}/hr rate is still available.
+
+Happy to walk through the case distribution if helpful.`,
+          angle: 'clinical_scope',
         };
       }
       
+      // Day 5: Lifestyle ("Will it fit my life?")
       if (step.day === 5 && step.channel === 'email') {
         return {
           ...step,
-          subject: `Quick check - ${job?.specialty} at $${payRate}/hr`,
+          subject: `Schedule flexibility in ${job?.city}`.substring(0, 55),
           content: `Dr. ${lastName},
 
-Wanted to circle back on the ${job?.specialty} opportunity in ${job?.city}, ${job?.state}.
+Circling back on the ${location} ${specialty} locums role.
 
-Happy to share more details whenever convenient. Let me know if timing works better next week.
+What works for most physicians here:
+• Flexible scheduling
+• No hospital politics, no admin burden
 
-Best,`,
+$${payRate}/hr if timing makes sense. Happy to answer questions about the clinical environment.`,
+          angle: 'lifestyle',
         };
       }
       
+      // Day 7: Curiosity ("Am I missing something?")
       if (step.day === 7 && step.channel === 'email') {
         return {
           ...step,
-          subject: `Final check-in - ${job?.specialty} opportunity`,
+          subject: `Quick question - ${specialty} in ${job?.state}`.substring(0, 55),
           content: `Dr. ${lastName},
 
-Last note on the ${job?.specialty} position in ${job?.city}, ${job?.state}. The $${payRate}/hr opportunity is still open if your situation has changed.
+I realize I've sent a few notes about the ${specialty} position at ${facilityName}.
 
-Happy to share details whenever convenient.
+Curious if timing isn't right, or if there's something specific about the role that doesn't fit what you're looking for?
+
+Either way, the $${payRate}/hr opportunity remains open. Happy to discuss or step back if you'd prefer.`,
+          angle: 'curiosity',
+        };
+      }
+      
+      // Day 14: Breakup/Resource ("Can this person help me later?")
+      if (step.day === 14 && step.channel === 'email') {
+        return {
+          ...step,
+          subject: `Closing the loop - ${specialty} opportunity`.substring(0, 55),
+          content: `Dr. ${lastName},
+
+I'll assume the timing isn't right for the ${job?.city} opportunity and won't follow up further on this role.
+
+That said—if you ever want to discuss:
+• Current ${specialty} locums rates by region
+• Market conditions for ${specialty.toLowerCase()}
+• Credentialing timelines in specific states
+
+Feel free to reach out anytime. No pitch, just information.
 
 Best,`,
+          angle: 'breakup_resource',
         };
       }
       

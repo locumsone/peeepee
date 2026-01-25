@@ -13,7 +13,16 @@ interface SequenceStep {
   content: string;
   enabled: boolean;
   fromPersonalization?: boolean;
+  angle?: string;
 }
+
+// Angle labels for display
+const ANGLE_LABELS: Record<string, { label: string; color: string }> = {
+  'clinical_scope': { label: 'Clinical', color: 'bg-blue-500/10 text-blue-600 border-blue-500/30' },
+  'lifestyle': { label: 'Lifestyle', color: 'bg-green-500/10 text-green-600 border-green-500/30' },
+  'curiosity': { label: 'Curiosity', color: 'bg-amber-500/10 text-amber-600 border-amber-500/30' },
+  'breakup_resource': { label: 'Breakup', color: 'bg-purple-500/10 text-purple-600 border-purple-500/30' },
+};
 
 interface SequenceTimelineProps {
   steps: SequenceStep[];
@@ -139,6 +148,14 @@ export function SequenceTimeline({
                         {step.type === 'initial' && step.fromPersonalization && (
                           <Badge variant="secondary" className="text-[10px] px-1.5 py-0 bg-green-500/10 text-green-600 border-green-500/30">
                             From Step 3
+                          </Badge>
+                        )}
+                        {step.angle && ANGLE_LABELS[step.angle] && (
+                          <Badge 
+                            variant="secondary" 
+                            className={cn("text-[10px] px-1.5 py-0 border", ANGLE_LABELS[step.angle].color)}
+                          >
+                            {ANGLE_LABELS[step.angle].label}
                           </Badge>
                         )}
                         {isCall && (
