@@ -82,12 +82,12 @@ interface PlaybookContext {
  * Returns the STRONGEST connection (lowest priority number wins)
  * 
  * Priority Order:
- * 1. State license → fastest start
- * 2. IMLC eligibility → expedited multi-state
- * 3. Trauma center → non-trauma lifestyle upgrade
- * 4. Academic → community simplicity
- * 5. Employed → locums premium
- * 6. Already local → no relocation
+ * 1. Already local → most personal, no relocation
+ * 2. Trauma center → non-trauma lifestyle upgrade
+ * 3. Academic → community simplicity
+ * 4. State license → fastest start
+ * 5. IMLC eligibility → expedited multi-state
+ * 6. Employed → locums premium
  * 7. Multi-state + zero call → sustainable locums
  * 8. Recent fellowship → board eligible accepted
  */
@@ -140,10 +140,24 @@ function buildConnectionIcebreaker(
   const traumaLevel = playbook?.position?.trauma_level;
   const facilityType = playbook?.position?.facility_type || '';
   
-  // Priority 1: State license (fastest start - most actionable)
-  if (candidate.licenses?.some(l => l.toUpperCase() === job.state?.toUpperCase())) {
+  // Priority 1: Already local (most personal - no relocation needed)
+  const isLocalState = candidate.state?.toUpperCase() === job.state?.toUpperCase();
+  const isLocalCity = candidate.city?.toLowerCase() === job.city?.toLowerCase();
+  
+  if ((isLocalState || isLocalCity) && candidate.city) {
     connections.push({
       priority: 1,
+      fact: 'already local',
+      benefit: 'no relocation',
+      line: `You're already in ${candidate.city}—no relocation, just ${hourlyRate || 'better'} compensation.`,
+      smsLine: `Already in ${candidate.city}, no relocation.`
+    });
+  }
+  
+  // Priority 4: State license (fastest start)
+  if (candidate.licenses?.some(l => l.toUpperCase() === job.state?.toUpperCase())) {
+    connections.push({
+      priority: 4,
       fact: `${job.state} license`,
       benefit: `${credDays}-day start`,
       line: `Your ${job.state} license means ${credDays}-day start vs 6+ months for out-of-state physicians.`,
@@ -151,10 +165,10 @@ function buildConnectionIcebreaker(
     });
   }
   
-  // Priority 2: IMLC membership (expedited multi-state)
+  // Priority 5: IMLC membership (expedited multi-state)
   if ((candidate.licenses?.length || 0) >= 10) {
     connections.push({
-      priority: 2,
+      priority: 5,
       fact: 'IMLC eligibility',
       benefit: 'priority credentialing',
       line: `Your IMLC eligibility = priority credentialing in ${job.state} and surrounding states.`,
@@ -162,7 +176,7 @@ function buildConnectionIcebreaker(
     });
   }
   
-  // Priority 3: Trauma center -> Non-trauma (lifestyle upgrade)
+  // Priority 2: Trauma center -> Non-trauma (lifestyle upgrade)
   // Check both research text AND known trauma center names
   const candidateEmployer = (candidate.company_name || '').toLowerCase();
   const researchText = (research || '').toLowerCase();
@@ -179,7 +193,7 @@ function buildConnectionIcebreaker(
     
   if (worksAtTrauma && (traumaLevel === 'None' || traumaLevel?.toLowerCase() === 'non-trauma')) {
     connections.push({
-      priority: 3,
+      priority: 2,
       fact: 'trauma center experience',
       benefit: 'non-trauma pace',
       line: `After trauma center intensity, a non-trauma ${callStatus || 'schedule'} with ${hourlyRate || 'premium'} compensation could be refreshing.`,
@@ -187,7 +201,7 @@ function buildConnectionIcebreaker(
     });
   }
   
-  // Priority 4: Academic -> Community simplicity
+  // Priority 3: Academic -> Community simplicity
   const worksAcademic = researchText.includes('academic') ||
                         researchText.includes('teaching') ||
                         researchText.includes('university') ||
@@ -195,7 +209,7 @@ function buildConnectionIcebreaker(
                         candidateEmployer.includes('academic');
   if (worksAcademic && facilityType?.toLowerCase().includes('community')) {
     connections.push({
-      priority: 4,
+      priority: 3,
       fact: 'academic center experience',
       benefit: 'community hospital simplicity',
       line: `After academic bureaucracy, community hospital pace might feel refreshing.`,
@@ -203,10 +217,10 @@ function buildConnectionIcebreaker(
     });
   }
   
-  // Priority 5: Currently employed -> Locums pays more
+  // Priority 6: Currently employed -> Locums pays more
   if (candidate.company_name && hourlyRate) {
     connections.push({
-      priority: 5,
+      priority: 6,
       fact: 'employed position',
       benefit: 'locums premium',
       line: `Your employed ${candidate.specialty || 'physician'} skills are worth ${hourlyRate}/hr in locums—currently capturing that?`,
@@ -214,19 +228,7 @@ function buildConnectionIcebreaker(
     });
   }
   
-  // Priority 6: Already local (no relocation) - check both state AND city
-  const isLocalState = candidate.state?.toUpperCase() === job.state?.toUpperCase();
-  const isLocalCity = candidate.city?.toLowerCase() === job.city?.toLowerCase();
-  
-  if ((isLocalState || isLocalCity) && candidate.city) {
-    connections.push({
-      priority: 6,
-      fact: 'already local',
-      benefit: 'no relocation',
-      line: `You're already in ${candidate.city}—no relocation, just ${hourlyRate || 'better'} compensation.`,
-      smsLine: `Already in ${candidate.city}, no relocation.`
-    });
-  }
+  // (Already Local moved to Priority 1 above)
   
   // Priority 7: Multi-state + zero call (sustainable locums)
   if ((candidate.licenses?.length || 0) >= 5 && callStatus?.toLowerCase().includes('no call')) {
