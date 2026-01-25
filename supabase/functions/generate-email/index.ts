@@ -356,14 +356,24 @@ Deno.serve(async (req) => {
     // Select benefit based on candidate hash
     const selectedBenefit = benefitPool[candidateHash % benefitPool.length];
     
-    // Subject line format templates - 6 variations
+    // Subject line format templates - 8 variations with engagement hooks
+    // These drive opens by creating curiosity while keeping clinical credibility
     const subjectFormats = [
-      `${hourlyRate}/hr ${specialtyAbbrev} ${locationCity} - ${selectedBenefit}`,     // Rate first
-      `${specialtyAbbrev} ${locationCity} - ${hourlyRate}/hr ${selectedBenefit}`,     // Specialty first
-      `${locationCity} ${specialtyAbbrev} - ${hourlyRate} + ${selectedBenefit}`,      // City first
-      `${hourlyRate}/hr + ${selectedBenefit} - ${specialtyAbbrev} ${locationCity}`,   // Rate + Benefit first
-      `${specialtyAbbrev} ${selectedBenefit} - ${hourlyRate}/hr ${locationCity}`,     // Specialty + Benefit
-      `${locationCity}: ${hourlyRate}/hr ${specialtyAbbrev} (${selectedBenefit})`,    // City: format
+      // Soft question hooks (creates curiosity without being pushy)
+      `${specialtyAbbrev} in ${locationCity}? ${hourlyRate}/hr + ${selectedBenefit}`,
+      `Open to ${locationCity}? ${hourlyRate}/hr ${specialtyAbbrev} - ${selectedBenefit}`,
+      
+      // Availability/urgency hooks (subtle FOMO without being spammy)
+      `Still open: ${hourlyRate}/hr ${specialtyAbbrev} ${locationCity} - ${selectedBenefit}`,
+      `Now filling: ${specialtyAbbrev} ${locationCity} - ${hourlyRate}/hr ${selectedBenefit}`,
+      
+      // Direct value-first (leads with what matters to them)
+      `${hourlyRate}/hr + ${selectedBenefit} - ${specialtyAbbrev} ${locationCity}`,
+      `${selectedBenefit} + ${hourlyRate}/hr - ${specialtyAbbrev} in ${locationCity}`,
+      
+      // Personal/targeted feel (makes it feel less mass-blast)
+      `For ${specialtyAbbrev} docs: ${hourlyRate}/hr ${locationCity} - ${selectedBenefit}`,
+      `Quick look? ${hourlyRate}/hr ${specialtyAbbrev} ${locationCity} (${selectedBenefit})`,
     ];
     
     // Select format based on candidate hash (different seed for variety)
