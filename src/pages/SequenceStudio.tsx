@@ -432,10 +432,25 @@ Best,`,
     
     try {
       if (activeStep.channel === 'email') {
+        // Get playbook data from sessionStorage (set in Personalization Studio)
+        const storedPlaybook = sessionStorage.getItem("campaign_playbook_data");
+        const campaignId = sessionStorage.getItem("campaign_id");
+        let playbookData = null;
+        
+        if (storedPlaybook) {
+          try {
+            playbookData = JSON.parse(storedPlaybook);
+          } catch (e) {
+            console.error("Failed to parse stored playbook:", e);
+          }
+        }
+        
         const { data, error } = await supabase.functions.invoke('generate-email', {
           body: {
             candidate_id: previewCandidate.id,
             job_id: jobId,
+            campaign_id: campaignId || undefined,
+            playbook_data: playbookData || undefined,
             template_type: activeStep.type === 'initial' ? 'initial' : 'followup',
             include_full_details: activeStep.type === 'initial',
           },
@@ -461,10 +476,25 @@ Best,`,
           toast.success("Generated email content");
         }
       } else if (activeStep.channel === 'sms') {
+        // Get playbook data from sessionStorage
+        const storedPlaybook = sessionStorage.getItem("campaign_playbook_data");
+        const campaignId = sessionStorage.getItem("campaign_id");
+        let playbookData = null;
+        
+        if (storedPlaybook) {
+          try {
+            playbookData = JSON.parse(storedPlaybook);
+          } catch (e) {
+            console.error("Failed to parse stored playbook:", e);
+          }
+        }
+        
         const { data, error } = await supabase.functions.invoke('generate-sms', {
           body: {
             candidate_id: previewCandidate.id,
             job_id: jobId,
+            campaign_id: campaignId || undefined,
+            playbook_data: playbookData || undefined,
             template_style: 'punchy',
           },
         });
