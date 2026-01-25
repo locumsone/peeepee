@@ -310,12 +310,18 @@ export default function SequenceStudio() {
     fetchJob();
   }, [navigate]);
   
-  // *** FIX: Update sequence steps when preview candidate changes ***
+  // *** FIX: Update ALL sequence steps when preview candidate changes ***
   useEffect(() => {
-    if (!previewCandidate) return;
+    if (!previewCandidate || !job) return;
     
-    // Update Day 1 steps with selected candidate's personalized content
+    const lastName = previewCandidate.last_name || 'Doctor';
+    const location = `${job?.city}, ${job?.state}`.replace(/^, |, $/g, '');
+    const facilityName = job?.facility_name || 'the facility';
+    const specialty = job?.specialty || 'locum tenens';
+    
+    // Update ALL steps with selected candidate's data
     setSequenceSteps(prev => prev.map(step => {
+      // Day 1 Email
       if (step.id === 'step-1' && step.channel === 'email') {
         return { 
           ...step, 
@@ -324,6 +330,7 @@ export default function SequenceStudio() {
           fromPersonalization: !!(previewCandidate.email_body),
         };
       }
+      // Day 1 SMS
       if (step.id === 'step-2' && step.channel === 'sms') {
         return { 
           ...step, 
@@ -331,9 +338,90 @@ export default function SequenceStudio() {
           fromPersonalization: !!(previewCandidate.sms_message),
         };
       }
+      
+      // Skip non-followup or call steps
+      if (step.type !== 'followup' || step.channel === 'call') return step;
+      
+      // Day 3: Clinical Scope ("What will I do?")
+      if (step.day === 3 && step.channel === 'email') {
+        return {
+          ...step,
+          subject: `Clinical scope at ${facilityName}`.substring(0, 55),
+          content: `Dr. ${lastName},
+
+Following up on the ${specialty} opportunity in ${job?.city}.
+
+Daily case mix includes:
+• Primary patient care
+• Consultation services  
+• Documentation
+• Care coordination
+
+Sustainable daily volume, manageable schedule. The $${payRate}/hr rate is still available.
+
+Happy to walk through the case distribution if helpful.`,
+          angle: 'clinical_scope',
+        };
+      }
+      
+      // Day 5: Lifestyle ("Will it fit my life?")
+      if (step.day === 5 && step.channel === 'email') {
+        return {
+          ...step,
+          subject: `Schedule flexibility in ${job?.city}`.substring(0, 55),
+          content: `Dr. ${lastName},
+
+Circling back on the ${location} ${specialty} locums role.
+
+What works for most physicians here:
+• Flexible scheduling
+• No hospital politics, no admin burden
+
+$${payRate}/hr if timing makes sense. Happy to answer questions about the clinical environment.`,
+          angle: 'lifestyle',
+        };
+      }
+      
+      // Day 7: Curiosity ("Am I missing something?")
+      if (step.day === 7 && step.channel === 'email') {
+        return {
+          ...step,
+          subject: `Quick question - ${specialty} in ${job?.state}`.substring(0, 55),
+          content: `Dr. ${lastName},
+
+I realize I've sent a few notes about the ${specialty} position at ${facilityName}.
+
+Curious if timing isn't right, or if there's something specific about the role that doesn't fit what you're looking for?
+
+Either way, the $${payRate}/hr opportunity remains open. Happy to discuss or step back if you'd prefer.`,
+          angle: 'curiosity',
+        };
+      }
+      
+      // Day 14: Breakup/Resource ("Can this person help me later?")
+      if (step.day === 14 && step.channel === 'email') {
+        return {
+          ...step,
+          subject: `Closing the loop - ${specialty} opportunity`.substring(0, 55),
+          content: `Dr. ${lastName},
+
+I'll assume the timing isn't right for the ${job?.city} opportunity and won't follow up further on this role.
+
+That said—if you ever want to discuss:
+• Current ${specialty} locums rates by region
+• Market conditions for ${specialty.toLowerCase()}
+• Credentialing timelines in specific states
+
+Feel free to reach out anytime. No pitch, just information.
+
+Best,`,
+          angle: 'breakup_resource',
+        };
+      }
+      
       return step;
     }));
-  }, [previewCandidate?.id]);
+  }, [previewCandidate?.id, job, payRate]);
   
   // Check if initial steps have content (from Step 3)
   const hasInitialContent = useMemo(() => {
