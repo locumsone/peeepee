@@ -5,6 +5,14 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+interface UserSignature {
+  full_name: string;
+  first_name: string;
+  title: string;
+  company: string;
+  phone?: string | null;
+}
+
 interface SMSRequest {
   candidate_id: string;
   job_id: string;
@@ -13,6 +21,7 @@ interface SMSRequest {
   personalization_hook?: string;
   custom_context?: string;
   playbook_data?: StructuredPlaybookCache; // Allow passing playbook directly
+  signature?: UserSignature; // User signature for SMS sign-off
 }
 
 // Structured Playbook Cache interface (matches the new format)
@@ -127,7 +136,12 @@ Deno.serve(async (req) => {
     });
 
     const body: SMSRequest = await req.json();
-    const { candidate_id, job_id, campaign_id, template_style = 'ca_license', personalization_hook, custom_context, playbook_data } = body;
+    const { candidate_id, job_id, campaign_id, template_style = 'ca_license', personalization_hook, custom_context, playbook_data, signature } = body;
+    
+    // Build SMS signature suffix (use provided or default)
+    const smsSignerName = signature?.first_name || 'Locums';
+    const smsSuffix = ` - ${smsSignerName}@Locums.one`;
+    console.log("Using SMS signature:", smsSuffix);
 
     // Get playbook from request body first, then try campaign
     let playbook: StructuredPlaybookCache | null = null;
@@ -284,7 +298,8 @@ ${differentiators ? `Key differentiator: ${differentiators.substring(0, 100)}` :
 ${hook ? `PERSONALIZATION HOOK: ${hook}` : ''}
 ${custom_context ? `CONTEXT: ${custom_context}` : ''}
 
-Keep SMS under 300 characters. Include "locums" signal.`;
+IMPORTANT: End EVERY SMS with "${smsSuffix}" as the signature.
+Keep SMS under 300 characters INCLUDING the signature. Include "locums" signal.`;
 
     // Template-based SMS generation (fallback)
     const generateFallbackSMS = () => {
@@ -382,11 +397,16 @@ Keep SMS under 300 characters. Include "locums" signal.`;
 
       const styleTemplates = templates[template_style] || templates.ca_license;
       
-      // Truncate each SMS to 300 chars
-      return styleTemplates.map(t => ({
-        sms: t.sms.substring(0, 300),
-        style: t.style
-      }));
+      // Append signature suffix and truncate each SMS to 300 chars
+      return styleTemplates.map(t => {
+        // Calculate available space for message (300 - signature length)
+        const maxMsgLength = 300 - smsSuffix.length;
+        const truncatedMsg = t.sms.substring(0, maxMsgLength);
+        return {
+          sms: truncatedMsg + smsSuffix,
+          style: t.style
+        };
+      });
     };
 
     // Try AI generation, fall back to templates
@@ -443,11 +463,19 @@ Keep SMS under 300 characters. Include "locums" signal.`;
         }
         
         if (Array.isArray(parsed) && parsed.length > 0 && parsed[0].sms) {
-          // Truncate each to 300 chars
-          smsOptions = parsed.map(opt => ({
-            sms: opt.sms.substring(0, 300),
-            style: opt.style || 'ai_generated'
-          }));
+          // Ensure signature is appended (AI may not have included it correctly)
+          smsOptions = parsed.map(opt => {
+            let sms = opt.sms;
+            // Only append signature if not already present
+            if (!sms.includes('@Locums.one')) {
+              const maxMsgLength = 300 - smsSuffix.length;
+              sms = sms.substring(0, maxMsgLength) + smsSuffix;
+            }
+            return {
+              sms: sms.substring(0, 300),
+              style: opt.style || 'ai_generated'
+            };
+          });
         } else {
           console.log("Invalid AI response format, using fallback");
           smsOptions = generateFallbackSMS();

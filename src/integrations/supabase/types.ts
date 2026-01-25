@@ -3375,6 +3375,42 @@ export type Database = {
           },
         ]
       }
+      user_signatures: {
+        Row: {
+          company: string
+          created_at: string
+          first_name: string
+          full_name: string
+          id: string
+          phone: string | null
+          title: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          company?: string
+          created_at?: string
+          first_name: string
+          full_name: string
+          id?: string
+          phone?: string | null
+          title?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          company?: string
+          created_at?: string
+          first_name?: string
+          full_name?: string
+          id?: string
+          phone?: string | null
+          title?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       users: {
         Row: {
           active: boolean | null
