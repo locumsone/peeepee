@@ -113,18 +113,18 @@ Generate follow-up messages that build on the initial outreach. Each follow-up s
 3. Get progressively shorter
 4. Never repeat the same information verbatim`;
 
-    const userPrompt = `Generate 3 follow-up messages for this campaign sequence:
+    const userPrompt = `Generate 3 follow-up EMAIL messages for this campaign sequence (no SMS to prevent spam):
 
 1. DAY 3 EMAIL FOLLOW-UP: Brief check-in referencing your initial email about the ${specialty} opportunity. 3-4 sentences max.
 
-2. DAY 5 SMS FOLLOW-UP: Short nudge (under 160 characters) that references your previous outreach.
+2. DAY 5 EMAIL FOLLOW-UP: Different angle - mention flexibility, scheduling, or ask if timing is better next week. 2-3 sentences.
 
 3. DAY 7 EMAIL FOLLOW-UP: Final professional note. 2-3 sentences. Closing window angle without being pushy.
 
 Return as JSON array with this structure:
 [
   { "day": 3, "channel": "email", "subject": "string under 50 chars", "content": "email body" },
-  { "day": 5, "channel": "sms", "content": "sms under 160 chars" },
+  { "day": 5, "channel": "email", "subject": "string under 50 chars", "content": "email body" },
   { "day": 7, "channel": "email", "subject": "string under 50 chars", "content": "email body" }
 ]
 
@@ -175,7 +175,7 @@ Use "Dr. ${candidate.last_name}" as the salutation. Do NOT include a signature -
       }
     }
 
-    // Fallback if AI failed or no API key
+    // Fallback if AI failed or no API key - ALL EMAILS, NO SMS
     if (sequenceSteps.length === 0) {
       sequenceSteps = [
         {
@@ -193,9 +193,16 @@ Best,`,
         },
         {
           day: 5,
-          channel: 'sms',
+          channel: 'email',
           type: 'followup',
-          content: `Dr. ${candidate.last_name}, quick follow-up on the ${job.state || ''} ${specialty} role at $${payRate}/hr. Still interested?`,
+          subject: `Quick check - ${specialty} at $${payRate}/hr`,
+          content: `Dr. ${candidate.last_name},
+
+Wanted to circle back on the ${specialty} opportunity in ${location}.
+
+Happy to share more details whenever convenient. Let me know if timing works better next week.
+
+Best,`,
         },
         {
           day: 7,
