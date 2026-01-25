@@ -5,6 +5,14 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+interface UserSignature {
+  full_name: string;
+  first_name: string;
+  title: string;
+  company: string;
+  phone?: string | null;
+}
+
 interface EmailRequest {
   candidate_id: string;
   job_id: string;
@@ -12,6 +20,7 @@ interface EmailRequest {
   personalization_hook?: string;
   custom_context?: string;
   playbook_data?: StructuredPlaybookCache; // Allow passing structured playbook directly
+  signature?: UserSignature; // User signature for email sign-off
 }
 
 // Structured Playbook Cache interface (matches the new format)
@@ -136,7 +145,18 @@ Deno.serve(async (req) => {
     });
 
     const body: EmailRequest = await req.json();
-    const { candidate_id, job_id, campaign_id, personalization_hook, custom_context, playbook_data } = body;
+    const { candidate_id, job_id, campaign_id, personalization_hook, custom_context, playbook_data, signature } = body;
+    
+    // Build signature block (use provided or default)
+    const sigFullName = signature?.full_name || 'Locums One';
+    const sigTitle = signature?.title || 'Clinical Consultant';
+    const sigCompany = signature?.company || 'Locums One';
+    const sigPhone = signature?.phone || null;
+    
+    let signatureBlock = `Best regards,\n${sigFullName}\n${sigTitle}\n${sigCompany}`;
+    if (sigPhone) {
+      signatureBlock += `\n${sigPhone}`;
+    }
 
     // Get playbook from request body first, then try campaign
     let playbook: StructuredPlaybookCache | null = null;
@@ -377,9 +397,9 @@ Why I'm reaching out to you specifically: [2-3 sentences connecting THEIR backgr
 
 [CLOSER: 15-minute offer + permission to decline + no pressure]
 
-Best regards,
-[Recruiter Name]
-Locums One`;
+${signatureBlock}`;
+
+    console.log("Using signature:", sigFullName, sigTitle, sigCompany);
 
     // Fallback email generator - clinical consultant style
     const generateFallbackEmail = () => {
@@ -410,8 +430,7 @@ ${credentialingDays ? `Credentialing: ${credentialingDays} days with your ${hasJ
 
 Worth 15 minutes to discuss clinical fit? If it's not the right match, I'll tell you directly.
 
-Best regards,
-Locums One`;
+${signatureBlock}`;
 
       return { subject, body };
     };

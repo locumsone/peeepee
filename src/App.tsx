@@ -31,6 +31,7 @@ import Enrichment from "./pages/Enrichment";
 import SMSStudio from "./pages/SMSStudio";
 import EmailStudio from "./pages/EmailStudio";
 import PlaybookBuilder from "./pages/PlaybookBuilder";
+import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -79,6 +80,7 @@ const App = () => (
           <Route path="/email/studio" element={<AuthGuard><EmailStudio /></AuthGuard>} />
           <Route path="/playbook" element={<AuthGuard><PlaybookBuilder /></AuthGuard>} />
           <Route path="/enrichment" element={<AuthGuard><Enrichment /></AuthGuard>} />
+          <Route path="/settings" element={<AuthGuard><Settings /></AuthGuard>} />
           
           <Route path="*" element={<NotFound />} />
         </Routes>

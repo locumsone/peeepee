@@ -36,6 +36,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PlaybookCacheCard, StructuredPlaybookCache } from "@/components/playbook/PlaybookCacheCard";
+import { useUserSignature } from "@/hooks/useUserSignature";
 
 const steps = [
   { number: 1, label: "Job" },
@@ -111,6 +112,7 @@ function isStructuredCache(cache: any): cache is StructuredPlaybookCache {
 
 export default function PersonalizationStudio() {
   const navigate = useNavigate();
+  const { getSignatureData, hasSignature } = useUserSignature();
   
   const [jobId, setJobId] = useState<string | null>(null);
   const [job, setJob] = useState<Job | null>(null);
@@ -575,14 +577,18 @@ export default function PersonalizationStudio() {
               // Build playbook_data from cachedPlaybook if it's structured
               const structuredPlaybook = cachedPlaybook && isStructuredCache(cachedPlaybook) ? cachedPlaybook : undefined;
               
-              // Call edge function for email with structured playbook data
+              // Get user signature data for personalized sign-offs
+              const signatureData = getSignatureData();
+              
+              // Call edge function for email with structured playbook data and signature
               const { data: emailData, error: emailError } = await supabase.functions.invoke('generate-email', {
                 body: {
                   candidate_id: candidate.id,
                   job_id: jobId,
                   campaign_id: campaignId,
                   personalization_hook: candidate.personalization_hook,
-                  playbook_data: structuredPlaybook, // Pass structured playbook directly
+                  playbook_data: structuredPlaybook,
+                  signature: signatureData,
                 },
               });
               
@@ -590,14 +596,15 @@ export default function PersonalizationStudio() {
                 console.error("Email generation error:", emailError);
               }
               
-              // Call edge function for SMS with structured playbook data
+              // Call edge function for SMS with structured playbook data and signature
               const { data: smsData, error: smsError } = await supabase.functions.invoke('generate-sms', {
                 body: {
                   candidate_id: candidate.id,
                   job_id: jobId,
                   campaign_id: campaignId,
                   personalization_hook: candidate.personalization_hook,
-                  playbook_data: structuredPlaybook, // Pass structured playbook directly
+                  playbook_data: structuredPlaybook,
+                  signature: signatureData,
                 },
               });
               

@@ -31,7 +31,7 @@ export function UserMenu() {
   };
 
   const handleSettings = () => {
-    toast.info("Settings page coming soon");
+    navigate("/settings");
   };
 
   return (
