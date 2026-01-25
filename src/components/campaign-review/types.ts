@@ -52,6 +52,9 @@ export interface SelectedCandidate {
   email_subject?: string;
   email_body?: string;
   sms_message?: string;
+  enrichment_source?: string;
+  enriched_at?: string;
+  enrichment_tier?: string;
 }
 
 export interface PersonalizationHook {

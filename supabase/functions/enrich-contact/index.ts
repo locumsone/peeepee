@@ -228,6 +228,9 @@ Deno.serve(async (req) => {
       const updateData: Record<string, any> = {
         enrichment_source: result.source,
         last_enrichment_date: new Date().toISOString(),
+        enriched_at: new Date().toISOString(),
+        enrichment_tier: "Platinum",
+        enrichment_needed: false,
       };
       
       if (result.personal_email) updateData.personal_email = result.personal_email;

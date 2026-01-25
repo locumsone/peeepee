@@ -261,9 +261,14 @@ export function EnrichmentPanel({ candidates, jobId, onCandidatesUpdate }: Enric
 
                   <div className="flex items-center gap-2">
                     {status?.status === "success" && (
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-1.5">
                         {status.email && <Mail className="h-3.5 w-3.5 text-success" />}
                         {status.phone && <Phone className="h-3.5 w-3.5 text-success" />}
+                        {status.source && (
+                          <Badge variant="secondary" className="text-xs bg-success/20 text-success border-success/30">
+                            {status.source}
+                          </Badge>
+                        )}
                       </div>
                     )}
                     
