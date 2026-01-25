@@ -17,6 +17,7 @@ import type {
   SelectedCandidate,
   TierStats,
   QualityCheckResult,
+  IntegrationStatus as IntegrationStatusType,
 } from "@/components/campaign-review/types";
 
 const senderAccounts = [
@@ -37,6 +38,7 @@ export default function CampaignReview() {
     tier1: 0, tier2: 0, tier3: 0, readyCount: 0, needsEnrichment: 0,
   });
   const [integrationsConnected, setIntegrationsConnected] = useState(false);
+  const [integrationDetails, setIntegrationDetails] = useState<IntegrationStatusType[]>([]);
   const [qualityResult, setQualityResult] = useState<QualityCheckResult | null>(null);
 
   useEffect(() => {
@@ -91,16 +93,46 @@ export default function CampaignReview() {
       parsedCandidates.forEach((c) => {
         const tier = c.tier || (c.unified_score?.startsWith("A") ? 1 : c.unified_score?.startsWith("B") ? 2 : 3);
         if (tier === 1) stats.tier1++; else if (tier === 2) stats.tier2++; else stats.tier3++;
-        const hasContact = (c.email || c.personal_email) && (c.phone || c.personal_mobile);
+        // FIX: Use OR instead of AND - candidate is ready if they have email OR phone
+        const hasContact = (c.email || c.personal_email) || (c.phone || c.personal_mobile);
         if (hasContact) stats.readyCount++; else stats.needsEnrichment++;
       });
       setTierStats(stats);
 
+      // FIX: Check campaign_channels first (from SequenceStudio), then fallback to older keys
+      const storedCampaignChannels = sessionStorage.getItem("campaign_channels");
       const storedChannels = sessionStorage.getItem("channelConfig");
       const legacyChannels = sessionStorage.getItem("channels");
       let channelConfig: ChannelConfig = {};
 
-      if (storedChannels) {
+      if (storedCampaignChannels) {
+        try { 
+          const modern = JSON.parse(storedCampaignChannels);
+          // Transform modern format to expected ChannelConfig format
+          if (modern.email) {
+            channelConfig.email = { 
+              sender: modern.email.sender || senderAccounts[0].emails[0], 
+              sequenceLength: modern.email.steps?.length || 4, 
+              gapDays: 3 
+            };
+          }
+          if (modern.sms) {
+            channelConfig.sms = { 
+              fromNumber: modern.sms.fromNumber || "", 
+              sequenceLength: modern.sms.steps?.length || 1 
+            };
+          }
+          if (modern.aiCall) {
+            channelConfig.aiCall = { 
+              fromNumber: modern.aiCall.fromNumber || "", 
+              callDay: 10, 
+              transferTo: "" 
+            };
+          }
+          channelConfig.linkedin = modern.linkedin || false;
+          channelConfig.schedule = modern.schedule;
+        } catch (e) { console.error("Failed to parse campaign channels:", e); }
+      } else if (storedChannels) {
         try { channelConfig = JSON.parse(storedChannels); } catch (e) { console.error("Failed to parse channel config:", e); }
       } else if (legacyChannels) {
         try {
@@ -132,6 +164,11 @@ export default function CampaignReview() {
     sessionStorage.setItem("campaign_candidates", JSON.stringify(updatedCandidates));
   };
 
+  const handleIntegrationStatusChange = (connected: boolean, details?: IntegrationStatusType[]) => {
+    setIntegrationsConnected(connected);
+    if (details) setIntegrationDetails(details);
+  };
+
   if (isLoading) return <div className="flex items-center justify-center min-h-[60vh]"><div className="text-center"><Loader2 className="h-12 w-12 animate-spin text-primary mx-auto mb-4" /><p className="text-muted-foreground">Loading campaign data...</p></div></div>;
 
   if (!jobId || candidates.length === 0) return <div className="flex items-center justify-center min-h-[60vh]"><div className="text-center max-w-md"><h2 className="text-xl font-semibold text-foreground mb-2">No Campaign Data</h2><p className="text-muted-foreground mb-4">Please start from the beginning.</p><button onClick={handleStartOver} className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90">Start New Campaign</button></div></div>;
@@ -142,13 +179,13 @@ export default function CampaignReview() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="space-y-6">
           <CampaignSummaryCard job={job} candidateCount={candidates.length} tierStats={tierStats} channels={channels} />
-          <IntegrationStatus channels={channels} senderEmail={senderEmail} onStatusChange={setIntegrationsConnected} />
+          <IntegrationStatus channels={channels} senderEmail={senderEmail} onStatusChange={handleIntegrationStatusChange} />
         </div>
         <div className="space-y-6">
           <PersonalizationPanel jobId={jobId} candidates={candidates} onCandidatesUpdate={handleCandidatesUpdate} />
         </div>
         <div className="space-y-6">
-          <QualityGate jobId={jobId} campaignName={campaignName} candidates={candidates} channels={channels} senderEmail={senderEmail} integrationsConnected={integrationsConnected} onResultChange={setQualityResult} />
+          <QualityGate jobId={jobId} campaignName={campaignName} candidates={candidates} channels={channels} senderEmail={senderEmail} integrationsConnected={integrationsConnected} integrationDetails={integrationDetails} onResultChange={setQualityResult} />
           <LaunchControl jobId={jobId} campaignName={campaignName} candidates={candidates} channels={channels} senderEmail={senderEmail} qualityResult={qualityResult} integrationsConnected={integrationsConnected} />
         </div>
       </div>
