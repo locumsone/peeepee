@@ -286,6 +286,7 @@ Deno.serve(async (req) => {
     const locationState = playbook.position?.location_state || job.state;
     const locationMetro = playbook.position?.location_metro || locationCity;
     const contractType = playbook.position?.contract_type || "locums";
+    const specialty = job.specialty || candidate.specialty || "Physician";
     
     // Derive facility description from trauma_level
     const getFacilityDescription = (): string => {
@@ -340,14 +341,15 @@ CRITICAL: When describing the facility, use the FACILITY DATA fields exactly as 
 === SUBJECT LINE (MANDATORY FORMAT) ===
 
 YOUR SUBJECT LINE MUST BE EXACTLY THIS FORMAT:
-"${hourlyRate}/hr ${locationCity} - ${callStatus.toLowerCase().includes('no call') || callStatus.toLowerCase().includes('zero') ? 'No Call' : schedule}"
+"${hourlyRate}/hr ${specialty} ${locationCity} - ${callStatus.toLowerCase().includes('no call') || callStatus.toLowerCase().includes('zero') ? 'No Call' : schedule}"
 
-THAT'S IT. Rate first, city second, key benefit third.
+Format: RATE + SPECIALTY + CITY + BENEFIT
 
 Examples of GOOD subject lines (what doctors actually open):
-- "$485/hr Lakewood - No Call"
-- "$520/hr Phoenix - M-F Only"  
-- "$500/hr Boston - Zero Call"
+- "$485/hr IR Lakewood - No Call"
+- "$520/hr Anesthesia Phoenix - M-F Only"  
+- "$500/hr EM Boston - Zero Call"
+- "$475/hr Hospitalist Denver - No Nights"
 
 Examples of BAD subject lines (get deleted immediately):
 - "Dr. Thomson - IR Ca ZERO CALL" (no rate = deleted)
@@ -357,9 +359,10 @@ Examples of BAD subject lines (get deleted immediately):
 
 RULES:
 - RATE MUST BE FIRST - doctors scan for pay immediately
-- Under 40 characters total
+- SPECIALTY after rate - so they know it's relevant to them
+- Under 50 characters total
 - City name, not state abbreviation
-- One key differentiator (No Call, M-F, Zero Call, schedule)
+- One key differentiator (No Call, M-F, Zero Call, No Nights)
 - NO: opportunity, exciting, reaching out, thought of you
 - NO question marks or exclamation points
 
