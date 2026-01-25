@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Shield, CheckCircle2, AlertTriangle, Info, Loader2, Play } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
-import type { QualityIssue, QualityCheckResult, SelectedCandidate, ChannelConfig } from "./types";
+import type { QualityIssue, QualityCheckResult, SelectedCandidate, ChannelConfig, IntegrationStatus as IntegrationStatusType } from "./types";
 
 interface QualityGateProps {
   jobId: string | null;
@@ -13,6 +13,7 @@ interface QualityGateProps {
   channels: ChannelConfig;
   senderEmail?: string;
   integrationsConnected: boolean;
+  integrationDetails?: IntegrationStatusType[];
   onResultChange?: (result: QualityCheckResult | null) => void;
 }
 
@@ -23,10 +24,12 @@ export function QualityGate({
   channels,
   senderEmail,
   integrationsConnected,
+  integrationDetails,
   onResultChange,
 }: QualityGateProps) {
   const [isChecking, setIsChecking] = useState(false);
   const [result, setResult] = useState<QualityCheckResult | null>(null);
+  const hasAutoRun = useRef(false);
 
   const runQualityCheck = async () => {
     if (!jobId) return;
@@ -55,13 +58,19 @@ export function QualityGate({
 
       if (error) throw error;
 
-      // Add integration check to results
+      // Add integration check to results with specific disconnected names
+      const disconnectedIntegrations = integrationDetails
+        ?.filter(i => i.status === 'disconnected')
+        ?.map(i => i.name) || [];
+      
       const integrationIssue: QualityIssue | null = !integrationsConnected
         ? {
             severity: "critical",
             category: "Integrations",
-            description: "One or more integrations are disconnected",
-            suggestion: "Check integration status and reconnect before launching",
+            description: disconnectedIntegrations.length > 0 
+              ? `Disconnected: ${disconnectedIntegrations.join(', ')}`
+              : "One or more integrations are disconnected",
+            suggestion: "Reconnect these integrations before launching",
           }
         : null;
 
@@ -97,6 +106,17 @@ export function QualityGate({
       setIsChecking(false);
     }
   };
+
+  // Auto-run quality check on mount (once)
+  useEffect(() => {
+    if (jobId && candidates.length > 0 && !hasAutoRun.current && !isChecking && !result) {
+      hasAutoRun.current = true;
+      const timer = setTimeout(() => {
+        runQualityCheck();
+      }, 800); // Short delay to let integrations check finish first
+      return () => clearTimeout(timer);
+    }
+  }, [jobId, candidates.length]);
 
   const getSeverityIcon = (severity: QualityIssue["severity"]) => {
     switch (severity) {

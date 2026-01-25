@@ -8,7 +8,7 @@ import type { IntegrationStatus as IntegrationStatusType, ChannelConfig } from "
 interface IntegrationStatusProps {
   channels: ChannelConfig;
   senderEmail?: string;
-  onStatusChange?: (allConnected: boolean) => void;
+  onStatusChange?: (allConnected: boolean, details?: IntegrationStatusType[]) => void;
 }
 
 export function IntegrationStatus({ channels, senderEmail, onStatusChange }: IntegrationStatusProps) {
@@ -112,7 +112,7 @@ export function IntegrationStatus({ channels, senderEmail, onStatusChange }: Int
       const allConnected = updatedIntegrations.every(
         (i) => i.status === "connected" || i.status === "manual"
       );
-      onStatusChange?.(allConnected);
+      onStatusChange?.(allConnected, updatedIntegrations);
     } catch (err) {
       console.error("Integration check failed:", err);
       // Mark all as disconnected on error
@@ -122,7 +122,7 @@ export function IntegrationStatus({ channels, senderEmail, onStatusChange }: Int
         details: i.type === "linkedin" ? i.details : "Check failed",
       } as IntegrationStatusType));
       setIntegrations(errorIntegrations);
-      onStatusChange?.(false);
+      onStatusChange?.(false, errorIntegrations);
     } finally {
       setIsChecking(false);
     }
