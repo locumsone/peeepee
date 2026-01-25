@@ -452,70 +452,142 @@ ${hook ? `\nADDITIONAL CONTEXT: ${hook}` : ''}
 ${custom_context ? `\nCUSTOM CONTEXT: ${custom_context}` : ''}
 ${jobMatch?.icebreaker ? `\nICEBREAKER: ${jobMatch.icebreaker}` : ''}
 
-=== QUALITY CONTROL RUBRIC (EVERY email MUST meet ALL criteria) ===
+=== EMAIL GENERATION INSTRUCTIONS (FOLLOW EXACTLY) ===
 
-STRUCTURE (non-negotiable):
-☐ Subject under 50 chars, rate-first format
-☐ Opens with "Dr. [Last Name]," (never first name, never generic)
-☐ Opener: 1-2 sentences referencing THEIR specific background (never "I came across your profile")
-☐ Clinical Scope section with specific procedures, volume, tech
-☐ Schedule & Call section with explicit days/hours and call status
-☐ Compensation section with exact rates from playbook
-☐ Credentialing line if license advantage exists
-☐ "Why you specifically" section connecting their background to role
-☐ Closer with 15-minute offer and permission to decline
-☐ Signature block
+## STRUCTURE PRIORITY (Follow This Order)
 
-TONE CHECKLIST:
-☐ Zero exclamation points in body
-☐ Zero emojis
-☐ Zero recruiter words (exciting, elite, amazing, fantastic, incredible, opportunity)
-☐ Contractions used naturally (you're, it's, don't)
-☐ Short paragraphs (2-3 sentences max)
-☐ Scannable format with clear section headers
+### 1. OPENING HOOK (First 2 sentences)
+Lead with the #1 differentiator from SELLING POINTS, not a generic "I noticed your work" opener.
+The first sentence should make them stop scrolling.
 
-LENGTH REQUIREMENTS:
-☐ Total body: 180-280 words (not shorter, not longer)
-☐ Opener: 1-2 sentences only
-☐ Each section: 2-4 lines max
-☐ Closer: 2 sentences max
+Pattern: "[Rare/unique thing] + [at what rate/location]"
+Example: "There are almost no true zero-call IR locums in LA metro. This is one."
 
-PERSONALIZATION REQUIREMENTS:
-☐ At least 2 personalization hooks used from the list provided
-☐ Candidate's specific background referenced (employer, licenses, location, specialty)
-☐ Never generic - every email should feel 1:1
+BAD openers (NEVER use):
+- "I noticed your work at [hospital]..."
+- "I came across your profile..."
+- "I wanted to reach out about..."
+- "I'm excited to share..."
 
-IF ANY CHECKBOX WOULD BE UNCHECKED, REWRITE BEFORE RETURNING.
+### 2. LIFESTYLE BENEFIT (Next)
+Immediately follow with the quality-of-life benefit that solves their biggest PAIN POINT.
+Reference the PAIN POINTS SOLVED section from the role data.
 
-=== EMAIL TEMPLATE TO FOLLOW ===
-Subject: [Location] [Specialty] ${contractType} - [clinical detail], [call status], ${hourlyRate}/hr
+Pattern: "[What they escape] + [What they gain]"
+Example: "No 2am trauma codes, no 1:3 call rotation—M-F, home by 5pm."
+
+### 3. LOCATION ADVANTAGE (If applicable)
+Include geographic accessibility benefits when present. Don't just name the city—explain why it matters.
+
+Pattern: "[City] advantage: [accessibility/lifestyle detail]"
+Example: "Lakewood is accessible from OC, Long Beach, or SGV—LA County pay without fighting the 405."
+
+### 4. COMPENSATION (Brief, with context)
+State compensation clearly but don't oversell if market rate.
+The differentiator should be the lifestyle benefit, not the rate.
+
+Format:
+- Hourly | Daily | Weekly (one line)
+- Annual potential (one line)
+- Only emphasize rate if it's ABOVE market
+
+### 5. CLINICAL SCOPE (Concise)
+Brief description of case mix and facility type. Use specific procedures to show domain knowledge.
+Reference FACILITY CONTEXT from role data.
+
+### 6. CREDENTIALING ADVANTAGE (With Comparison)
+Always compare credentialing timeline to industry standard.
+Don't just say "40 days"—say "40 days vs. typical 90-120."
+
+### 7. PERSONALIZATION (1-2 sentences max)
+Reference ONE specific thing about the candidate that connects to this role. Keep it tight.
+
+### 8. CTA (Permission-based)
+Use low-pressure, permission-based language. Never "let's schedule a call!"
+
+GOOD: "Worth 15 minutes to discuss?"
+GOOD: "Is this worth a conversation?"
+BAD: "I'd love to connect!"
+BAD: "Let's schedule a call!"
+
+---
+
+## MESSAGING TONE RULES
+
+1. **Direct and clinical, not salesy or recruiter-y**
+2. **Use specific numbers** ($500/hr, $4,500/day, 40 days)
+3. **Lead with what's RARE**, not what's standard
+4. **Reference pain points the role solves**, not just features
+5. **If a selling point says "don't oversell X"—don't**
+6. **Never use "Level I trauma" or "Level II trauma" unless explicitly stated—say "non-trauma" instead**
+
+---
+
+## DATA TO USE
+
+Pull from these fields in the role data:
+- SELLING POINTS → Opening hook + key differentiators
+- PAIN POINTS SOLVED → Lifestyle benefits
+- IDEAL CANDIDATE → Personalization hooks
+- DIFFERENTIATORS → What makes this rare
+- MESSAGING TONE → Specific language rules
+- OBJECTION RESPONSES → Anticipate concerns
+
+---
+
+## WHAT TO AVOID
+
+❌ Opening with "I noticed your work at [hospital]..."
+❌ Burying the #1 differentiator in paragraph 3
+❌ Generic "Why I'm reaching out to you specifically" sections
+❌ Listing clinical scope before lifestyle benefits
+❌ Saying credentialing time without comparison to standard
+❌ Overselling features that are market-standard
+❌ Multiple questions in CTA
+❌ Overly formatted bullet points when prose works better
+❌ Exclamation points
+❌ Emojis
+❌ Words: exciting, elite, amazing, fantastic, incredible, opportunity
+
+---
+
+## LENGTH REQUIREMENTS
+
+- Total body: 150-220 words (scannable, not overwhelming)
+- Opening hook: 2 sentences max
+- Each section: 2-3 lines max (prose, not bullets unless truly scannable)
+- Closer: 1-2 sentences max
+
+---
+
+## SUBJECT LINE FORMAT
+
+Under 50 characters. Lead with location + specialty + differentiator + rate.
+Example: "Lakewood IR - No Call, $500/hr"
+
+---
+
+## EMAIL TEMPLATE
+
+Subject: ${locationCity} ${specialtyAbbrev} - [differentiator], ${hourlyRate}/hr
 
 Dr. [Last Name],
 
-[OPENER: 1-2 sentences connecting THEIR specific background to this outreach. Reference their training, current employer, or experience. Never generic.]
+[OPENING HOOK: Lead with the #1 rare thing. Pattern: "[Rare thing] + [context]"]
 
-Clinical Scope:
-[Setting/facility type]
-Case types: [SPECIFIC procedures]
-Volume: [Volume info] ([sustainability comment])
-Tech: [EMR/PACS]
-[What it's NOT - no trauma, no call, etc.]
+[LIFESTYLE BENEFIT: What they escape + what they gain. 1-2 sentences.]
 
-Schedule & Call:
-[Days/hours]
-[Call status - be explicit: "Zero call" not "light call"]
-[Contract duration]
+[LOCATION ADVANTAGE if applicable. 1 sentence.]
 
-Compensation:
-${compLinePrompt}
-[OT policy if relevant]
-${annualRate ? `[Annual potential: ${annualRate}]` : ''}
+[COMPENSATION: Brief. ${compLinePrompt}${annualRate ? ` | Annual: ${annualRate}` : ''}]
 
-Credentialing: [Their license advantage + timeline + temps if available]
+[CLINICAL SCOPE: Brief, specific procedures. 2-3 sentences max.]
 
-Why I'm reaching out to you specifically: [2-3 sentences connecting THEIR background to THIS role]
+[CREDENTIALING: Timeline vs. standard + their license advantage. 1 sentence.]
 
-[CLOSER: 15-minute offer + permission to decline + no pressure]
+[PERSONALIZATION: Connect their background to this role. 1-2 sentences.]
+
+[CTA: Permission-based, low pressure. "Worth 15 minutes to discuss?" or similar.]
 
 ${signatureBlock}`;
 
@@ -576,26 +648,32 @@ ${signatureBlock}`;
               role: "user", 
               content: `Generate email for Dr. ${candidate.last_name}.
 
-SUBJECT LINE REQUIREMENTS:
-- Under 50 characters
-- Format: [City] [Specialty Abbrev] - [Differentiator], [Rate]
-- Use: ${locationCity} ${specialtyAbbrev} - ${callStatus}, ${hourlyRate}/hr
-- No questions, no urgency words, no exclamation points
+CRITICAL: Follow the EMAIL GENERATION INSTRUCTIONS exactly.
 
-BODY REQUIREMENTS:
-- Follow the template structure EXACTLY
-- 180-280 words total
-- Use at least 2 personalization hooks from the provided list
-- Reference candidate's specific background: ${candidate.company_name || candidate.state + ' license'}, ${licenseCount} licenses
-- Include all sections: Opener, Clinical Scope, Schedule & Call, Compensation, Credentialing (if applicable), Why You, Closer
-- End with the exact signature block provided
+SUBJECT: Under 50 chars. Format: "${locationCity} ${specialtyAbbrev} - [differentiator], ${hourlyRate}/hr"
 
-QUALITY CHECK before returning:
-- Is opener personalized to THIS candidate? (not generic)
-- Are exact rates used? (${hourlyRate}/hr)
-- Is call status explicit? (${callStatus})
-- Zero recruiter words? Zero exclamation points?
-- 180-280 words?
+BODY STRUCTURE (in this order):
+1. OPENING HOOK: Lead with the #1 rare thing from SELLING POINTS. NOT "I noticed your work..."
+2. LIFESTYLE BENEFIT: What they escape + what they gain (from PAIN POINTS SOLVED)
+3. LOCATION ADVANTAGE: If relevant, explain why the location matters
+4. COMPENSATION: Brief - ${hourlyRate}/hr${dailyRate ? ` | ${dailyRate}` : ''}${weeklyRate ? ` | ${weeklyRate}` : ''}
+5. CLINICAL SCOPE: Specific procedures, case mix. 2-3 sentences.
+6. CREDENTIALING: "${credentialingDays || '40'} days vs. typical 90-120" + their license advantage
+7. PERSONALIZATION: Connect ${candidate.company_name || candidate.state + ' license'} to this role. 1 sentence.
+8. CTA: "Worth 15 minutes to discuss?" or similar. Permission-based.
+
+SELLING POINTS TO REFERENCE: ${sellingPoints || callStatus}
+PAIN POINTS SOLVED: ${playbook.positioning?.pain_points_solved || 'escape call burden, sustainable volume'}
+
+LENGTH: 150-220 words. Scannable prose, not excessive bullets.
+
+BEFORE RETURNING, verify:
+- Opens with what's RARE, not generic
+- Lifestyle benefit comes before clinical scope
+- Zero recruiter words (exciting, elite, amazing, opportunity)
+- Zero exclamation points
+- Exact rate: ${hourlyRate}/hr
+- Permission-based CTA (not "I'd love to connect!")
 
 Return ONLY valid JSON: {"subject": "...", "body": "..."}`
             }
