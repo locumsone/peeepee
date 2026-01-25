@@ -91,6 +91,41 @@ interface PlaybookContext {
  * 7. Multi-state + zero call → sustainable locums
  * 8. Recent fellowship → board eligible accepted
  */
+// Known trauma centers for detection (when research text doesn't mention "trauma")
+const KNOWN_TRAUMA_CENTERS = [
+  'grady', 'parkland', 'bellevue', 'cook county', 'jackson memorial', 
+  'harborview', 'usc', 'ucla', 'keck', 'cedars-sinai', 'lax medical',
+  'shock trauma', 'county usc', 'denver health', 'regional medical center',
+  'memorial hermann', 'ben taub', 'r adams cowley', 'johns hopkins',
+  'massachusetts general', 'brigham', 'umass', 'barnes jewish', 
+  'northwestern memorial', 'rush', 'loyola', 'stroger', 'mount sinai',
+  'ny presbyterian', 'nyu langone', 'kings county', 'jacobi', 'lincoln'
+];
+
+/**
+ * Evaluate if two connections should be stacked
+ * Stack when both are priority ≤ 4 (high-value connections)
+ */
+function evaluateStacking(connections: ConnectionMatch[]): boolean {
+  if (connections.length < 2) return false;
+  // Only stack if top 2 are both high-priority (≤4)
+  return connections[0].priority <= 4 && connections[1].priority <= 4;
+}
+
+/**
+ * Build a stacked opening line from two connections
+ */
+function buildStackedLine(conn1: ConnectionMatch, conn2: ConnectionMatch): string {
+  // Format: "Your CA license means 40-day start. And you're already in LA—no relocation."
+  const secondLine = conn2.line.charAt(0).toLowerCase() + conn2.line.slice(1);
+  return `${conn1.line} And ${secondLine}`;
+}
+
+function buildStackedSmsLine(conn1: ConnectionMatch, conn2: ConnectionMatch): string {
+  // Compress both into SMS-friendly format (max 60 chars)
+  return `${conn1.smsLine} + ${conn2.smsLine}`.substring(0, 60);
+}
+
 function buildConnectionIcebreaker(
   candidate: Candidate, 
   job: JobContext, 
@@ -128,23 +163,36 @@ function buildConnectionIcebreaker(
   }
   
   // Priority 3: Trauma center -> Non-trauma (lifestyle upgrade)
-  const worksAtTrauma = research?.toLowerCase().includes('trauma') || 
-                        research?.toLowerCase().includes('level i') ||
-                        research?.toLowerCase().includes('level ii');
-  if (worksAtTrauma && traumaLevel === 'None') {
+  // Check both research text AND known trauma center names
+  const candidateEmployer = (candidate.company_name || '').toLowerCase();
+  const researchText = (research || '').toLowerCase();
+  
+  const worksAtTrauma = 
+    researchText.includes('trauma') || 
+    researchText.includes('level i') ||
+    researchText.includes('level ii') ||
+    researchText.includes('level 1') ||
+    researchText.includes('level 2') ||
+    KNOWN_TRAUMA_CENTERS.some(name => 
+      candidateEmployer.includes(name) || researchText.includes(name)
+    );
+    
+  if (worksAtTrauma && (traumaLevel === 'None' || traumaLevel?.toLowerCase() === 'non-trauma')) {
     connections.push({
       priority: 3,
       fact: 'trauma center experience',
       benefit: 'non-trauma pace',
-      line: `After trauma center intensity, a non-trauma ${callStatus || 'schedule'} might be refreshing.`,
+      line: `After trauma center intensity, a non-trauma ${callStatus || 'schedule'} with ${hourlyRate || 'premium'} compensation could be refreshing.`,
       smsLine: `Non-trauma pace after trauma.`
     });
   }
   
   // Priority 4: Academic -> Community simplicity
-  const worksAcademic = research?.toLowerCase().includes('academic') ||
-                        research?.toLowerCase().includes('teaching') ||
-                        research?.toLowerCase().includes('university');
+  const worksAcademic = researchText.includes('academic') ||
+                        researchText.includes('teaching') ||
+                        researchText.includes('university') ||
+                        candidateEmployer.includes('university') ||
+                        candidateEmployer.includes('academic');
   if (worksAcademic && facilityType?.toLowerCase().includes('community')) {
     connections.push({
       priority: 4,
@@ -166,14 +214,17 @@ function buildConnectionIcebreaker(
     });
   }
   
-  // Priority 6: Already local (no relocation)
-  if (candidate.state?.toUpperCase() === job.state?.toUpperCase() && candidate.city) {
+  // Priority 6: Already local (no relocation) - check both state AND city
+  const isLocalState = candidate.state?.toUpperCase() === job.state?.toUpperCase();
+  const isLocalCity = candidate.city?.toLowerCase() === job.city?.toLowerCase();
+  
+  if ((isLocalState || isLocalCity) && candidate.city) {
     connections.push({
       priority: 6,
       fact: 'already local',
       benefit: 'no relocation',
-      line: `You're already local—no relocation, just ${hourlyRate || 'better'} compensation.`,
-      smsLine: `Local = no relocation.`
+      line: `You're already in ${candidate.city}—no relocation, just ${hourlyRate || 'better'} compensation.`,
+      smsLine: `Already in ${candidate.city}, no relocation.`
     });
   }
   
@@ -189,9 +240,9 @@ function buildConnectionIcebreaker(
   }
   
   // Priority 8: Recent fellowship grad -> Board Eligible accepted
-  const recentFellow = research?.toLowerCase().includes('fellow') ||
-                       research?.toLowerCase().includes('recently completed') ||
-                       research?.toLowerCase().includes('just finished');
+  const recentFellow = researchText.includes('fellow') ||
+                       researchText.includes('recently completed') ||
+                       researchText.includes('just finished');
   if (recentFellow) {
     connections.push({
       priority: 8,
@@ -202,9 +253,23 @@ function buildConnectionIcebreaker(
     });
   }
   
-  // Sort by priority (lower = stronger) and return best match
+  // Sort by priority (lower = stronger)
   if (connections.length > 0) {
     connections.sort((a, b) => a.priority - b.priority);
+    
+    // Check for stacking (2+ high-priority connections)
+    if (evaluateStacking(connections)) {
+      const stacked: ConnectionMatch = {
+        priority: connections[0].priority, // Keep best priority
+        fact: `${connections[0].fact} + ${connections[1].fact}`,
+        benefit: `${connections[0].benefit} + ${connections[1].benefit}`,
+        line: buildStackedLine(connections[0], connections[1]),
+        smsLine: buildStackedSmsLine(connections[0], connections[1]),
+      };
+      console.log(`📊 STACKED connections: P${connections[0].priority} (${connections[0].fact}) + P${connections[1].priority} (${connections[1].fact})`);
+      return stacked;
+    }
+    
     return connections[0];
   }
   

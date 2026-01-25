@@ -320,7 +320,8 @@ ${differentiators ? `Key differentiator: ${differentiators.substring(0, 100)}` :
 === CANDIDATE ===
 - Name: Dr. ${candidate.last_name}
 - Specialty: ${candidate.specialty}
-- Location: ${candidate.city || ''}, ${candidate.state}
+- Candidate Location: ${candidate.city || 'Unknown'}, ${candidate.state || 'Unknown'}
+- Current Employer: ${candidate.company_name || 'Not specified'}
 - Licenses: ${licenseCount} states${hasJobStateLicense ? ` (has ${locationState})` : ''}
 
 ${hook ? `PERSONALIZATION HOOK: ${hook}` : ''}
@@ -329,13 +330,24 @@ ${custom_context ? `CONTEXT: ${custom_context}` : ''}
 === CONNECTION-FIRST SMS STRUCTURE ===
 ${connection ? `
 CONNECTION FOUND (Priority ${connection.priority}):
-- smsLine to use: "${connection.smsLine}"
-- Full line: "${connection.line}"
+- Connection fact: "${connection.fact}"
+- Connection benefit: "${connection.benefit}"
+- Full line (for context): "${connection.line}"
 
-Use "${connection.smsLine}" as the personalization hook in the SMS. This connection MUST appear.
+BUILD SMS USING:
+1. Start with "Dr. ${candidate.last_name} -"
+2. Include the connection naturally (do NOT just copy-paste "${connection.smsLine}")
+3. Add candidate-specific context when available:
+   - If candidate city is "${candidate.city || 'N/A'}": mention their commute/proximity advantage
+   - If candidate employer is "${candidate.company_name || 'N/A'}": reference their current setting
+4. Include rate (${hourlyRate}), location (${locationCity}), and clinical differentiator (${callStatus})
+5. End with soft CTA and signature
 ` : `
-No direct connection found. Use the license count or call status as the hook.
+No direct connection found. Use job differentiators (zero call, rate, location) as hook.
 `}
+
+PERSONALIZE with candidate's location (${candidate.city || 'their area'}) when mentioning commute or accessibility.
+Use their employer context (${candidate.company_name || 'current role'}) when comparing settings.
 
 IMPORTANT: End EVERY SMS with "${smsSuffix}" as the signature.
 Keep SMS under 300 characters INCLUDING the signature. Include "locums" signal.`;
