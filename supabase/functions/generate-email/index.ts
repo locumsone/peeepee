@@ -319,66 +319,8 @@ Deno.serve(async (req) => {
     };
     const specialtyAbbrev = getSpecialtyAbbrev(specialty);
     
-    // ========== SUBJECT LINE VARIETY ENGINE ==========
-    // Hash candidate ID to deterministically select format (ensures same candidate always gets same format)
-    const hashCode = (str: string): number => {
-      let hash = 0;
-      for (let i = 0; i < str.length; i++) {
-        const char = str.charCodeAt(i);
-        hash = ((hash << 5) - hash) + char;
-        hash = hash & hash; // Convert to 32bit integer
-      }
-      return Math.abs(hash);
-    };
-    const candidateHash = hashCode(candidate.id || "default");
-    
-    // Extract multiple benefits from playbook for variety
-    const hasNoCall = callStatus.toLowerCase().includes('no call') || callStatus.toLowerCase().includes('zero');
-    const hasMF = schedule.toLowerCase().includes('m-f') || schedule.toLowerCase().includes('mon-fri');
-    const hasNoNights = schedule.toLowerCase().includes('no night');
-    const hasNoWeekends = schedule.toLowerCase().includes('no weekend');
-    const hasDayShift = schedule.toLowerCase().includes('day shift') || schedule.toLowerCase().includes('7a');
-    const hasFlexible = schedule.toLowerCase().includes('flexible');
-    
-    // Build benefit pool based on what's in the playbook
-    const benefitPool: string[] = [];
-    if (hasNoCall) benefitPool.push('No Call', 'Zero Call');
-    if (hasMF) benefitPool.push('M-F Only');
-    if (hasNoNights) benefitPool.push('No Nights');
-    if (hasNoWeekends) benefitPool.push('No Weekends');
-    if (hasDayShift) benefitPool.push('Days Only');
-    if (hasFlexible) benefitPool.push('Flex Sched');
-    // Fallback if nothing found
-    if (benefitPool.length === 0) {
-      benefitPool.push(hasNoCall ? 'No Call' : 'M-F');
-    }
-    
-    // Select benefit based on candidate hash
-    const selectedBenefit = benefitPool[candidateHash % benefitPool.length];
-    
-    // Subject line format templates - 8 variations with engagement hooks
-    // These drive opens by creating curiosity while keeping clinical credibility
-    const subjectFormats = [
-      // Soft question hooks (creates curiosity without being pushy)
-      `${specialtyAbbrev} in ${locationCity}? ${hourlyRate}/hr + ${selectedBenefit}`,
-      `Open to ${locationCity}? ${hourlyRate}/hr ${specialtyAbbrev} - ${selectedBenefit}`,
-      
-      // Availability/urgency hooks (subtle FOMO without being spammy)
-      `Still open: ${hourlyRate}/hr ${specialtyAbbrev} ${locationCity} - ${selectedBenefit}`,
-      `Now filling: ${specialtyAbbrev} ${locationCity} - ${hourlyRate}/hr ${selectedBenefit}`,
-      
-      // Direct value-first (leads with what matters to them)
-      `${hourlyRate}/hr + ${selectedBenefit} - ${specialtyAbbrev} ${locationCity}`,
-      `${selectedBenefit} + ${hourlyRate}/hr - ${specialtyAbbrev} in ${locationCity}`,
-      
-      // Personal/targeted feel (makes it feel less mass-blast)
-      `For ${specialtyAbbrev} docs: ${hourlyRate}/hr ${locationCity} - ${selectedBenefit}`,
-      `Quick look? ${hourlyRate}/hr ${specialtyAbbrev} ${locationCity} (${selectedBenefit})`,
-    ];
-    
-    // Select format based on candidate hash (different seed for variety)
-    const formatIndex = (candidateHash >> 3) % subjectFormats.length;
-    const preComputedSubject = subjectFormats[formatIndex];
+    // Keep specialty abbreviation for AI to use in subject generation
+    // (AI will use this in the dynamic subject line)
     
     // Derive facility description from trauma_level
     const getFacilityDescription = (): string => {
@@ -430,15 +372,38 @@ CRITICAL: When describing the facility, use the FACILITY DATA fields exactly as 
    - Never invent teaching affiliations, trauma designations, or clinical details
    - If data is missing, omit it rather than guess
 
-=== SUBJECT LINE (USE THIS EXACT STRING - DO NOT MODIFY) ===
+=== SUBJECT LINE (GENERATE DYNAMICALLY) ===
 
-YOUR SUBJECT LINE MUST BE EXACTLY: "${preComputedSubject}"
+Generate a subject line using the playbook and candidate data.
 
-COPY THAT STRING EXACTLY INTO YOUR JSON RESPONSE. DO NOT CHANGE IT.
-DO NOT add candidate names, DO NOT use full specialty names, DO NOT rearrange.
+FORMAT: [Location] [Specialty abbreviation] - [primary differentiator], [rate]
 
-The subject line "${preComputedSubject}" is pre-computed and optimized.
-Just use it verbatim in your response.
+USE THESE VALUES:
+- Location: ${locationCity}
+- Specialty abbreviation: ${specialtyAbbrev}
+- Rate: ${hourlyRate}/hr
+- Key differentiators from selling points: ${callStatus}, ${schedule}
+- Candidate last name (optional): Dr. ${candidate.last_name || ''}
+
+CONSTRAINTS:
+- Under 50 characters total
+- No questions (no "?")
+- No urgency words: now, still, urgent, quick, hurry, limited, act fast
+- No recruiter phrases: opportunity, opening, position available, exciting, amazing
+- No exclamation points
+- State facts. That's it.
+
+GOOD EXAMPLES:
+- "Lakewood IR - No Call, $500/hr"
+- "Phoenix Anesthesia - M-F Days, $520/hr"
+- "Boston EM - Zero Call, $485/hr"
+- "Denver Hospitalist - No Nights, $475/hr"
+
+BAD EXAMPLES (do NOT use):
+- "Quick look? $500/hr IR" (question + urgency)
+- "Exciting IR Opportunity!" (recruiter spam)
+- "Still open: IR position" (fake urgency)
+- "Dr. Smith - we have something for you" (vague, no value)
 
 === END CRITICAL RULES ===
 
