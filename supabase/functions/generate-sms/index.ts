@@ -226,7 +226,33 @@ Deno.serve(async (req) => {
     const differentiators = playbook.positioning?.differentiators || "";
 
     // Build system prompt with structured data
-    const systemPrompt = `${SMS_PERSONA}
+    // CRITICAL: Accuracy rules at TOP so AI sees them first
+    const systemPrompt = `=== CRITICAL ACCURACY RULES - FOLLOW EXACTLY ===
+
+1. COMPENSATION: Use rates EXACTLY as provided in playbook data. Never calculate, round, or modify.
+   - If playbook says "${hourlyRate}", write "${hourlyRate}" - never any other number
+   - Daily/weekly/annual must match playbook exactly
+
+2. FACILITY TYPE: This is a ${facilityType}.
+   - NEVER say "Level I trauma" or "Level II trauma" unless playbook explicitly states it
+   - NEVER assume trauma level - only use what playbook explicitly states
+   - Say "community hospital" or "non-trauma center" if that's what the playbook says
+
+3. CALL STATUS: Emphasize "${callStatus}" as the key differentiator - this is rare for IR positions
+
+4. NO HALLUCINATION: Only include facts that exist in the playbook data.
+   - Do not invent facility details, trauma designations, or teaching affiliations
+   - Do not assume characteristics based on location (LA metro ≠ trauma center)
+   - If information is not in the playbook, do not include it
+
+5. TONE: Be direct and clinical, not salesy or recruiter-y.
+   - Lead with the key differentiator (zero call)
+   - Use specific numbers from playbook
+   - Permission-based CTAs ("worth 15 min to discuss?" not "let's schedule a call!")
+
+=== END CRITICAL RULES ===
+
+${SMS_PERSONA}
 
 === COMPENSATION (USE EXACTLY - NEVER CALCULATE) ===
 - Rate: ${hourlyRate}/hr
@@ -258,19 +284,7 @@ ${differentiators ? `Key differentiator: ${differentiators.substring(0, 100)}` :
 ${hook ? `PERSONALIZATION HOOK: ${hook}` : ''}
 ${custom_context ? `CONTEXT: ${custom_context}` : ''}
 
-=== CRITICAL RULES - FOLLOW EXACTLY ===
-1. COMPENSATION: Use "${hourlyRate}" EXACTLY - NEVER calculate, round, or modify rates.
-
-2. FACILITY TYPE: Use ONLY "${facilityType}" - if NOT a trauma center, NEVER say "Level I" or "Level II trauma".
-   - If "non-trauma" or "community hospital" → do NOT mention trauma level at all.
-
-3. CALL STATUS: Use EXACTLY "${callStatus}" - if "ZERO CALL", emphasize it's rare for IR.
-
-4. NO HALLUCINATION: Only facts from playbook. Do NOT invent details.
-
-5. PERSONALIZATION: Reference candidate background, but NEVER fabricate facility details.
-
-6. Keep under 300 characters. Include "locums" signal.`;
+Keep SMS under 300 characters. Include "locums" signal.`;
 
     // Template-based SMS generation (fallback)
     const generateFallbackSMS = () => {
