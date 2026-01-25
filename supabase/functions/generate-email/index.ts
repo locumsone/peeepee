@@ -13,6 +13,15 @@ interface UserSignature {
   phone?: string | null;
 }
 
+// Connection object from personalization-research engine
+interface ConnectionMatch {
+  priority: number;      // 1-8, lower = stronger
+  fact: string;          // What we found about candidate
+  benefit: string;       // Why this role fits them
+  line: string;          // Full connection sentence for email
+  smsLine: string;       // Compressed 40-char version for SMS
+}
+
 interface EmailRequest {
   candidate_id: string;
   job_id: string;
@@ -21,6 +30,7 @@ interface EmailRequest {
   custom_context?: string;
   playbook_data?: StructuredPlaybookCache; // Allow passing structured playbook directly
   signature?: UserSignature; // User signature for email sign-off
+  connection?: ConnectionMatch | null; // Connection from personalization engine
 }
 
 // Structured Playbook Cache interface (matches the new format)
@@ -146,7 +156,7 @@ Deno.serve(async (req) => {
     });
 
     const body: EmailRequest = await req.json();
-    const { candidate_id, job_id, campaign_id, personalization_hook, custom_context, playbook_data, signature } = body;
+    const { candidate_id, job_id, campaign_id, personalization_hook, custom_context, playbook_data, signature, connection } = body;
     
     // Build signature block (use provided or default)
     // Fix: Don't duplicate company name if title already contains it
@@ -428,63 +438,70 @@ ${hook ? `\nADDITIONAL CONTEXT: ${hook}` : ''}
 ${custom_context ? `\nCUSTOM CONTEXT: ${custom_context}` : ''}
 ${jobMatch?.icebreaker ? `\nICEBREAKER: ${jobMatch.icebreaker}` : ''}
 
-=== EMAIL GENERATION INSTRUCTIONS (FOLLOW EXACTLY) ===
+=== ABSOLUTE RULES (NEVER VIOLATE) ===
 
-## STRUCTURE PRIORITY (Follow This Order)
+1. NEVER use "I noticed" or "I saw" or "caught my attention" or "I came across"
+2. NEVER bury personalization after paragraph 1
+3. If CONNECTION provided → it MUST be in sentence 1 or 2 (see below)
+4. If NO CONNECTION → use SHORT-FORM template (100-150 words max, no forced personalization)
+5. All compensation figures must match playbook EXACTLY
+6. No exclamation points. No emojis. No recruiter-speak.
 
-### 1. OPENING HOOK (First 2 sentences)
-Lead with the #1 differentiator from SELLING POINTS, not a generic "I noticed your work" opener.
-The first sentence should make them stop scrolling.
+=== CONNECTION-FIRST STRUCTURE ===
 
-Pattern: "[Rare/unique thing] + [at what rate/location]"
-Example: "There are almost no true zero-call IR locums in LA metro. This is one."
+${connection ? `
+## CONNECTION FOUND (Priority ${connection.priority})
+The following connection MUST appear in SENTENCE 1 or 2 of the email body.
 
-BAD openers (NEVER use):
+CONNECTION LINE (USE IN FIRST SENTENCE):
+"Dr. ${candidate.last_name}, ${connection.line}"
+
+FACT: ${connection.fact}
+BENEFIT: ${connection.benefit}
+
+REQUIRED EMAIL STRUCTURE (follow exactly):
+1. SENTENCE 1: "Dr. ${candidate.last_name}, ${connection.line}" (MANDATORY - use this exact line)
+2. SENTENCE 2-3: Brief reinforcement of why this matters + role differentiator
+3. Compensation (one line): ${compLinePrompt}
+4. Clinical scope (2-3 sentences max)
+5. Credentialing: ${credDays} days vs. typical 90-120
+6. CTA: "Worth 15 minutes to discuss fit?"
+
+TOTAL LENGTH: 150-200 words max
+` : `
+## NO CONNECTION FOUND - USE SHORT-FORM TEMPLATE
+
+Since no direct connection between this candidate and role was found, use the SHORT-FORM differentiator-first template:
+
+REQUIRED SHORT-FORM STRUCTURE:
+1. Lead with role's #1 differentiator (from SELLING POINTS): "${callStatus}" or "${differentiators?.split(',')[0] || 'competitive rate'}"
+2. Compensation: ${compLinePrompt}
+3. Credentialing comparison: ${credDays} days vs. typical 90-120
+4. CTA: "Worth 15 minutes to discuss fit?"
+
+TOTAL: 100-150 words MAX. Do NOT force weak personalization.
+
+SHORT-FORM TEMPLATE:
+"Dr. ${candidate.last_name},
+
+${hourlyRate}/hr ${candidate.specialty || 'physician'} locums in ${locationCity}: ${callStatus}, ${schedule}.
+
+${procedures}.
+
+${credDays} credentialing vs. typical 90-120.
+
+Worth 15 min to discuss fit?
+
+${signatureBlock}"
+`}
+
+=== BAD OPENERS (NEVER USE) ===
 - "I noticed your work at [hospital]..."
 - "I came across your profile..."
 - "I wanted to reach out about..."
 - "I'm excited to share..."
-
-### 2. LIFESTYLE BENEFIT (Next)
-Immediately follow with the quality-of-life benefit that solves their biggest PAIN POINT.
-Reference the PAIN POINTS SOLVED section from the role data.
-
-Pattern: "[What they escape] + [What they gain]"
-Example: "No 2am trauma codes, no 1:3 call rotation—M-F, home by 5pm."
-
-### 3. LOCATION ADVANTAGE (If applicable)
-Include geographic accessibility benefits when present. Don't just name the city—explain why it matters.
-
-Pattern: "[City] advantage: [accessibility/lifestyle detail]"
-Example: "Lakewood is accessible from OC, Long Beach, or SGV—LA County pay without fighting the 405."
-
-### 4. COMPENSATION (Brief, with context)
-State compensation clearly but don't oversell if market rate.
-The differentiator should be the lifestyle benefit, not the rate.
-
-Format:
-- Hourly | Daily | Weekly (one line)
-- Annual potential (one line)
-- Only emphasize rate if it's ABOVE market
-
-### 5. CLINICAL SCOPE (Concise)
-Brief description of case mix and facility type. Use specific procedures to show domain knowledge.
-Reference FACILITY CONTEXT from role data.
-
-### 6. CREDENTIALING ADVANTAGE (With Comparison)
-Always compare credentialing timeline to industry standard.
-Don't just say "40 days"—say "40 days vs. typical 90-120."
-
-### 7. PERSONALIZATION (1-2 sentences max)
-Reference ONE specific thing about the candidate that connects to this role. Keep it tight.
-
-### 8. CTA (Permission-based)
-Use low-pressure, permission-based language. Never "let's schedule a call!"
-
-GOOD: "Worth 15 minutes to discuss?"
-GOOD: "Is this worth a conversation?"
-BAD: "I'd love to connect!"
-BAD: "Let's schedule a call!"
+- "Your background caught my attention..."
+- Any generic flattery before the connection line
 
 ---
 
