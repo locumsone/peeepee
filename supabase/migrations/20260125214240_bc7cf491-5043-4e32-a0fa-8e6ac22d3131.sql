@@ -1,0 +1,1 @@
+UPDATE jobs SET pay_rate = 500 WHERE id = 'f1cf6cf5-1dcb-468c-99b5-4cd7e0b80427'
