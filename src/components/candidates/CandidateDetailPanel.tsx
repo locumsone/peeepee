@@ -46,6 +46,7 @@ interface CandidateDetail {
   state: string | null;
   licenses: string[] | null;
   enrichment_tier: string | null;
+  enrichment_source: string | null;
   last_enrichment_date: string | null;
   notes: string | null;
 }
@@ -94,7 +95,7 @@ const CandidateDetailPanel = ({ candidateId, onClose }: CandidateDetailPanelProp
 
     const { data, error } = await supabase
       .from("candidates")
-      .select("id, first_name, last_name, email, phone, personal_email, personal_mobile, specialty, city, state, licenses, enrichment_tier, last_enrichment_date, notes")
+      .select("id, first_name, last_name, email, phone, personal_email, personal_mobile, specialty, city, state, licenses, enrichment_tier, enrichment_source, last_enrichment_date, notes")
       .eq("id", candidateId)
       .single();
 
@@ -301,6 +302,14 @@ const CandidateDetailPanel = ({ candidateId, onClose }: CandidateDetailPanelProp
                       <span className="text-sm text-muted-foreground">Tier</span>
                       <span>{getTierBadge(candidate.enrichment_tier)}</span>
                     </div>
+                    {candidate.enrichment_source && (
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-muted-foreground">Source</span>
+                        <Badge variant="outline" className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30">
+                          {candidate.enrichment_source}
+                        </Badge>
+                      </div>
+                    )}
                     <div className="flex justify-between items-center">
                       <span className="text-sm text-muted-foreground">Last Enriched</span>
                       <span className="text-sm text-foreground">

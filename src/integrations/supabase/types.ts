@@ -1625,6 +1625,7 @@ export type Database = {
           employment_status: string | null
           emr_systems: string[] | null
           engagement_level: string | null
+          enriched_at: string | null
           enrichment_needed: boolean | null
           enrichment_score: number | null
           enrichment_source: string | null
@@ -1735,6 +1736,7 @@ export type Database = {
           employment_status?: string | null
           emr_systems?: string[] | null
           engagement_level?: string | null
+          enriched_at?: string | null
           enrichment_needed?: boolean | null
           enrichment_score?: number | null
           enrichment_source?: string | null
@@ -1845,6 +1847,7 @@ export type Database = {
           employment_status?: string | null
           emr_systems?: string[] | null
           engagement_level?: string | null
+          enriched_at?: string | null
           enrichment_needed?: boolean | null
           enrichment_score?: number | null
           enrichment_source?: string | null

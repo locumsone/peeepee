@@ -54,11 +54,14 @@ interface Candidate {
   last_name: string | null;
   email: string | null;
   phone: string | null;
+  personal_email: string | null;
+  personal_mobile: string | null;
   specialty: string | null;
   city: string | null;
   state: string | null;
   licenses: string[] | null;
   enrichment_tier: string | null;
+  enrichment_source: string | null;
   source?: string;
 }
 
@@ -147,7 +150,7 @@ const CandidateSearch = () => {
     
     let query = supabase
       .from("candidates")
-      .select("id, first_name, last_name, email, phone, specialty, city, state, licenses, enrichment_tier", { count: "exact" });
+      .select("id, first_name, last_name, email, phone, personal_email, personal_mobile, specialty, city, state, licenses, enrichment_tier, enrichment_source", { count: "exact" });
 
     // Search filter
     if (searchQuery.trim()) {
@@ -351,7 +354,7 @@ const CandidateSearch = () => {
     toast({ title: `Exported ${selectedIds.size} candidates` });
   };
 
-  const getTierBadge = (tier: string | null, source?: string) => {
+  const getTierBadge = (tier: string | null, source?: string, enrichmentSource?: string | null) => {
     if (!tier) return null;
     const colors: Record<string, string> = {
       Platinum: "bg-purple-500/20 text-purple-400 border-purple-500/30",
@@ -364,10 +367,17 @@ const CandidateSearch = () => {
     const isExternal = source === 'alpha_sophia' || tier === 'Alpha Sophia';
     
     return (
-      <Badge variant="outline" className={`${colors[tier] || colors["Alpha Sophia"]} ${isExternal ? 'gap-1' : ''}`}>
-        {isExternal && <Globe className="h-3 w-3" />}
-        {tier}
-      </Badge>
+      <div className="flex items-center gap-1">
+        <Badge variant="outline" className={`${colors[tier] || colors["Alpha Sophia"]} ${isExternal ? 'gap-1' : ''}`}>
+          {isExternal && <Globe className="h-3 w-3" />}
+          {tier}
+        </Badge>
+        {enrichmentSource && (
+          <Badge variant="outline" className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-xs">
+            {enrichmentSource}
+          </Badge>
+        )}
+      </div>
     );
   };
 
@@ -683,7 +693,7 @@ const CandidateSearch = () => {
                       <TableCell>
                         {candidate.licenses?.length || 0}
                       </TableCell>
-                      <TableCell>{getTierBadge(candidate.enrichment_tier, candidate.source)}</TableCell>
+                      <TableCell>{getTierBadge(candidate.enrichment_tier, candidate.source, candidate.enrichment_source)}</TableCell>
                       <TableCell className="text-center">
                         {candidate.phone ? (
                           <Check className="h-4 w-4 text-green-400 mx-auto" />
