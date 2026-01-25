@@ -258,11 +258,19 @@ ${differentiators ? `Key differentiator: ${differentiators.substring(0, 100)}` :
 ${hook ? `PERSONALIZATION HOOK: ${hook}` : ''}
 ${custom_context ? `CONTEXT: ${custom_context}` : ''}
 
-=== CRITICAL INSTRUCTIONS ===
-1. Use the compensation values EXACTLY as shown - if rate is ${hourlyRate}, output ${hourlyRate}
-2. Follow the messaging tone/selling points guidance
-3. Keep under 300 characters
-4. Include "locums" signal`;
+=== CRITICAL RULES - FOLLOW EXACTLY ===
+1. COMPENSATION: Use "${hourlyRate}" EXACTLY - NEVER calculate, round, or modify rates.
+
+2. FACILITY TYPE: Use ONLY "${facilityType}" - if NOT a trauma center, NEVER say "Level I" or "Level II trauma".
+   - If "non-trauma" or "community hospital" → do NOT mention trauma level at all.
+
+3. CALL STATUS: Use EXACTLY "${callStatus}" - if "ZERO CALL", emphasize it's rare for IR.
+
+4. NO HALLUCINATION: Only facts from playbook. Do NOT invent details.
+
+5. PERSONALIZATION: Reference candidate background, but NEVER fabricate facility details.
+
+6. Keep under 300 characters. Include "locums" signal.`;
 
     // Template-based SMS generation (fallback)
     const generateFallbackSMS = () => {

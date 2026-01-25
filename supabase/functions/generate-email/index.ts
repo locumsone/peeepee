@@ -321,12 +321,31 @@ ${hook ? `\nADDITIONAL CONTEXT: ${hook}` : ''}
 ${custom_context ? `\nCUSTOM CONTEXT: ${custom_context}` : ''}
 ${jobMatch?.icebreaker ? `\nICEBREAKER: ${jobMatch.icebreaker}` : ''}
 
-=== CRITICAL INSTRUCTIONS ===
-1. Use the compensation values EXACTLY as shown - do not calculate or modify. If hourly is ${hourlyRate}, output ${hourlyRate}.
-2. Follow the messaging tone guidance above.
-3. Lead with the selling points when relevant.
-4. Include specific clinical details (procedures, call status, case mix).
-5. Sound like a clinical consultant, not a recruiter.
+=== CRITICAL RULES - FOLLOW EXACTLY ===
+1. COMPENSATION: Use rates EXACTLY as provided - "${hourlyRate}" means write "${hourlyRate}", NEVER calculate, round, or modify.
+   - Daily: ${dailyRate || 'not specified'}
+   - Weekly: ${weeklyRate || 'not specified'}
+   - Annual: ${annualRate || 'not specified'}
+
+2. FACILITY TYPE: Use ONLY what is stated above: "${facilityType}"
+   - If NOT a trauma center, NEVER say "Level I trauma" or "Level II trauma"
+   - If facility type is "non-trauma", "community hospital", or doesn't specify trauma level → DO NOT mention trauma level
+   - This is a critical error we must avoid
+
+3. CALL STATUS: Use EXACTLY what is stated: "${callStatus}"
+   - If "ZERO CALL" or "NO CALL" → emphasize this is RARE for IR positions
+
+4. NO HALLUCINATION: Only include facts from the playbook data above.
+   - Do NOT invent certifications, affiliations, or facility details
+   - Do NOT assume metro area characteristics not stated
+   - If information is missing, do NOT include it
+
+5. TONE: Be direct and clinical, not salesy.
+   - Lead with key differentiator (usually zero call or rate)
+   - Use specific numbers from playbook
+   - Permission-based CTAs ("worth 15 min to discuss?" not "let's schedule!")
+
+6. PERSONALIZATION: Reference candidate's background, but NEVER fabricate facility details to match their experience.
 
 EMAIL STRUCTURE TO FOLLOW:
 Subject: [Location] [Specialty] ${contractType} - [clinical detail], [call status], ${hourlyRate}/hr
