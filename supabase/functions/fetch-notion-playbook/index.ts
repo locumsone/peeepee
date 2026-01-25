@@ -44,7 +44,8 @@ interface StructuredPlaybookCache {
   position: {
     title: string | null;
     facility_name: string | null;
-    facility_type: string | null;     // trauma, non-trauma, academic, community, ASC
+    facility_type: string | null;     // "Non-trauma community hospital", "Level I Trauma", etc.
+    trauma_level: string | null;      // "None", "Level I", "Level II", or null
     location_city: string | null;
     location_state: string | null;
     location_metro: string | null;    // "Los Angeles County"
@@ -171,22 +172,51 @@ function extractPosition(content: string): StructuredPlaybookCache['position'] {
     /(?:Facility|Hospital|Site|Client)(?:\s*Name)?:\*?\*?\s*([^\n]+)/i,
   ];
   
-  // Facility type - PRIORITY ORDER MATTERS
-  // Non-trauma and community should be checked FIRST because playbooks often mention 
-  // "NOT Level I trauma" or compare to trauma centers - we want to capture the actual facility type
-  const facilityTypePatterns = [
-    // Explicit non-trauma statements (highest priority)
-    /(Non-?trauma(?:\s+(?:community\s+)?hospital)?)/i,
-    /(Community(?:\s+hospital)?)/i,
-    // Then check for specific trauma levels only if explicitly stated AS the facility
-    /(?:This is a|Facility is a?|Hospital is a?)\s*(Level\s*[IV]+\s*Trauma)/i,
-    /Trauma Level:\s*(Level\s*[IV]+)/i,
-    // Other facility types
-    /(ASC|Ambulatory\s*Surgery\s*Center)/i,
-    /(Academic(?:\s+Medical\s+Center)?)/i,
-    /(Teaching(?:\s+Hospital)?)/i,
-    /(Critical\s+Access)/i,
-  ];
+  // EXPLICIT TRAUMA LEVEL EXTRACTION
+  // Check for explicit "NOT a trauma center" or "non-trauma" statements FIRST
+  const extractTraumaLevel = (text: string): string | null => {
+    // Check for explicit NON-trauma statements (highest priority)
+    if (/NOT\s+(?:a\s+)?(?:Level\s*[IV]+\s*)?trauma/i.test(text)) return "None";
+    if (/non[- ]?trauma/i.test(text)) return "None";
+    if (/no\s+trauma/i.test(text)) return "None";
+    
+    // Check for explicit trauma level declarations
+    const traumaMatch = text.match(/(?:This is a|We are a|Facility is a?|Hospital is a?|Trauma Level:)\s*(Level\s*[IV]+)/i);
+    if (traumaMatch) return traumaMatch[1];
+    
+    // Check for standalone trauma level mentions that indicate actual designation
+    const standaloneMatch = text.match(/^(?:Level\s*[IV]+\s*Trauma(?:\s+Center)?)/im);
+    if (standaloneMatch) return standaloneMatch[0].replace(/\s+Center/i, '').trim();
+    
+    // No explicit trauma designation found - return null (unknown)
+    return null;
+  };
+  
+  // FACILITY TYPE EXTRACTION
+  // Based on trauma level and other keywords
+  const extractFacilityType = (text: string, traumaLevel: string | null): string | null => {
+    // If explicitly non-trauma, look for hospital type
+    if (traumaLevel === "None") {
+      if (/community\s*hospital/i.test(text)) return "Non-trauma community hospital";
+      if (/community/i.test(text)) return "Non-trauma community hospital";
+      return "Non-trauma hospital";
+    }
+    
+    // If has trauma designation
+    if (traumaLevel && traumaLevel !== "None") {
+      return `${traumaLevel} Trauma Center`;
+    }
+    
+    // Check for other facility types
+    if (/Academic(?:\s+Medical\s+Center)?/i.test(text)) return "Academic Medical Center";
+    if (/Teaching(?:\s+Hospital)?/i.test(text)) return "Teaching Hospital";
+    if (/ASC|Ambulatory\s*Surgery\s*Center/i.test(text)) return "Ambulatory Surgery Center";
+    if (/Critical\s+Access/i.test(text)) return "Critical Access Hospital";
+    if (/community\s*hospital/i.test(text)) return "Community Hospital";
+    
+    // No specific type found
+    return null;
+  };
   
   // Location
   const locationPatterns = [
@@ -229,10 +259,18 @@ function extractPosition(content: string): StructuredPlaybookCache['position'] {
     }
   }
   
+  // Extract trauma level first, then derive facility type
+  const traumaLevel = extractTraumaLevel(content);
+  const facilityType = extractFacilityType(content, traumaLevel);
+  
+  console.log("Extracted trauma_level:", traumaLevel);
+  console.log("Derived facility_type:", facilityType);
+  
   return {
     title: findFirst(titlePatterns),
     facility_name: findFirst(facilityPatterns),
-    facility_type: findFirst(facilityTypePatterns),
+    facility_type: facilityType,
+    trauma_level: traumaLevel,
     location_city: city,
     location_state: state,
     location_metro: findFirst(metroPatterns),
