@@ -582,7 +582,105 @@ export default function PersonalizationStudio() {
     const candidatesToProcess = candidates.filter(c => !c.email_body);
     let processed = 0;
     
+    // Build playbook_data ONCE before the loop
+    let playbookDataToSend: any = null;
+    if (cachedPlaybook) {
+      if (isStructuredCache(cachedPlaybook)) {
+        playbookDataToSend = cachedPlaybook;
+      } else {
+        // Convert legacy cache to a format the edge function can use
+        const legacy = cachedPlaybook as LegacyPlaybookCache;
+        playbookDataToSend = {
+          notion_id: legacy.notion_id,
+          title: legacy.title,
+          compensation: {
+            hourly: legacy.extracted_rates?.hourly ? `$${legacy.extracted_rates.hourly}` : undefined,
+            daily: legacy.extracted_rates?.daily,
+            weekly: legacy.extracted_rates?.weekly,
+            annual: legacy.extracted_rates?.annual,
+          },
+          clinical: {
+            call_status: legacy.extracted_rates?.call_status,
+            procedures: legacy.extracted_rates?.procedures,
+          },
+          raw_content: legacy.content,
+        };
+      }
+    }
+    
+    // Store fetched connections in a local Map for immediate access (state updates are async)
+    const connectionMap = new Map<string, { connection: ConnectionMatch | null; personalization_hook?: string; talking_points?: string[] }>();
+    
     try {
+      // ========== STEP 1: FETCH CONNECTIONS FOR ALL CANDIDATES ==========
+      // This ensures the connection engine runs BEFORE email generation
+      const candidatesNeedingConnection = candidatesToProcess.filter(c => !c.connection);
+      
+      if (candidatesNeedingConnection.length > 0) {
+        console.log(`🔗 Fetching connections for ${candidatesNeedingConnection.length} candidates...`);
+        toast.info(`Analyzing ${candidatesNeedingConnection.length} candidates for personalization...`);
+        
+        try {
+          const { data: researchData, error: researchError } = await supabase.functions.invoke('personalization-research', {
+            body: {
+              candidate_ids: candidatesNeedingConnection.map(c => c.id),
+              job_id: jobId,
+              deep_research: false, // Quick connection check only
+              playbook_data: playbookDataToSend,
+            },
+          });
+          
+          if (researchError) {
+            console.error("Connection fetch error:", researchError);
+          } else if (researchData?.results) {
+            console.log(`✅ Received ${researchData.results.length} connection results`);
+            
+            // Store connections in local Map for immediate use
+            researchData.results.forEach((result: any) => {
+              if (result.connection) {
+                console.log(`   🎯 ${result.candidate_name || result.candidate_id}: P${result.connection.priority} - "${result.connection.line?.substring(0, 50)}..."`);
+              } else {
+                console.log(`   ⚠️ ${result.candidate_name || result.candidate_id}: No connection found`);
+              }
+              
+              connectionMap.set(result.candidate_id, {
+                connection: result.connection || null,
+                personalization_hook: result.personalization_hook,
+                talking_points: result.talking_points,
+              });
+            });
+            
+            // Also update state for UI/future use
+            setCandidates(prev => prev.map(c => {
+              const result = connectionMap.get(c.id);
+              if (!result) return c;
+              return {
+                ...c,
+                connection: result.connection,
+                personalization_hook: result.personalization_hook || c.personalization_hook,
+                talking_points: result.talking_points || c.talking_points,
+              };
+            }));
+          }
+        } catch (connError) {
+          console.error("Connection research failed:", connError);
+          // Continue with email generation even if connection fetch fails
+        }
+      } else {
+        console.log(`✅ All ${candidatesToProcess.length} candidates already have connections`);
+        // Populate connectionMap from existing candidates
+        candidatesToProcess.forEach(c => {
+          if (c.connection) {
+            connectionMap.set(c.id, {
+              connection: c.connection,
+              personalization_hook: c.personalization_hook,
+              talking_points: c.talking_points,
+            });
+          }
+        });
+      }
+      
+      // ========== STEP 2: GENERATE EMAILS WITH CONNECTIONS ==========
       // Process in batches of 5
       const batchSize = 5;
       for (let i = 0; i < candidatesToProcess.length; i += batchSize) {
@@ -592,31 +690,10 @@ export default function PersonalizationStudio() {
         const batchResults = await Promise.all(
           batch.map(async (candidate) => {
             try {
-              // Build playbook_data from cachedPlaybook - handle both structured and legacy formats
-              let playbookDataToSend: any = null;
-              if (cachedPlaybook) {
-                if (isStructuredCache(cachedPlaybook)) {
-                  playbookDataToSend = cachedPlaybook;
-                } else {
-                  // Convert legacy cache to a format the edge function can use
-                  const legacy = cachedPlaybook as LegacyPlaybookCache;
-                  playbookDataToSend = {
-                    notion_id: legacy.notion_id,
-                    title: legacy.title,
-                    compensation: {
-                      hourly: legacy.extracted_rates?.hourly ? `$${legacy.extracted_rates.hourly}` : undefined,
-                      daily: legacy.extracted_rates?.daily,
-                      weekly: legacy.extracted_rates?.weekly,
-                      annual: legacy.extracted_rates?.annual,
-                    },
-                    clinical: {
-                      call_status: legacy.extracted_rates?.call_status,
-                      procedures: legacy.extracted_rates?.procedures,
-                    },
-                    raw_content: legacy.content,
-                  };
-                }
-              }
+              // Get connection from local Map (immediate access, no state delay)
+              const connectionData = connectionMap.get(candidate.id);
+              const candidateConnection = connectionData?.connection || candidate.connection || null;
+              const candidateHook = connectionData?.personalization_hook || candidate.personalization_hook;
               
               if (!playbookDataToSend) {
                 console.warn(`No playbook data for candidate ${candidate.id}, using fallback`);
@@ -628,19 +705,26 @@ export default function PersonalizationStudio() {
                 };
               }
               
+              // Log what we're sending to the edge function
+              console.log(`📧 Generating for Dr. ${candidate.last_name}:`);
+              console.log(`   Connection:`, candidateConnection ? `P${candidateConnection.priority} - "${candidateConnection.line?.substring(0, 40)}..."` : 'null');
+              console.log(`   Licenses:`, candidate.licenses?.slice(0, 5).join(', '));
+              console.log(`   Job state:`, job?.state);
+              
               // Get user signature data for personalized sign-offs
               const signatureData = getSignatureData();
               
               // Call edge function for email with playbook data, signature, and connection
+              // CRITICAL: Use candidateConnection from connectionMap for immediate access
               const { data: emailData, error: emailError } = await supabase.functions.invoke('generate-email', {
                 body: {
                   candidate_id: candidate.id,
                   job_id: jobId,
                   campaign_id: campaignId,
-                  personalization_hook: candidate.personalization_hook,
+                  personalization_hook: candidateHook,
                   playbook_data: playbookDataToSend,
                   signature: signatureData,
-                  connection: candidate.connection || null, // Pass connection for first-sentence personalization
+                  connection: candidateConnection, // Use connection from Map
                 },
               });
               
@@ -649,15 +733,16 @@ export default function PersonalizationStudio() {
               }
               
               // Call edge function for SMS with playbook data, signature, and connection
+              // CRITICAL: Use candidateConnection from connectionMap for immediate access
               const { data: smsData, error: smsError } = await supabase.functions.invoke('generate-sms', {
                 body: {
                   candidate_id: candidate.id,
                   job_id: jobId,
                   campaign_id: campaignId,
-                  personalization_hook: candidate.personalization_hook,
+                  personalization_hook: candidateHook,
                   playbook_data: playbookDataToSend,
                   signature: signatureData,
-                  connection: candidate.connection || null, // Pass connection for SMS personalization
+                  connection: candidateConnection, // Use connection from Map
                 },
               });
               
