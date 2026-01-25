@@ -572,14 +572,17 @@ export default function PersonalizationStudio() {
         const batchResults = await Promise.all(
           batch.map(async (candidate) => {
             try {
-              // Call edge function for email with FULL playbook content or campaign_id for cache
+              // Build playbook_data from cachedPlaybook if it's structured
+              const structuredPlaybook = cachedPlaybook && isStructuredCache(cachedPlaybook) ? cachedPlaybook : undefined;
+              
+              // Call edge function for email with structured playbook data
               const { data: emailData, error: emailError } = await supabase.functions.invoke('generate-email', {
                 body: {
                   candidate_id: candidate.id,
                   job_id: jobId,
-                  campaign_id: campaignId, // Allow edge function to use cached playbook
+                  campaign_id: campaignId,
                   personalization_hook: candidate.personalization_hook,
-                  playbook_content: playbookContent, // Pass content if available
+                  playbook_data: structuredPlaybook, // Pass structured playbook directly
                 },
               });
               
@@ -587,14 +590,14 @@ export default function PersonalizationStudio() {
                 console.error("Email generation error:", emailError);
               }
               
-              // Call edge function for SMS with FULL playbook content or campaign_id for cache
+              // Call edge function for SMS with structured playbook data
               const { data: smsData, error: smsError } = await supabase.functions.invoke('generate-sms', {
                 body: {
                   candidate_id: candidate.id,
                   job_id: jobId,
-                  campaign_id: campaignId, // Allow edge function to use cached playbook
+                  campaign_id: campaignId,
                   personalization_hook: candidate.personalization_hook,
-                  playbook_content: playbookContent, // Pass content if available
+                  playbook_data: structuredPlaybook, // Pass structured playbook directly
                 },
               });
               

@@ -12,6 +12,7 @@ interface SMSRequest {
   template_style?: 'ca_license' | 'no_call' | 'compensation' | 'location' | 'board_eligible' | 'non_trauma';
   personalization_hook?: string;
   custom_context?: string;
+  playbook_data?: StructuredPlaybookCache; // Allow passing playbook directly
 }
 
 // Structured Playbook Cache interface (matches the new format)
@@ -126,12 +127,20 @@ Deno.serve(async (req) => {
     });
 
     const body: SMSRequest = await req.json();
-    const { candidate_id, job_id, campaign_id, template_style = 'ca_license', personalization_hook, custom_context } = body;
+    const { candidate_id, job_id, campaign_id, template_style = 'ca_license', personalization_hook, custom_context, playbook_data } = body;
 
-    // Fetch campaign playbook data (now structured)
+    // Get playbook from request body first, then try campaign
     let playbook: StructuredPlaybookCache | null = null;
     
-    if (campaign_id) {
+    // Priority 1: Use playbook_data passed directly in request
+    if (playbook_data && isStructuredCache(playbook_data)) {
+      playbook = playbook_data;
+      console.log("✅ Using playbook_data from request body");
+      console.log("Playbook title:", playbook.metadata?.title);
+      console.log("Hourly rate:", playbook.compensation?.hourly);
+    }
+    // Priority 2: Fetch from campaign if campaign_id provided
+    else if (campaign_id) {
       console.log("Fetching playbook from campaign:", campaign_id);
       const { data: campaign } = await supabase
         .from('campaigns')
