@@ -337,36 +337,32 @@ CRITICAL: When describing the facility, use the FACILITY DATA fields exactly as 
    - Never invent teaching affiliations, trauma designations, or clinical details
    - If data is missing, omit it rather than guess
 
-=== SUBJECT LINE GENERATION (CLINICAL TONE) ===
-Generate a clinical, direct subject line under 50 characters.
-Write like a colleague reaching out, not a recruiter selling.
+=== SUBJECT LINE (MANDATORY - UNIQUE PER CANDIDATE) ===
+YOU MUST generate a UNIQUE subject line for Dr. ${candidate.last_name}.
+DO NOT use generic subjects like "Lakewood IR - Zero Call" for everyone.
 
-TONE: Factual, direct, respects their intelligence. No sales language.
+REQUIRED FORMAT (pick ONE based on candidate's profile):
+${hasJobStateLicense ? 
+  `- "IR ${locationState} - ${callStatus}" (they have the license)
+- "${candidate.specialty} ${hourlyRate} ${locationCity}"
+- "Dr. ${candidate.last_name} - ${locationCity} IR"` :
+  `- "${licenseCount}-state IR doc - ${locationCity} role"  
+- "${candidate.specialty} ${hourlyRate}/hr ${locationState}"
+- "Multi-license IR - ${facilityName}"`}
 
-BUILD FROM:
-- Specialty: ${candidate.specialty}
-- Location: ${locationCity}, ${locationState}
-- Rate: ${hourlyRate}
-- Call: ${callStatus}
-- Candidate: Dr. ${candidate.last_name}
-- License: ${hasJobStateLicense ? `Has ${job.state} license` : `${licenseCount} state licenses`}
-
-FORMAT OPTIONS (vary which you use):
-- "${locationCity} ${candidate.specialty} - ${callStatus}"
-- "${candidate.specialty} ${locationState} ${hourlyRate}"
-- "Dr. ${candidate.last_name} - ${candidate.specialty} ${locationCity}"
-- "${facilityName} ${candidate.specialty}"
+PERSONALIZE using their data:
+- Name: Dr. ${candidate.last_name}
+- Licenses: ${hasJobStateLicense ? `Has ${job.state}` : `${licenseCount} states`}
+- Employer: ${candidate.company_name || 'Unknown'}
+- Their state: ${candidate.state}
 
 STRICT RULES:
-- State facts only - NO persuasion
-- BANNED words: opportunity, rare, amazing, exciting, perfect, ideal
-- BANNED phrases: thought of you, quick question, reaching out, wanted to connect
-- NO question marks or exclamation points
-- NO filler words
-- Just: who/what/where/key fact
 - Under 50 characters
-
-Doctors open it if the facts interest them. Let the differentiators speak for themselves.
+- NO generic facility-only subjects
+- Include candidate-specific element (name, license count, or employer)
+- State facts: location + specialty + ONE differentiator
+- BANNED: opportunity, rare, exciting, amazing, perfect
+- NO question marks, exclamation points
 
 === END CRITICAL RULES ===
 
@@ -502,17 +498,23 @@ ${signatureBlock}`;
             { role: "system", content: systemPrompt },
 { 
               role: "user", 
-              content: `Generate a clinical outreach email for Dr. ${candidate.last_name}.
+              content: `Generate email for Dr. ${candidate.last_name}.
 
-SUBJECT LINE RULES:
-- Under 50 characters, factual, direct
-- NO sales language: opportunity, exciting, rare, perfect, amazing
-- NO recruiter phrases: quick question, reaching out, thought of you
-- NO question marks or exclamation points
-- Just state: location + specialty + key fact (rate or call status)
-- Example formats: "${locationCity} ${candidate.specialty} - ${callStatus}" or "${candidate.specialty} ${locationState} ${hourlyRate}"
+CRITICAL - SUBJECT LINE MUST BE UNIQUE:
+Do NOT use "Lakewood Interventional Radiology - ZERO CALL" or any generic facility-based subject.
 
-Return ONLY valid JSON with "subject" and "body" fields. No markdown, no code blocks.`
+Generate a subject specific to THIS candidate using one of these formats:
+${hasJobStateLicense ? 
+  `- "IR ${locationState} ${hourlyRate} - ${callStatus}"
+- "Dr. ${candidate.last_name} - ${locationCity} IR ${callStatus}"
+- "${candidate.specialty} at ${facilityName}"` :
+  `- "${licenseCount}-license IR - ${locationCity} ${hourlyRate}"
+- "Dr. ${candidate.last_name} - ${candidate.specialty} ${locationState}"  
+- "Multi-state IR doc - ${facilityName}"`}
+
+Subject must include: Dr. ${candidate.last_name}'s name OR their license info (${hasJobStateLicense ? `${job.state} license` : `${licenseCount} licenses`}).
+
+Return ONLY valid JSON: {"subject": "...", "body": "..."}`
             }
           ],
           temperature: 0.7,
