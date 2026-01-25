@@ -560,6 +560,31 @@ Pull from these fields in the role data:
 
 ---
 
+## QUALITY SCORE RUBRIC (Must score 8/10 minimum)
+
+### Structure (4 points)
+- Opens with differentiator, not flattery: +1
+- Pain point solved in first 3 sentences: +1
+- Credentialing includes comparison (e.g., "40 days vs. typical 90-120"): +1
+- CTA is permission-based, single question: +1
+
+### Accuracy (3 points)
+- All compensation figures correct (exact rates from playbook): +1
+- Facility type/details accurate (no invented trauma levels): +1
+- Schedule and call status accurate: +1
+
+### Tone (2 points)
+- Clinical, not salesy (zero recruiter words): +1
+- Follows role-specific MESSAGING TONE rules: +1
+
+### Differentiation (1 point)
+- #1 differentiator framed as RARE (not standard): +1
+
+**MINIMUM PASSING SCORE: 8/10**
+If score < 8, REVISE before returning.
+
+---
+
 ## SUBJECT LINE FORMAT
 
 Under 50 characters. Lead with location + specialty + differentiator + rate.
@@ -667,13 +692,27 @@ PAIN POINTS SOLVED: ${playbook.positioning?.pain_points_solved || 'escape call b
 
 LENGTH: 150-220 words. Scannable prose, not excessive bullets.
 
-BEFORE RETURNING, verify:
-- Opens with what's RARE, not generic
-- Lifestyle benefit comes before clinical scope
-- Zero recruiter words (exciting, elite, amazing, opportunity)
-- Zero exclamation points
-- Exact rate: ${hourlyRate}/hr
-- Permission-based CTA (not "I'd love to connect!")
+QUALITY SCORE - Score yourself before returning (must be 8/10 minimum):
+
+Structure (4 pts):
+☐ Opens with differentiator, not flattery? (+1)
+☐ Pain point solved in first 3 sentences? (+1)
+☐ Credentialing has comparison (e.g., "40 days vs. 90-120")? (+1)
+☐ CTA is single permission-based question? (+1)
+
+Accuracy (3 pts):
+☐ Compensation exact: ${hourlyRate}/hr? (+1)
+☐ Facility type accurate (no invented trauma)? (+1)
+☐ Schedule/call status correct: ${callStatus}? (+1)
+
+Tone (2 pts):
+☐ Zero recruiter words (exciting, elite, amazing, opportunity)? (+1)
+☐ Follows MESSAGING TONE rules? (+1)
+
+Differentiation (1 pt):
+☐ #1 differentiator framed as RARE? (+1)
+
+IF YOUR SCORE IS BELOW 8/10, REVISE THE EMAIL BEFORE RETURNING.
 
 Return ONLY valid JSON: {"subject": "...", "body": "..."}`
             }
