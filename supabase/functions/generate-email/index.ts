@@ -14,6 +14,59 @@ interface EmailRequest {
   playbook_content?: string;
 }
 
+// Structured Playbook Cache interface (matches the new format)
+interface StructuredPlaybookCache {
+  compensation: {
+    hourly: string | null;
+    daily: string | null;
+    weekly: string | null;
+    annual: string | null;
+    salary_range: string | null;
+  };
+  position: {
+    title: string | null;
+    facility_name: string | null;
+    facility_type: string | null;
+    location_city: string | null;
+    location_state: string | null;
+    location_metro: string | null;
+    contract_type: string | null;
+  };
+  clinical: {
+    procedures: string | null;
+    case_types: string | null;
+    case_mix: string | null;
+    volume: string | null;
+    call_status: string | null;
+    schedule_days: string | null;
+    schedule_hours: string | null;
+    duration: string | null;
+    tech_stack: string | null;
+  };
+  credentialing: {
+    required_license: string | null;
+    days_to_credential: number | null;
+    temps_available: boolean | null;
+    requirements: string | null;
+  };
+  positioning: {
+    selling_points: string | null;
+    pain_points_solved: string | null;
+    ideal_candidate: string | null;
+    differentiators: string | null;
+    messaging_tone: string | null;
+    objection_responses: string | null;
+    facility_context: string | null;
+  };
+  metadata: {
+    notion_id: string | null;
+    notion_url: string | null;
+    title: string | null;
+    synced_at: string | null;
+    content_length: number | null;
+  };
+}
+
 // Clinical Consultant Persona - NOT a recruiter
 const CLINICAL_CONSULTANT_PERSONA = `You are a clinical consultant who understands medicine—NOT a recruiter running a sales script.
 
@@ -49,229 +102,11 @@ FORBIDDEN:
 - Headers with emojis or "Intelligence Brief"
 - Bill rate (only show pay rate to candidates)`;
 
-// Extract playbook rates - DYNAMIC extraction, NO hardcoded defaults
-// Enhanced patterns to match Notion markdown format
-function extractPlaybookRates(playbookContent: string): {
-  hourly: string | null;
-  daily: string | null;
-  weekly: string | null;
-  annual: string | null;
-  extracted: boolean;
-} {
-  if (!playbookContent) {
-    console.warn("PLAYBOOK: No playbook content provided");
-    return { hourly: null, daily: null, weekly: null, annual: null, extracted: false };
-  }
-
-  console.log("PLAYBOOK CONTENT LENGTH:", playbookContent.length);
-  console.log("PLAYBOOK SAMPLE (first 1000 chars):", playbookContent.substring(0, 1000));
-
-  // Multiple patterns for each rate type - ordered by specificity
-  // Notion markdown uses **Bold** format
-  const hourlyPatterns = [
-    // Notion markdown patterns: **Hourly Rate:** $500/hour
-    /\*\*Hourly Rate:\*\*\s*\$(\d{2,4})(?:\/hour)?/i,
-    /\*\*Hourly:\*\*\s*\$(\d{2,4})/i,
-    // Plain text patterns
-    /Hourly Rate:\s*\$(\d{2,4})/i,
-    /Hourly:\s*\$(\d{2,4})/i,
-    // Inline patterns: $500/hour, $500/hr, $500 per hour
-    /\$(\d{2,4})\/hour/i,
-    /\$(\d{2,4})\/hr/i,
-    /\$(\d{2,4})\s+per\s+hour/i,
-    // Generic fallback
-    /pay\s*rate[:\s]*\$?(\d{2,4})/i,
-  ];
-  
-  const dailyPatterns = [
-    /\*\*Daily Earnings:\*\*\s*\$([\d,]+)/i,
-    /\*\*Daily:\*\*\s*\$([\d,]+)/i,
-    /Daily Earnings:\s*\$([\d,]+)/i,
-    /Daily Rate:\s*\$([\d,]+)/i,
-    /\$([\d,]+)\/day/i,
-    /\$([\d,]+)\s+per\s+day/i,
-  ];
-  
-  const weeklyPatterns = [
-    /\*\*Weekly Earnings:\*\*\s*\$([\d,]+)/i,
-    /\*\*Weekly:\*\*\s*\$([\d,]+)/i,
-    /Weekly Earnings:\s*\$([\d,]+)/i,
-    /Weekly Rate:\s*\$([\d,]+)/i,
-    /\$([\d,]+)\/week/i,
-    /\$([\d,]+)\s+per\s+week/i,
-  ];
-  
-  const annualPatterns = [
-    /\*\*Annual Potential:\*\*\s*\$([\d,]+)/i,
-    /\*\*Annual:\*\*\s*\$([\d,]+)/i,
-    /Annual Potential:\s*\$([\d,]+)/i,
-    /Annual Earnings:\s*\$([\d,]+)/i,
-    /\$([\d,]+(?:,\d{3})*)\s+(?:annual|annually|per\s+year)/i,
-  ];
-
-  const findMatch = (patterns: RegExp[]): string | null => {
-    for (const pattern of patterns) {
-      const match = playbookContent.match(pattern);
-      if (match) {
-        console.log(`RATE PATTERN MATCHED: ${pattern} -> ${match[1]}`);
-        return match[1].replace(/,/g, '');
-      }
-    }
-    return null;
-  };
-
-  const hourlyRaw = findMatch(hourlyPatterns);
-  const dailyRaw = findMatch(dailyPatterns);
-  const weeklyRaw = findMatch(weeklyPatterns);
-  const annualRaw = findMatch(annualPatterns);
-
-  const formatRate = (raw: string | null): string | null => {
-    if (!raw) return null;
-    const num = parseInt(raw, 10);
-    if (isNaN(num)) return null;
-    return `$${num.toLocaleString('en-US')}`;
-  };
-
-  const result = {
-    hourly: formatRate(hourlyRaw),
-    daily: formatRate(dailyRaw),
-    weekly: formatRate(weeklyRaw),
-    annual: formatRate(annualRaw),
-    extracted: hourlyRaw !== null,
-  };
-
-  console.log("=== PLAYBOOK RATES EXTRACTED ===");
-  console.log("Hourly:", result.hourly || "NOT FOUND");
-  console.log("Daily:", result.daily || "NOT FOUND");
-  console.log("Weekly:", result.weekly || "NOT FOUND");
-  console.log("Annual:", result.annual || "NOT FOUND");
-  console.log("Extraction success:", result.extracted);
-  
-  return result;
-}
-
-// Extract clinical details - DYNAMIC extraction, NO hardcoded defaults
-function extractClinicalDetails(playbookContent: string): {
-  callStatus: string | null;
-  schedule: string | null;
-  facilityType: string | null;
-  credentialingDays: string | null;
-  procedures: string | null;
-  rvus: string | null;
-  techStack: string | null;
-  extracted: boolean;
-} {
-  if (!playbookContent) {
-    console.warn("PLAYBOOK: No playbook content provided for clinical details");
-    return { callStatus: null, schedule: null, facilityType: null, credentialingDays: null, procedures: null, rvus: null, techStack: null, extracted: false };
-  }
-
-  // Call status
-  let callStatus: string | null = null;
-  if (/no\s*call|zero\s*call|on-?call[:\s]*no/i.test(playbookContent)) {
-    callStatus = "Zero call";
-  } else if (/1\s*:\s*(\d+)\s*call/i.test(playbookContent)) {
-    const match = playbookContent.match(/1\s*:\s*(\d+)\s*call/i);
-    callStatus = match ? `1:${match[1]} call` : null;
-  } else if (/light\s*call/i.test(playbookContent)) {
-    callStatus = "Light call";
-  }
-
-  // Schedule
-  let schedule: string | null = null;
-  const schedulePatterns = [
-    /schedule[:\s]*([^\n]+)/i,
-    /hours[:\s]*([^\n]+)/i,
-    /(M-F\s*\d+[ap]?m?\s*-\s*\d+[ap]?m?)/i,
-  ];
-  for (const pattern of schedulePatterns) {
-    const match = playbookContent.match(pattern);
-    if (match) {
-      schedule = match[1].trim().replace(/\*+/g, '');
-      break;
-    }
-  }
-
-  // Facility type
-  let facilityType: string | null = null;
-  if (/non-?trauma|non trauma/i.test(playbookContent)) {
-    facilityType = "Non-trauma center";
-  } else if (/level\s*[iI1]\s*trauma/i.test(playbookContent)) {
-    facilityType = "Level I trauma center";
-  } else if (/level\s*[iI]{2,}|level\s*2/i.test(playbookContent)) {
-    facilityType = "Level II trauma center";
-  } else if (/community\s*hospital/i.test(playbookContent)) {
-    facilityType = "Community hospital";
-  } else if (/academic/i.test(playbookContent)) {
-    facilityType = "Academic medical center";
-  }
-
-  // Credentialing days
-  let credentialingDays: string | null = null;
-  const credPatterns = [
-    /credentialing[:\s]*(?:~)?(\d+)\s*days?/i,
-    /(\d+)[\s-]*day\s*credentialing/i,
-    /timeline[:\s]*(\d+)\s*days?/i,
-  ];
-  for (const pattern of credPatterns) {
-    const match = playbookContent.match(pattern);
-    if (match) {
-      credentialingDays = `${match[1]} days`;
-      break;
-    }
-  }
-
-  // Procedures
-  let procedures: string | null = null;
-  const procPatterns = [
-    /procedures?[:\s]*([^\n]+)/i,
-    /scope[:\s]*([^\n]+)/i,
-    /case\s*types?[:\s]*([^\n]+)/i,
-  ];
-  for (const pattern of procPatterns) {
-    const match = playbookContent.match(pattern);
-    if (match) {
-      procedures = match[1].trim().replace(/\*+/g, '');
-      break;
-    }
-  }
-
-  // RVUs
-  let rvus: string | null = null;
-  const rvuMatch = playbookContent.match(/~?(\d+)\s*RVUs?(?:\s*\/\s*shift)?/i);
-  if (rvuMatch) {
-    rvus = `~${rvuMatch[1]} RVUs/shift`;
-  }
-
-  // Tech stack
-  let techStack: string | null = null;
-  const techPatterns = [
-    /tech[:\s]*([^\n]+)/i,
-    /emr[:\s]*([^\n]+)/i,
-    /pacs[:\s]*([^\n]+)/i,
-    /powerscribe[^\n]*/i,
-  ];
-  for (const pattern of techPatterns) {
-    const match = playbookContent.match(pattern);
-    if (match) {
-      techStack = match[0].trim().replace(/\*+/g, '');
-      break;
-    }
-  }
-
-  const result = {
-    callStatus,
-    schedule,
-    facilityType,
-    credentialingDays,
-    procedures,
-    rvus,
-    techStack,
-    extracted: callStatus !== null || schedule !== null || procedures !== null,
-  };
-
-  console.log("PLAYBOOK CLINICAL EXTRACTED:", result);
-  return result;
+// Check if playbook data is structured format
+function isStructuredCache(data: unknown): data is StructuredPlaybookCache {
+  if (!data || typeof data !== 'object') return false;
+  const d = data as Record<string, unknown>;
+  return 'compensation' in d && 'position' in d && 'clinical' in d && 'positioning' in d;
 }
 
 Deno.serve(async (req) => {
@@ -301,30 +136,34 @@ Deno.serve(async (req) => {
     });
 
     const body: EmailRequest = await req.json();
-    const { candidate_id, job_id, campaign_id, personalization_hook, custom_context, playbook_content } = body;
+    const { candidate_id, job_id, campaign_id, personalization_hook, custom_context } = body;
 
-    // Determine playbook content source - prefer provided content, fall back to campaign cache
-    let effectivePlaybookContent = playbook_content || '';
+    // Fetch campaign playbook data (now structured)
+    let playbook: StructuredPlaybookCache | null = null;
     
-    if (!effectivePlaybookContent && campaign_id) {
-      console.log("No playbook_content provided - checking campaign cache...");
+    if (campaign_id) {
+      console.log("Fetching playbook from campaign:", campaign_id);
       const { data: campaign } = await supabase
         .from('campaigns')
         .select('playbook_data')
         .eq('id', campaign_id)
         .maybeSingle();
       
-      if (campaign?.playbook_data) {
-        const cached = campaign.playbook_data as { content?: string; extracted_rates?: { hourly?: string } };
-        if (cached.content && cached.content.length > 500) {
-          effectivePlaybookContent = cached.content;
-          console.log("✅ Using cached playbook from campaign:", campaign_id);
-          console.log("Cached content length:", cached.content.length);
-          if (cached.extracted_rates?.hourly) {
-            console.log("Cached hourly rate:", cached.extracted_rates.hourly);
-          }
-        }
+      if (campaign?.playbook_data && isStructuredCache(campaign.playbook_data)) {
+        playbook = campaign.playbook_data;
+        console.log("✅ Using structured playbook cache from campaign");
+        console.log("Playbook title:", playbook.metadata?.title);
+        console.log("Hourly rate:", playbook.compensation?.hourly);
       }
+    }
+
+    // Validate required compensation data
+    if (!playbook) {
+      throw new Error("NO PLAYBOOK FOUND - cannot generate message without playbook data. Please sync a playbook first.");
+    }
+    
+    if (!playbook.compensation?.hourly && !playbook.compensation?.salary_range) {
+      throw new Error("NO COMPENSATION FOUND - cannot generate message without verified hourly rate or salary range. Please ensure playbook contains compensation information.");
     }
 
     // Fetch candidate data
@@ -349,22 +188,6 @@ Deno.serve(async (req) => {
       throw new Error(`Job not found: ${jobError?.message}`);
     }
 
-    // Extract rates from playbook (NEVER calculate - use exact values)
-    const rates = extractPlaybookRates(effectivePlaybookContent);
-    const clinical = extractClinicalDetails(effectivePlaybookContent);
-
-    // Log extracted data for validation
-    console.log("PLAYBOOK EXTRACTION VALIDATION:", {
-      source: "playbook_content provided: " + (!!playbook_content),
-      rates,
-      clinical
-    });
-
-    // Validate required rate data - fail if missing
-    if (!rates.hourly) {
-      throw new Error("RATE NOT FOUND IN PLAYBOOK - cannot generate message without verified hourly compensation. Please ensure playbook contains rate information.");
-    }
-
     // Check for existing personalization
     let hook = personalization_hook;
     if (!hook) {
@@ -373,7 +196,7 @@ Deno.serve(async (req) => {
         .select('email_opener, hooks')
         .eq('candidate_id', candidate_id)
         .eq('job_id', job_id)
-        .single();
+        .maybeSingle();
       
       if (personalization?.email_opener) {
         hook = personalization.email_opener;
@@ -386,13 +209,13 @@ Deno.serve(async (req) => {
       .select('talking_points, icebreaker, match_reasons')
       .eq('candidate_id', candidate_id)
       .eq('job_id', job_id)
-      .single();
+      .maybeSingle();
 
     const licenseCount = candidate.licenses?.length || 0;
     const hasJobStateLicense = job.state && candidate.licenses?.includes(job.state);
 
-    // Build personalization hooks - use null coalescing for optional clinical data
-    const credDays = clinical.credentialingDays || "expedited";
+    // Build personalization hooks
+    const credDays = playbook.credentialing?.days_to_credential ? `${playbook.credentialing.days_to_credential}-day` : "expedited";
     const personalizationHooks: string[] = [];
     if (hasJobStateLicense) {
       personalizationHooks.push(`Your ${job.state} license = ${credDays} credentialing vs. 6+ months for others`);
@@ -404,58 +227,101 @@ Deno.serve(async (req) => {
       personalizationHooks.push(`Your ${licenseCount} state licenses indicate flexibility for multi-state work`);
     }
 
-    // Use null coalescing for optional clinical data in system prompt
-    const callText = clinical.callStatus || "flexible schedule";
-    const scheduleText = clinical.schedule || "Standard hours";
-    const facilityText = clinical.facilityType || "Hospital";
-    const procText = clinical.procedures || `${candidate.specialty} procedures`;
-    const rvuText = clinical.rvus || "sustainable volume";
-    const techText = clinical.techStack || "Modern EMR";
-    const dailyRate = rates.daily || "";
-    const weeklyRate = rates.weekly || "";
-    const annualRate = rates.annual || "";
+    // Extract values from structured playbook with safe defaults
+    const hourlyRate = playbook.compensation.hourly || playbook.compensation.salary_range || "Rate TBD";
+    const dailyRate = playbook.compensation.daily || "";
+    const weeklyRate = playbook.compensation.weekly || "";
+    const annualRate = playbook.compensation.annual || "";
+    
+    const callStatus = playbook.clinical?.call_status || "flexible schedule";
+    const schedule = playbook.clinical?.schedule_days && playbook.clinical?.schedule_hours 
+      ? `${playbook.clinical.schedule_days} ${playbook.clinical.schedule_hours}`
+      : playbook.clinical?.schedule_days || "Standard hours";
+    const procedures = playbook.clinical?.procedures || `${candidate.specialty} procedures`;
+    const volume = playbook.clinical?.volume || "sustainable volume";
+    const duration = playbook.clinical?.duration || "";
+    const techStack = playbook.clinical?.tech_stack || "Modern EMR";
+    
+    const facilityName = playbook.position?.facility_name || job.facility_name;
+    const facilityType = playbook.position?.facility_type || "Hospital";
+    const locationCity = playbook.position?.location_city || job.city;
+    const locationState = playbook.position?.location_state || job.state;
+    const contractType = playbook.position?.contract_type || "locums";
+    
+    const requiredLicense = playbook.credentialing?.required_license || locationState;
+    const credentialingDays = playbook.credentialing?.days_to_credential || null;
+    
+    // Positioning guidance
+    const sellingPoints = playbook.positioning?.selling_points || "";
+    const idealCandidate = playbook.positioning?.ideal_candidate || "";
+    const messagingTone = playbook.positioning?.messaging_tone || "";
+    const differentiators = playbook.positioning?.differentiators || "";
+    const objectionResponses = playbook.positioning?.objection_responses || "";
+    const facilityContext = playbook.positioning?.facility_context || "";
 
     // Build compensation line for prompt
-    let compLinePrompt = `${rates.hourly}`;
+    let compLinePrompt = `${hourlyRate}`;
     if (dailyRate) compLinePrompt += ` | ${dailyRate}`;
     if (weeklyRate) compLinePrompt += ` | ${weeklyRate}`;
 
-    // Build the clinical consultant prompt
+    // Build the clinical consultant prompt with structured data
     const systemPrompt = `${CLINICAL_CONSULTANT_PERSONA}
 
-PLAYBOOK RATES (USE EXACTLY - NEVER CALCULATE OR MODIFY):
-- Hourly: ${rates.hourly}/hour
+=== COMPENSATION (USE EXACTLY - NEVER CALCULATE OR MODIFY) ===
+- Rate: ${hourlyRate}/hour
 ${dailyRate ? `- Daily: ${dailyRate}` : ''}
 ${weeklyRate ? `- Weekly: ${weeklyRate}` : ''}
 ${annualRate ? `- Annual: ${annualRate}` : ''}
 
-CLINICAL DETAILS:
-- Procedures: ${procText}
-- Call: ${callText}
-- Schedule: ${scheduleText}
-- Productivity: ${rvuText} (sustainable pace)
-- Facility: ${facilityText}
-- Credentialing: ${credDays}
-- Tech: ${techText}
+=== CLINICAL ===
+- Call: ${callStatus}
+- Schedule: ${schedule}
+- Procedures: ${procedures}
+- Volume: ${volume}
+${duration ? `- Duration: ${duration}` : ''}
+- Tech: ${techStack}
 
-CANDIDATE DATA:
+=== POSITION ===
+- Facility: ${facilityName}
+- Type: ${facilityType}
+- Location: ${locationCity}, ${locationState}
+- Contract: ${contractType}
+
+=== CREDENTIALING ===
+- Required License: ${requiredLicense}
+${credentialingDays ? `- Timeline: ${credentialingDays} days` : ''}
+${playbook.credentialing?.temps_available ? '- Temps available while credentialing' : ''}
+
+=== POSITIONING GUIDANCE (FOLLOW THIS) ===
+${sellingPoints ? `Selling Points: ${sellingPoints}` : ''}
+${idealCandidate ? `Ideal Candidate: ${idealCandidate}` : ''}
+${messagingTone ? `Messaging Tone: ${messagingTone}` : ''}
+${differentiators ? `Differentiators: ${differentiators}` : ''}
+${objectionResponses ? `Objection Responses: ${objectionResponses}` : ''}
+${facilityContext ? `Facility Context: ${facilityContext}` : ''}
+
+=== CANDIDATE DATA ===
 - Name: Dr. ${candidate.last_name}
 - Specialty: ${candidate.specialty}
 - Location: ${candidate.city || ''}, ${candidate.state}
 - Licenses: ${licenseCount} states${hasJobStateLicense ? ` (includes ${job.state})` : ''}
 - Current employer: ${candidate.company_name || 'Unknown'}
 
-JOB DATA:
-- Position: ${job.specialty} at ${job.facility_name}
-- Location: ${job.city}, ${job.state}
-
-PERSONALIZATION HOOKS TO USE (at least 2):
+=== PERSONALIZATION HOOKS TO USE (at least 2) ===
 ${personalizationHooks.map((h, i) => `${i + 1}. ${h}`).join('\n')}
 ${hook ? `\nADDITIONAL CONTEXT: ${hook}` : ''}
 ${custom_context ? `\nCUSTOM CONTEXT: ${custom_context}` : ''}
+${jobMatch?.icebreaker ? `\nICEBREAKER: ${jobMatch.icebreaker}` : ''}
+
+=== CRITICAL INSTRUCTIONS ===
+1. Use the compensation values EXACTLY as shown - do not calculate or modify. If hourly is ${hourlyRate}, output ${hourlyRate}.
+2. Follow the messaging tone guidance above.
+3. Lead with the selling points when relevant.
+4. Include specific clinical details (procedures, call status, case mix).
+5. Sound like a clinical consultant, not a recruiter.
 
 EMAIL STRUCTURE TO FOLLOW:
-Subject: [Location] [Specialty] locums - [clinical detail], [call status], ${rates.hourly}/hr
+Subject: [Location] [Specialty] ${contractType} - [clinical detail], [call status], ${hourlyRate}/hr
 
 Dr. [Last Name],
 
@@ -464,7 +330,7 @@ Dr. [Last Name],
 Clinical Scope:
 [Setting/facility type]
 Case types: [SPECIFIC procedures]
-Volume: [RVUs] ([sustainability comment])
+Volume: [Volume info] ([sustainability comment])
 Tech: [EMR/PACS]
 [What it's NOT - no trauma, no call, etc.]
 
@@ -490,54 +356,32 @@ Locums One`;
 
     // Fallback email generator - clinical consultant style
     const generateFallbackEmail = () => {
-      // Use null coalescing for optional clinical data
-      const callText = clinical.callStatus || "flexible call";
-      const scheduleText = clinical.schedule || "Standard hours";
-      const facilityText = clinical.facilityType || "Hospital";
-      const procText = clinical.procedures || `${candidate.specialty} procedures`;
-      const rvuText = clinical.rvus || "sustainable volume";
-      const techText = clinical.techStack || "Modern EMR";
-      const dailyRate = rates.daily || "";
-      const weeklyRate = rates.weekly || "";
-      const annualRate = rates.annual || "";
-
-      const subject = `${job.city} ${candidate.specialty} locums - ${callText.toLowerCase()}, ${rates.hourly}/hr`;
+      const subject = `${locationCity}, ${locationState} ${candidate.specialty} ${contractType} - ${callStatus}, ${hourlyRate}/hr`;
       
-      const licenseAdvantage = hasJobStateLicense 
-        ? `Your ${job.state} license means ${credDays} credentialing vs. 6+ months for out-of-state physicians.`
-        : `With your ${licenseCount} state licenses, obtaining ${job.state} licensure positions you well for this opportunity.`;
-
-      // Build compensation line dynamically based on what's available
-      let compLine = `${rates.hourly} hourly`;
-      if (dailyRate) compLine += ` | ${dailyRate} daily`;
-      if (weeklyRate) compLine += ` | ${weeklyRate} weekly`;
-
       const body = `Dr. ${candidate.last_name},
 
-${candidate.company_name 
-  ? `Your work at ${candidate.company_name}, combined with your ${candidate.specialty} background, aligns directly with what ${job.facility_name} needs for their locums coverage.`
-  : `Your ${candidate.specialty} background and ${job.state} presence make you a strong fit for ${job.facility_name}'s locums need.`}
+${hasJobStateLicense 
+  ? `Your ${job.state} license caught my attention - it means ${credentialingDays || 'expedited'}-day credentialing for this ${contractType} role.`
+  : `Your ${candidate.specialty} background and ${licenseCount} state licenses suggest you'd be a strong fit for this ${contractType} position.`}
 
 Clinical Scope:
-${facilityText} in ${job.city}, ${job.state}
-Case types: ${procText}
-Volume: ${rvuText} (sustainable for experienced ${candidate.specialty})
-Tech: ${techText}
+${facilityType} setting at ${facilityName}
+Case types: ${procedures}
+Volume: ${volume}
+Tech: ${techStack}
+${callStatus ? `Call: ${callStatus}` : ''}
 
-Schedule & Call:
-${scheduleText}
-${callText}
-Long-term locums (ongoing coverage need)
+Schedule:
+${schedule}
+${duration ? `Duration: ${duration}` : ''}
 
 Compensation:
-${compLine}
+${hourlyRate}/hour${dailyRate ? ` | ${dailyRate}/day` : ''}${weeklyRate ? ` | ${weeklyRate}/week` : ''}
 ${annualRate ? `Annual potential: ${annualRate}` : ''}
 
-Credentialing: ${licenseAdvantage}
+${credentialingDays ? `Credentialing: ${credentialingDays} days with your ${hasJobStateLicense ? job.state : 'active'} license.` : ''}
 
-Why you specifically: Your ${candidate.specialty} expertise and ${hasJobStateLicense ? `active ${job.state} license` : `multi-state licensing`} mean you can start faster than most candidates while handling the procedural scope ${job.facility_name} requires.
-
-If this fits what you're looking for, worth 15 minutes to walk through the clinical details. If it's not the right fit, I'll tell you directly - no pressure.
+Worth 15 minutes to discuss clinical fit? If it's not the right match, I'll tell you directly.
 
 Best regards,
 Locums One`;
@@ -545,10 +389,13 @@ Locums One`;
       return { subject, body };
     };
 
-    let emailResult = { subject: '', body: '' };
+    // Try AI generation, fall back to template
+    let email: { subject: string; body: string };
     let usedFallback = false;
 
     try {
+      console.log("Calling Lovable AI Gateway for email generation...");
+      
       const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
         method: "POST",
         headers: {
@@ -559,51 +406,67 @@ Locums One`;
           model: "google/gemini-3-flash-preview",
           messages: [
             { role: "system", content: systemPrompt },
-            { role: "user", content: `Generate a professional clinical consultant email for Dr. ${candidate.last_name}. 
-
-CRITICAL REQUIREMENTS:
-1. Use EXACT rates from playbook: ${rates.hourly}/hr, ${rates.daily}/day, ${rates.weekly}/week, ${rates.annual}/year
-2. Include "locums" in subject and body
-3. Reference at least 2 personalization hooks
-4. No emojis, no exclamation points in body
-5. Sound like a clinical consultant who understands medicine, not a recruiter
-6. NEVER use "elite", "amazing", "exciting" or similar recruiter buzzwords
-
-Return as JSON: {"subject": "...", "body": "..."}` }
+            { 
+              role: "user", 
+              content: `Generate a professional outreach email for Dr. ${candidate.last_name}. Return ONLY valid JSON with "subject" and "body" fields. No markdown, no code blocks.`
+            }
           ],
           temperature: 0.7,
+          max_tokens: 1500,
         }),
       });
 
       if (!aiResponse.ok) {
         const errorText = await aiResponse.text();
-        console.warn("AI API unavailable, using fallback:", errorText);
-        emailResult = generateFallbackEmail();
-        usedFallback = true;
+        console.error("AI Gateway error:", aiResponse.status, errorText);
+        
+        if (aiResponse.status === 402) {
+          console.log("Credits exhausted - using fallback template");
+          email = generateFallbackEmail();
+          usedFallback = true;
+        } else {
+          throw new Error(`AI Gateway error: ${aiResponse.status}`);
+        }
       } else {
         const aiData = await aiResponse.json();
-        const content = aiData.choices?.[0]?.message?.content || '';
+        const content = aiData.choices?.[0]?.message?.content || "";
         
+        console.log("AI Response received, length:", content.length);
+        
+        // Parse JSON response
+        let parsed: { subject?: string; body?: string } | null = null;
         try {
-          const jsonMatch = content.match(/\{[\s\S]*"subject"[\s\S]*"body"[\s\S]*\}/);
-          if (jsonMatch) {
-            emailResult = JSON.parse(jsonMatch[0]);
-          } else {
-            emailResult = generateFallbackEmail();
-            usedFallback = true;
+          // Try direct JSON parse
+          const cleanContent = content.replace(/```json\n?|\n?```/g, '').trim();
+          parsed = JSON.parse(cleanContent);
+        } catch {
+          // Try to extract with regex
+          const subjectMatch = content.match(/["']?subject["']?\s*:\s*["']([^"']+)["']/i);
+          const bodyMatch = content.match(/["']?body["']?\s*:\s*["']([\s\S]+?)["'](?:\s*}|$)/i);
+          
+          if (subjectMatch && bodyMatch) {
+            parsed = {
+              subject: subjectMatch[1],
+              body: bodyMatch[1].replace(/\\n/g, '\n'),
+            };
           }
-        } catch (parseError) {
-          console.warn("Failed to parse AI response, using fallback:", content);
-          emailResult = generateFallbackEmail();
+        }
+        
+        if (parsed?.subject && parsed?.body) {
+          email = { subject: parsed.subject, body: parsed.body };
+        } else {
+          console.log("Failed to parse AI response, using fallback");
+          email = generateFallbackEmail();
           usedFallback = true;
         }
       }
-    } catch (fetchError) {
-      console.warn("AI fetch failed, using fallback:", fetchError);
-      emailResult = generateFallbackEmail();
+    } catch (aiError) {
+      console.error("AI generation failed:", aiError);
+      email = generateFallbackEmail();
       usedFallback = true;
     }
 
+    // Return response with metadata for verification
     return new Response(
       JSON.stringify({
         success: true,
@@ -614,22 +477,41 @@ Return as JSON: {"subject": "...", "body": "..."}` }
         },
         job: {
           id: job.id,
-          name: job.job_name,
+          facility: job.facility_name,
           location: `${job.city}, ${job.state}`,
         },
-        email: emailResult,
-        rates_used: rates,
+        email,
+        // Include rate metadata for verification
+        rates_used: {
+          hourly: playbook.compensation.hourly,
+          daily: playbook.compensation.daily,
+          weekly: playbook.compensation.weekly,
+          annual: playbook.compensation.annual,
+          salary_range: playbook.compensation.salary_range,
+        },
+        playbook_source: {
+          title: playbook.metadata?.title,
+          notion_id: playbook.metadata?.notion_id,
+          synced_at: playbook.metadata?.synced_at,
+        },
+        positioning_used: {
+          has_selling_points: !!playbook.positioning?.selling_points,
+          has_messaging_tone: !!playbook.positioning?.messaging_tone,
+          has_differentiators: !!playbook.positioning?.differentiators,
+        },
         personalization_hooks: personalizationHooks,
         used_fallback: usedFallback,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
 
-  } catch (error: unknown) {
+  } catch (error) {
     console.error("Email generation error:", error);
-    const message = error instanceof Error ? error.message : "Internal server error";
     return new Response(
-      JSON.stringify({ error: message }),
+      JSON.stringify({ 
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error",
+      }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
