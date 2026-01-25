@@ -158,6 +158,14 @@ Deno.serve(async (req) => {
     const body: EmailRequest = await req.json();
     const { candidate_id, job_id, campaign_id, personalization_hook, custom_context, playbook_data, signature, connection } = body;
     
+    // Log connection status for debugging
+    console.log(`📧 Email generation for candidate ${candidate_id}`);
+    if (connection) {
+      console.log(`   ✅ Using connection P${connection.priority}: "${connection.line.substring(0, 60)}..."`);
+    } else {
+      console.log(`   ⚠️ No connection received - will use SHORT-FORM template`);
+    }
+    
     // Build signature block (use provided or default)
     // Fix: Don't duplicate company name if title already contains it
     const sigFullName = signature?.full_name || 'Your Locums One Team';

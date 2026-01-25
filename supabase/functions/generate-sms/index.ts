@@ -149,6 +149,14 @@ Deno.serve(async (req) => {
     const body: SMSRequest = await req.json();
     const { candidate_id, job_id, campaign_id, template_style = 'ca_license', personalization_hook, custom_context, playbook_data, signature, connection } = body;
     
+    // Log connection status for debugging
+    console.log(`📱 SMS generation for candidate ${candidate_id}`);
+    if (connection) {
+      console.log(`   ✅ Using connection P${connection.priority}: "${connection.smsLine}"`);
+    } else {
+      console.log(`   ⚠️ No connection received - will use fallback template`);
+    }
+    
     // Build SMS signature suffix (use provided or default)
     // Fix: Use first_name from signature, not generic "Locums"
     const smsSignerName = signature?.first_name && signature.first_name.trim() 
