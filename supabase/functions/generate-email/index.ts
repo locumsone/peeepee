@@ -452,7 +452,42 @@ ${hook ? `\nADDITIONAL CONTEXT: ${hook}` : ''}
 ${custom_context ? `\nCUSTOM CONTEXT: ${custom_context}` : ''}
 ${jobMatch?.icebreaker ? `\nICEBREAKER: ${jobMatch.icebreaker}` : ''}
 
-EMAIL STRUCTURE TO FOLLOW:
+=== QUALITY CONTROL RUBRIC (EVERY email MUST meet ALL criteria) ===
+
+STRUCTURE (non-negotiable):
+☐ Subject under 50 chars, rate-first format
+☐ Opens with "Dr. [Last Name]," (never first name, never generic)
+☐ Opener: 1-2 sentences referencing THEIR specific background (never "I came across your profile")
+☐ Clinical Scope section with specific procedures, volume, tech
+☐ Schedule & Call section with explicit days/hours and call status
+☐ Compensation section with exact rates from playbook
+☐ Credentialing line if license advantage exists
+☐ "Why you specifically" section connecting their background to role
+☐ Closer with 15-minute offer and permission to decline
+☐ Signature block
+
+TONE CHECKLIST:
+☐ Zero exclamation points in body
+☐ Zero emojis
+☐ Zero recruiter words (exciting, elite, amazing, fantastic, incredible, opportunity)
+☐ Contractions used naturally (you're, it's, don't)
+☐ Short paragraphs (2-3 sentences max)
+☐ Scannable format with clear section headers
+
+LENGTH REQUIREMENTS:
+☐ Total body: 180-280 words (not shorter, not longer)
+☐ Opener: 1-2 sentences only
+☐ Each section: 2-4 lines max
+☐ Closer: 2 sentences max
+
+PERSONALIZATION REQUIREMENTS:
+☐ At least 2 personalization hooks used from the list provided
+☐ Candidate's specific background referenced (employer, licenses, location, specialty)
+☐ Never generic - every email should feel 1:1
+
+IF ANY CHECKBOX WOULD BE UNCHECKED, REWRITE BEFORE RETURNING.
+
+=== EMAIL TEMPLATE TO FOLLOW ===
 Subject: [Location] [Specialty] ${contractType} - [clinical detail], [call status], ${hourlyRate}/hr
 
 Dr. [Last Name],
@@ -537,44 +572,35 @@ ${signatureBlock}`;
           model: "google/gemini-3-flash-preview",
           messages: [
             { role: "system", content: systemPrompt },
-{ 
+            { 
               role: "user", 
               content: `Generate email for Dr. ${candidate.last_name}.
 
-SUBJECT LINE - FOLLOW EXACTLY:
-${(() => {
-  const hash = candidate.id?.charCodeAt(0) || 0;
-  const formatIndex = hash % 6;
-  
-  if (hasJobStateLicense) {
-    const subjects = [
-      `Dr. ${candidate.last_name} - ${locationState} IR`,
-      `${hourlyRate} IR ${locationCity}`,
-      `IR ${locationState} - No Call`,
-      `${candidate.last_name}: ${locationCity} IR ${hourlyRate}`,
-      `${locationState} IR ${callStatus}`,
-      `${hourlyRate}/hr - ${locationCity} IR`
-    ];
-    return `Your subject MUST be: "${subjects[formatIndex]}"`;
-  } else {
-    const subjects = [
-      `Dr. ${candidate.last_name} - ${licenseCount}-state IR`,
-      `${licenseCount} licenses + ${locationCity} IR`,
-      `Multi-state IR ${hourlyRate}`,
-      `${candidate.last_name}: IR ${locationState} ${hourlyRate}`,
-      `${licenseCount}-license doc - ${locationCity}`,
-      `IR ${hourlyRate} - ${locationState}`
-    ];
-    return `Your subject MUST be: "${subjects[formatIndex]}"`;
-  }
-})()}
+SUBJECT LINE REQUIREMENTS:
+- Under 50 characters
+- Format: [City] [Specialty Abbrev] - [Differentiator], [Rate]
+- Use: ${locationCity} ${specialtyAbbrev} - ${callStatus}, ${hourlyRate}/hr
+- No questions, no urgency words, no exclamation points
 
-DO NOT modify the subject - use it exactly as shown above.
+BODY REQUIREMENTS:
+- Follow the template structure EXACTLY
+- 180-280 words total
+- Use at least 2 personalization hooks from the provided list
+- Reference candidate's specific background: ${candidate.company_name || candidate.state + ' license'}, ${licenseCount} licenses
+- Include all sections: Opener, Clinical Scope, Schedule & Call, Compensation, Credentialing (if applicable), Why You, Closer
+- End with the exact signature block provided
+
+QUALITY CHECK before returning:
+- Is opener personalized to THIS candidate? (not generic)
+- Are exact rates used? (${hourlyRate}/hr)
+- Is call status explicit? (${callStatus})
+- Zero recruiter words? Zero exclamation points?
+- 180-280 words?
 
 Return ONLY valid JSON: {"subject": "...", "body": "..."}`
             }
           ],
-          temperature: 0.7,
+          temperature: 0.4,
           max_tokens: 1500,
         }),
       });
