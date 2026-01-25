@@ -463,7 +463,14 @@ export default function PersonalizationStudio() {
             body: { page_id: playbook.id, campaign_id: campaignId },
           });
           
-          if (!error && data?.content && data.content.length > 500) {
+          // Check for new structured_cache response format
+          if (!error && data?.structured_cache) {
+            setCachedPlaybook(data.structured_cache);
+            const rate = data.structured_cache.compensation?.hourly || data.structured_cache.compensation?.salary_range || 'check cache';
+            toast.success(`Playbook synced! Rate: ${rate}`);
+            setPlaybookContent(`Playbook cached successfully. See structured data in sidebar.`);
+          } else if (!error && data?.content && data.content.length > 500) {
+            // Legacy: raw content response
             setPlaybookContent(data.content);
             toast.success(`Playbook loaded (${data.content.length.toLocaleString()} chars)`);
             await savePlaybookToCampaign(playbook.id, playbook.title, data.content);
