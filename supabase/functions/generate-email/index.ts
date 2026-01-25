@@ -337,49 +337,31 @@ CRITICAL: When describing the facility, use the FACILITY DATA fields exactly as 
    - Never invent teaching affiliations, trauma designations, or clinical details
    - If data is missing, omit it rather than guess
 
-=== SUBJECT LINE (CRITICAL - READ CAREFULLY) ===
-Generate a SHORT, FACTUAL subject line under 45 characters.
+=== SUBJECT LINE (MANDATORY FORMAT) ===
 
-YOUR SUBJECT MUST BE ONE OF THESE EXACT PATTERNS:
-${(() => {
-  // Use candidate ID hash to pick a consistent but varied format per candidate
-  const hash = candidate.id?.charCodeAt(0) || 0;
-  const formatIndex = hash % 6;
-  
-  if (hasJobStateLicense) {
-    const formats = [
-      `"Dr. ${candidate.last_name} - ${locationState} IR"`,
-      `"${hourlyRate} IR ${locationCity}"`,
-      `"IR ${locationState} - No Call"`,
-      `"${candidate.last_name}: ${locationCity} IR ${hourlyRate}"`,
-      `"${locationState} IR ${callStatus}"`,
-      `"${hourlyRate}/hr - ${locationCity} IR"`
-    ];
-    return `USE FORMAT #${formatIndex + 1}: ${formats[formatIndex]}`;
-  } else {
-    const formats = [
-      `"Dr. ${candidate.last_name} - ${licenseCount}-state IR"`,
-      `"${licenseCount} licenses + ${locationCity} IR"`,
-      `"Multi-state IR ${hourlyRate}"`,
-      `"${candidate.last_name}: IR ${locationState} ${hourlyRate}"`,
-      `"${licenseCount}-license doc - ${locationCity}"`,
-      `"IR ${hourlyRate} - ${locationState}"`
-    ];
-    return `USE FORMAT #${formatIndex + 1}: ${formats[formatIndex]}`;
-  }
-})()}
+YOUR SUBJECT LINE MUST BE EXACTLY THIS FORMAT:
+"${hourlyRate}/hr ${locationCity} - ${callStatus.toLowerCase().includes('no call') || callStatus.toLowerCase().includes('zero') ? 'No Call' : schedule}"
 
-BANNED PATTERNS (DO NOT USE):
-- "Dr. X - IR Ca ZERO CALL" (too generic)
-- "Lakewood Interventional Radiology - ZERO CALL" (facility-only)
-- Anything with "Ca" or state abbreviation after specialty
-- "Specialty - ZERO CALL" pattern
+THAT'S IT. Rate first, city second, key benefit third.
+
+Examples of GOOD subject lines (what doctors actually open):
+- "$485/hr Lakewood - No Call"
+- "$520/hr Phoenix - M-F Only"  
+- "$500/hr Boston - Zero Call"
+
+Examples of BAD subject lines (get deleted immediately):
+- "Dr. Thomson - IR Ca ZERO CALL" (no rate = deleted)
+- "Lakewood Interventional Radiology - ZERO CALL" (too long, no rate)
+- "Exciting IR Opportunity in California" (recruiter spam)
+- "Quick question about your availability" (scam vibes)
 
 RULES:
-- Max 45 characters
-- Lead with: rate, name, or license count - NOT location+specialty
-- BANNED words: opportunity, rare, exciting, amazing
-- NO punctuation except hyphen and colon
+- RATE MUST BE FIRST - doctors scan for pay immediately
+- Under 40 characters total
+- City name, not state abbreviation
+- One key differentiator (No Call, M-F, Zero Call, schedule)
+- NO: opportunity, exciting, reaching out, thought of you
+- NO question marks or exclamation points
 
 === END CRITICAL RULES ===
 
