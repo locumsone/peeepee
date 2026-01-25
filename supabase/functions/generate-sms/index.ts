@@ -279,10 +279,15 @@ ${weeklyRate ? `- Weekly: ${weeklyRate}` : ''}
 - Facility: ${facilityType}
 ${credDays ? `- Credentialing: ${credDays} days` : ''}
 
-=== POSITION ===
+=== POSITION (USE IN SMS) ===
+- Position Title: ${playbook.position?.title || job.job_name || `${candidate.specialty} ${contractType}`}
 - Facility: ${facilityName}
+- Facility Type: ${facilityType} (NEVER assume trauma level)
 - Location: ${locationCity}, ${locationState}
-- Contract: ${contractType}
+- Metro Area: ${playbook.position?.location_metro || locationCity}
+- Contract Type: ${contractType}
+
+NOTE: Use position/metro for location context. Never invent trauma or teaching designations.
 
 === POSITIONING GUIDANCE ===
 ${sellingPoints ? `Lead with: ${sellingPoints.substring(0, 200)}` : ''}
