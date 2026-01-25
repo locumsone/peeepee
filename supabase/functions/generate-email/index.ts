@@ -36,6 +36,7 @@ interface StructuredPlaybookCache {
     title: string | null;
     facility_name: string | null;
     facility_type: string | null;
+    trauma_level: string | null;
     location_city: string | null;
     location_state: string | null;
     location_metro: string | null;
@@ -148,12 +149,20 @@ Deno.serve(async (req) => {
     const { candidate_id, job_id, campaign_id, personalization_hook, custom_context, playbook_data, signature } = body;
     
     // Build signature block (use provided or default)
-    const sigFullName = signature?.full_name || 'Locums One';
+    // Fix: Don't duplicate company name if title already contains it
+    const sigFullName = signature?.full_name || 'Your Locums One Team';
     const sigTitle = signature?.title || 'Clinical Consultant';
     const sigCompany = signature?.company || 'Locums One';
     const sigPhone = signature?.phone || null;
     
-    let signatureBlock = `Best regards,\n${sigFullName}\n${sigTitle}\n${sigCompany}`;
+    // Build clean signature - don't repeat company if it's already in title or name
+    const showCompany = !sigFullName.toLowerCase().includes('locums one') && 
+                        !sigTitle.toLowerCase().includes('locums one');
+    
+    let signatureBlock = `Best regards,\n${sigFullName}\n${sigTitle}`;
+    if (showCompany) {
+      signatureBlock += `\n${sigCompany}`;
+    }
     if (sigPhone) {
       signatureBlock += `\n${sigPhone}`;
     }
@@ -271,10 +280,20 @@ Deno.serve(async (req) => {
     const techStack = playbook.clinical?.tech_stack || "Modern EMR";
     
     const facilityName = playbook.position?.facility_name || job.facility_name;
-    const facilityType = playbook.position?.facility_type || "Hospital";
+    const facilityType = playbook.position?.facility_type || null;
+    const traumaLevel = playbook.position?.trauma_level || null;
     const locationCity = playbook.position?.location_city || job.city;
     const locationState = playbook.position?.location_state || job.state;
+    const locationMetro = playbook.position?.location_metro || locationCity;
     const contractType = playbook.position?.contract_type || "locums";
+    
+    // Derive facility description from trauma_level
+    const getFacilityDescription = (): string => {
+      if (traumaLevel === "None") return facilityType || "Non-trauma hospital";
+      if (traumaLevel && traumaLevel !== "None") return facilityType || `${traumaLevel} Trauma Center`;
+      return facilityType || "Hospital";
+    };
+    const facilityDescription = getFacilityDescription();
     
     const requiredLicense = playbook.credentialing?.required_license || locationState;
     const credentialingDays = playbook.credentialing?.days_to_credential || null;
@@ -294,34 +313,39 @@ Deno.serve(async (req) => {
 
     // Build the clinical consultant prompt with structured data
     // CRITICAL: Accuracy rules at TOP so AI sees them first
-    const systemPrompt = `=== CRITICAL ACCURACY RULES - FOLLOW EXACTLY ===
+    const systemPrompt = `=== FACILITY DATA (USE EXACTLY AS PROVIDED - NEVER INVENT) ===
+- Facility Name: ${facilityName}
+- Facility Type: ${facilityDescription}
+- Trauma Level: ${traumaLevel || "Not specified - DO NOT ASSUME ANY TRAUMA LEVEL"}
+- Location: ${locationCity}, ${locationState}
+- Metro Area: ${locationMetro}
+- Contract Type: ${contractType}
 
-1. COMPENSATION: Use rates EXACTLY as provided in playbook data. Never calculate, round, or modify.
+CRITICAL: When describing the facility, use the FACILITY DATA fields exactly as provided above.
+- If Trauma Level is "None" or "Not specified", NEVER mention trauma in any way
+- If Trauma Level is "None", describe as "${facilityDescription}"
+- Do not infer or assume facility characteristics from location (e.g., LA metro ≠ trauma center)
+
+=== ADDITIONAL ACCURACY RULES ===
+
+1. COMPENSATION: Use rates EXACTLY as provided. Never calculate, round, or modify.
    - If playbook says "${hourlyRate}", write "${hourlyRate}" - never any other number
-   - Daily/weekly/annual must match playbook exactly
 
-2. FACILITY TYPE: This is a ${facilityType}.
-   - NEVER say "Level I trauma" or "Level II trauma" unless playbook explicitly states it
-   - NEVER assume trauma level - only use what playbook explicitly states
-   - Say "community hospital" or "non-trauma center" if that's what the playbook says
+2. CALL STATUS: "${callStatus}" is a key differentiator - highlight prominently
 
-3. CALL STATUS: Emphasize "${callStatus}" as the key differentiator - this is rare for IR positions
+3. NO HALLUCINATION: Only include facts from this prompt data.
+   - Never invent teaching affiliations, trauma designations, or clinical details
+   - If data is missing, omit it rather than guess
 
-4. NO HALLUCINATION: Only include facts that exist in the playbook data.
-   - Do not invent facility details, trauma designations, or teaching affiliations
-   - Do not assume characteristics based on location (LA metro ≠ trauma center)
-   - If information is not in the playbook, do not include it
-
-5. TONE: Be direct and clinical, not salesy or recruiter-y.
-   - Lead with the key differentiator (zero call, rate, or facility type)
-   - Use specific numbers from playbook
-   - Permission-based CTAs ("worth 15 min to discuss?" not "let's schedule a call!")
+4. UNIQUE SUBJECT LINE: Create a subject specific to Dr. ${candidate.last_name}'s background.
+   - Mention their ${hasJobStateLicense ? `${job.state} license` : `${licenseCount} state licenses`}
+   - Include location, specialty, rate, and one differentiator
 
 === END CRITICAL RULES ===
 
 ${CLINICAL_CONSULTANT_PERSONA}
 
-=== COMPENSATION (USE EXACTLY - NEVER CALCULATE OR MODIFY) ===
+=== COMPENSATION (USE EXACTLY - NEVER CALCULATE) ===
 - Rate: ${hourlyRate}/hour
 ${dailyRate ? `- Daily: ${dailyRate}` : ''}
 ${weeklyRate ? `- Weekly: ${weeklyRate}` : ''}
@@ -335,15 +359,8 @@ ${annualRate ? `- Annual: ${annualRate}` : ''}
 ${duration ? `- Duration: ${duration}` : ''}
 - Tech: ${techStack}
 
-=== POSITION (USE IN SUBJECT AND BODY) ===
+=== POSITION ===
 - Position Title: ${playbook.position?.title || job.job_name || `${candidate.specialty} ${contractType}`}
-- Facility: ${facilityName}
-- Facility Type: ${facilityType} (NEVER invent trauma designation)
-- Location: ${locationCity}, ${locationState}
-- Metro Area: ${playbook.position?.location_metro || locationCity + ' metro'}
-- Contract Type: ${contractType}
-
-NOTE: Use position data for accurate subject lines and facility descriptions. Never assume trauma level or teaching status.
 
 === CREDENTIALING ===
 - Required License: ${requiredLicense}

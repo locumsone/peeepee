@@ -37,6 +37,7 @@ interface StructuredPlaybookCache {
     title: string | null;
     facility_name: string | null;
     facility_type: string | null;
+    trauma_level: string | null;
     location_city: string | null;
     location_state: string | null;
     location_metro: string | null;
@@ -139,9 +140,12 @@ Deno.serve(async (req) => {
     const { candidate_id, job_id, campaign_id, template_style = 'ca_license', personalization_hook, custom_context, playbook_data, signature } = body;
     
     // Build SMS signature suffix (use provided or default)
-    const smsSignerName = signature?.first_name || 'Locums';
+    // Fix: Use first_name from signature, not generic "Locums"
+    const smsSignerName = signature?.first_name && signature.first_name.trim() 
+      ? signature.first_name.trim() 
+      : 'Team';
     const smsSuffix = ` - ${smsSignerName}@Locums.one`;
-    console.log("Using SMS signature:", smsSuffix);
+    console.log("Using SMS signature:", smsSuffix, "from first_name:", signature?.first_name);
 
     // Get playbook from request body first, then try campaign
     let playbook: StructuredPlaybookCache | null = null;
@@ -226,13 +230,23 @@ Deno.serve(async (req) => {
     
     const callStatus = playbook.clinical?.call_status || "flexible schedule";
     const schedule = playbook.clinical?.schedule_days || "weekday hours";
-    const facilityType = playbook.position?.facility_type || "hospital";
     const credDays = playbook.credentialing?.days_to_credential ? `${playbook.credentialing.days_to_credential}` : "expedited";
     
     const facilityName = playbook.position?.facility_name || job.facility_name;
+    const facilityType = playbook.position?.facility_type || null;
+    const traumaLevel = playbook.position?.trauma_level || null;
     const locationCity = playbook.position?.location_city || job.city;
     const locationState = playbook.position?.location_state || job.state;
+    const locationMetro = playbook.position?.location_metro || locationCity;
     const contractType = playbook.position?.contract_type || "locums";
+    
+    // Derive facility description from trauma_level
+    const getFacilityDescription = (): string => {
+      if (traumaLevel === "None") return facilityType || "Non-trauma hospital";
+      if (traumaLevel && traumaLevel !== "None") return facilityType || `${traumaLevel} Trauma Center`;
+      return facilityType || "hospital";
+    };
+    const facilityDescription = getFacilityDescription();
     
     // Positioning guidance
     const sellingPoints = playbook.positioning?.selling_points || "";
@@ -241,34 +255,31 @@ Deno.serve(async (req) => {
 
     // Build system prompt with structured data
     // CRITICAL: Accuracy rules at TOP so AI sees them first
-    const systemPrompt = `=== CRITICAL ACCURACY RULES - FOLLOW EXACTLY ===
+    const systemPrompt = `=== FACILITY DATA (USE EXACTLY AS PROVIDED - NEVER INVENT) ===
+- Facility Name: ${facilityName}
+- Facility Type: ${facilityDescription}
+- Trauma Level: ${traumaLevel || "Not specified - DO NOT ASSUME ANY TRAUMA LEVEL"}
+- Location: ${locationCity}, ${locationState}
+- Metro Area: ${locationMetro}
 
-1. COMPENSATION: Use rates EXACTLY as provided in playbook data. Never calculate, round, or modify.
-   - If playbook says "${hourlyRate}", write "${hourlyRate}" - never any other number
-   - Daily/weekly/annual must match playbook exactly
+CRITICAL: When describing the facility, use the FACILITY DATA fields exactly.
+- If Trauma Level is "None" or "Not specified", NEVER mention trauma
+- Describe as "${facilityDescription}" - not "Level I trauma" or similar
+- Do not assume characteristics from location (LA metro ≠ trauma center)
 
-2. FACILITY TYPE: This is a ${facilityType}.
-   - NEVER say "Level I trauma" or "Level II trauma" unless playbook explicitly states it
-   - NEVER assume trauma level - only use what playbook explicitly states
-   - Say "community hospital" or "non-trauma center" if that's what the playbook says
+=== ACCURACY RULES ===
 
-3. CALL STATUS: Emphasize "${callStatus}" as the key differentiator - this is rare for IR positions
+1. COMPENSATION: "${hourlyRate}" exactly - never calculate or modify
 
-4. NO HALLUCINATION: Only include facts that exist in the playbook data.
-   - Do not invent facility details, trauma designations, or teaching affiliations
-   - Do not assume characteristics based on location (LA metro ≠ trauma center)
-   - If information is not in the playbook, do not include it
+2. CALL STATUS: "${callStatus}" is a key differentiator
 
-5. TONE: Be direct and clinical, not salesy or recruiter-y.
-   - Lead with the key differentiator (zero call)
-   - Use specific numbers from playbook
-   - Permission-based CTAs ("worth 15 min to discuss?" not "let's schedule a call!")
+3. NO HALLUCINATION: Only include facts from this data
 
 === END CRITICAL RULES ===
 
 ${SMS_PERSONA}
 
-=== COMPENSATION (USE EXACTLY - NEVER CALCULATE) ===
+=== COMPENSATION (USE EXACTLY) ===
 - Rate: ${hourlyRate}/hr
 ${dailyRate ? `- Daily: ${dailyRate}` : ''}
 ${weeklyRate ? `- Weekly: ${weeklyRate}` : ''}
@@ -276,18 +287,12 @@ ${weeklyRate ? `- Weekly: ${weeklyRate}` : ''}
 === CLINICAL ===
 - Call: ${callStatus}
 - Schedule: ${schedule}
-- Facility: ${facilityType}
+- Facility: ${facilityDescription}
 ${credDays ? `- Credentialing: ${credDays} days` : ''}
 
-=== POSITION (USE IN SMS) ===
+=== POSITION ===
 - Position Title: ${playbook.position?.title || job.job_name || `${candidate.specialty} ${contractType}`}
-- Facility: ${facilityName}
-- Facility Type: ${facilityType} (NEVER assume trauma level)
-- Location: ${locationCity}, ${locationState}
-- Metro Area: ${playbook.position?.location_metro || locationCity}
 - Contract Type: ${contractType}
-
-NOTE: Use position/metro for location context. Never invent trauma or teaching designations.
 
 === POSITIONING GUIDANCE ===
 ${sellingPoints ? `Lead with: ${sellingPoints.substring(0, 200)}` : ''}

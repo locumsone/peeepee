@@ -30,6 +30,7 @@ export interface StructuredPlaybookCache {
     title: string | null;
     facility_name: string | null;
     facility_type: string | null;
+    trauma_level: string | null;
     location_city: string | null;
     location_state: string | null;
     location_metro: string | null;
@@ -270,6 +271,13 @@ export function PlaybookCacheCard({ cache, onSync, isSyncing }: PlaybookCacheCar
                   content={cache.position.facility_type}
                 />
               )}
+              
+              {/* Trauma Level */}
+              <PositioningItem 
+                icon={<AlertTriangle className="h-4 w-4 text-amber-500" />}
+                label="Trauma Level"
+                content={cache.position.trauma_level || "None / Not specified"}
+              />
               
               {/* Location Metro */}
               {cache.position.location_metro && (
