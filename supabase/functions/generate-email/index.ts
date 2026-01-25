@@ -372,38 +372,14 @@ CRITICAL: When describing the facility, use the FACILITY DATA fields exactly as 
    - Never invent teaching affiliations, trauma designations, or clinical details
    - If data is missing, omit it rather than guess
 
-=== SUBJECT LINE (GENERATE DYNAMICALLY) ===
+=== SUBJECT LINE (DETERMINISTIC - CODE-GENERATED) ===
 
-Generate a subject line using the playbook and candidate data.
+The subject line is generated deterministically in code using this format:
+"${locationCity} ${specialtyAbbrev} Locums - ${callStatus || 'see details'}, ${hourlyRate}/hr"
 
-FORMAT: [Location] [Specialty abbreviation] - [primary differentiator], [rate]
+This subject line will be used: "${locationCity} ${specialtyAbbrev} Locums - ${callStatus || 'Flexible'}, ${hourlyRate}/hr"
 
-USE THESE VALUES:
-- Location: ${locationCity}
-- Specialty abbreviation: ${specialtyAbbrev}
-- Rate: ${hourlyRate}/hr
-- Key differentiators from selling points: ${callStatus}, ${schedule}
-- Candidate last name (optional): Dr. ${candidate.last_name || ''}
-
-CONSTRAINTS:
-- Under 50 characters total
-- No questions (no "?")
-- No urgency words: now, still, urgent, quick, hurry, limited, act fast
-- No recruiter phrases: opportunity, opening, position available, exciting, amazing
-- No exclamation points
-- State facts. That's it.
-
-GOOD EXAMPLES:
-- "Lakewood IR - No Call, $500/hr"
-- "Phoenix Anesthesia - M-F Days, $520/hr"
-- "Boston EM - Zero Call, $485/hr"
-- "Denver Hospitalist - No Nights, $475/hr"
-
-BAD EXAMPLES (do NOT use):
-- "Quick look? $500/hr IR" (question + urgency)
-- "Exciting IR Opportunity!" (recruiter spam)
-- "Still open: IR position" (fake urgency)
-- "Dr. Smith - we have something for you" (vague, no value)
+Do NOT generate a subject line in your response. Only generate the email body.
 
 === END CRITICAL RULES ===
 
@@ -671,11 +647,9 @@ ${signatureBlock}`;
             { role: "system", content: systemPrompt },
             { 
               role: "user", 
-              content: `Generate email for Dr. ${candidate.last_name}.
+              content: `Generate email BODY ONLY for Dr. ${candidate.last_name}.
 
-CRITICAL: Follow the EMAIL GENERATION INSTRUCTIONS exactly.
-
-SUBJECT: Under 50 chars. Format: "${locationCity} ${specialtyAbbrev} - [differentiator], ${hourlyRate}/hr"
+SUBJECT LINE IS PRE-GENERATED (do not include in response).
 
 BODY STRUCTURE (in this order):
 1. OPENING HOOK: Lead with the #1 rare thing from SELLING POINTS. NOT "I noticed your work..."
@@ -687,34 +661,12 @@ BODY STRUCTURE (in this order):
 7. PERSONALIZATION: Connect ${candidate.company_name || candidate.state + ' license'} to this role. 1 sentence.
 8. CTA: "Worth 15 minutes to discuss?" or similar. Permission-based.
 
-SELLING POINTS TO REFERENCE: ${sellingPoints || callStatus}
+SELLING POINTS: ${sellingPoints || callStatus}
 PAIN POINTS SOLVED: ${playbook.positioning?.pain_points_solved || 'escape call burden, sustainable volume'}
 
-LENGTH: 150-220 words. Scannable prose, not excessive bullets.
+LENGTH: 150-220 words.
 
-QUALITY SCORE - Score yourself before returning (must be 8/10 minimum):
-
-Structure (4 pts):
-☐ Opens with differentiator, not flattery? (+1)
-☐ Pain point solved in first 3 sentences? (+1)
-☐ Credentialing has comparison (e.g., "40 days vs. 90-120")? (+1)
-☐ CTA is single permission-based question? (+1)
-
-Accuracy (3 pts):
-☐ Compensation exact: ${hourlyRate}/hr? (+1)
-☐ Facility type accurate (no invented trauma)? (+1)
-☐ Schedule/call status correct: ${callStatus}? (+1)
-
-Tone (2 pts):
-☐ Zero recruiter words (exciting, elite, amazing, opportunity)? (+1)
-☐ Follows MESSAGING TONE rules? (+1)
-
-Differentiation (1 pt):
-☐ #1 differentiator framed as RARE? (+1)
-
-IF YOUR SCORE IS BELOW 8/10, REVISE THE EMAIL BEFORE RETURNING.
-
-Return ONLY valid JSON: {"subject": "...", "body": "..."}`
+Return ONLY valid JSON: {"body": "..."}`
             }
           ],
           temperature: 0.4,
@@ -739,27 +691,25 @@ Return ONLY valid JSON: {"subject": "...", "body": "..."}`
         
         console.log("AI Response received, length:", content.length);
         
-        // Parse JSON response
-        let parsed: { subject?: string; body?: string } | null = null;
+        // Deterministic subject line - generated in code, not by AI
+        const deterministicSubject = `${locationCity} ${specialtyAbbrev} Locums - ${callStatus || 'Flexible'}, ${hourlyRate}/hr`.substring(0, 55);
+        
+        // Parse JSON response - only need body now
+        let parsedBody: string | null = null;
         try {
-          // Try direct JSON parse
           const cleanContent = content.replace(/```json\n?|\n?```/g, '').trim();
-          parsed = JSON.parse(cleanContent);
+          const parsed = JSON.parse(cleanContent);
+          parsedBody = parsed.body;
         } catch {
-          // Try to extract with regex
-          const subjectMatch = content.match(/["']?subject["']?\s*:\s*["']([^"']+)["']/i);
+          // Try to extract body with regex
           const bodyMatch = content.match(/["']?body["']?\s*:\s*["']([\s\S]+?)["'](?:\s*}|$)/i);
-          
-          if (subjectMatch && bodyMatch) {
-            parsed = {
-              subject: subjectMatch[1],
-              body: bodyMatch[1].replace(/\\n/g, '\n'),
-            };
+          if (bodyMatch) {
+            parsedBody = bodyMatch[1].replace(/\\n/g, '\n');
           }
         }
         
-        if (parsed?.subject && parsed?.body) {
-          email = { subject: parsed.subject, body: parsed.body };
+        if (parsedBody) {
+          email = { subject: deterministicSubject, body: parsedBody };
         } else {
           console.log("Failed to parse AI response, using fallback");
           email = generateFallbackEmail();

@@ -14,3 +14,6 @@ verify_jwt = false
 
 [functions.check-integrations]
 verify_jwt = false
+
+[functions.refine-message]
+verify_jwt = false
