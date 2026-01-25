@@ -64,6 +64,15 @@ interface Job {
   pay_rate?: number;
 }
 
+// Connection object from personalization-research engine
+interface ConnectionMatch {
+  priority: number;      // 1-8, lower = stronger
+  fact: string;          // What we found about candidate
+  benefit: string;       // Why this role fits them
+  line: string;          // Full connection sentence for email
+  smsLine: string;       // Compressed 40-char version for SMS
+}
+
 interface Candidate {
   id: string;
   first_name?: string;
@@ -82,6 +91,8 @@ interface Candidate {
   talking_points?: string[];
   deep_researched?: boolean;
   research_confidence?: string;
+  // Connection from personalization engine
+  connection?: ConnectionMatch | null;
   // Full message drafts
   email_subject?: string;
   email_body?: string;
@@ -620,7 +631,7 @@ export default function PersonalizationStudio() {
               // Get user signature data for personalized sign-offs
               const signatureData = getSignatureData();
               
-              // Call edge function for email with playbook data and signature
+              // Call edge function for email with playbook data, signature, and connection
               const { data: emailData, error: emailError } = await supabase.functions.invoke('generate-email', {
                 body: {
                   candidate_id: candidate.id,
@@ -629,6 +640,7 @@ export default function PersonalizationStudio() {
                   personalization_hook: candidate.personalization_hook,
                   playbook_data: playbookDataToSend,
                   signature: signatureData,
+                  connection: candidate.connection || null, // Pass connection for first-sentence personalization
                 },
               });
               
@@ -636,7 +648,7 @@ export default function PersonalizationStudio() {
                 console.error("Email generation error:", emailError);
               }
               
-              // Call edge function for SMS with playbook data and signature
+              // Call edge function for SMS with playbook data, signature, and connection
               const { data: smsData, error: smsError } = await supabase.functions.invoke('generate-sms', {
                 body: {
                   candidate_id: candidate.id,
@@ -645,6 +657,7 @@ export default function PersonalizationStudio() {
                   personalization_hook: candidate.personalization_hook,
                   playbook_data: playbookDataToSend,
                   signature: signatureData,
+                  connection: candidate.connection || null, // Pass connection for SMS personalization
                 },
               });
               

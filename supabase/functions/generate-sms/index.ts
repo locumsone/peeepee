@@ -13,6 +13,15 @@ interface UserSignature {
   phone?: string | null;
 }
 
+// Connection object from personalization-research engine
+interface ConnectionMatch {
+  priority: number;      // 1-8, lower = stronger
+  fact: string;          // What we found about candidate
+  benefit: string;       // Why this role fits them
+  line: string;          // Full connection sentence for email
+  smsLine: string;       // Compressed 40-char version for SMS
+}
+
 interface SMSRequest {
   candidate_id: string;
   job_id: string;
@@ -22,6 +31,7 @@ interface SMSRequest {
   custom_context?: string;
   playbook_data?: StructuredPlaybookCache; // Allow passing playbook directly
   signature?: UserSignature; // User signature for SMS sign-off
+  connection?: ConnectionMatch | null; // Connection from personalization engine
 }
 
 // Structured Playbook Cache interface (matches the new format)
@@ -137,7 +147,7 @@ Deno.serve(async (req) => {
     });
 
     const body: SMSRequest = await req.json();
-    const { candidate_id, job_id, campaign_id, template_style = 'ca_license', personalization_hook, custom_context, playbook_data, signature } = body;
+    const { candidate_id, job_id, campaign_id, template_style = 'ca_license', personalization_hook, custom_context, playbook_data, signature, connection } = body;
     
     // Build SMS signature suffix (use provided or default)
     // Fix: Use first_name from signature, not generic "Locums"
@@ -307,6 +317,17 @@ ${differentiators ? `Key differentiator: ${differentiators.substring(0, 100)}` :
 
 ${hook ? `PERSONALIZATION HOOK: ${hook}` : ''}
 ${custom_context ? `CONTEXT: ${custom_context}` : ''}
+
+=== CONNECTION-FIRST SMS STRUCTURE ===
+${connection ? `
+CONNECTION FOUND (Priority ${connection.priority}):
+- smsLine to use: "${connection.smsLine}"
+- Full line: "${connection.line}"
+
+Use "${connection.smsLine}" as the personalization hook in the SMS. This connection MUST appear.
+` : `
+No direct connection found. Use the license count or call status as the hook.
+`}
 
 IMPORTANT: End EVERY SMS with "${smsSuffix}" as the signature.
 Keep SMS under 300 characters INCLUDING the signature. Include "locums" signal.`;
