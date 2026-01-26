@@ -15,6 +15,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { TestCampaignModal } from "./TestCampaignModal";
+import { AutoSaveIndicator } from "./AutoSaveIndicator";
 import type { SelectedCandidate, ChannelConfig, QualityCheckResult, Job } from "./types";
 
 interface Blocker {
@@ -33,6 +34,10 @@ interface LaunchStatusBarProps {
   blockers: Blocker[];
   qualityResult: QualityCheckResult | null;
   integrationsConnected: boolean;
+  // Auto-save props
+  lastSaved?: Date | null;
+  isDirty?: boolean;
+  onSaveDraft?: () => void;
 }
 
 interface PreFlightCheck {
@@ -51,6 +56,9 @@ export function LaunchStatusBar({
   blockers,
   qualityResult,
   integrationsConnected,
+  lastSaved,
+  isDirty,
+  onSaveDraft,
 }: LaunchStatusBarProps) {
   const navigate = useNavigate();
   const [isLaunchModalOpen, setIsLaunchModalOpen] = useState(false);
@@ -274,12 +282,12 @@ export function LaunchStatusBar({
 
           {/* Action Buttons */}
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
               <Button variant="outline" onClick={handleBack}>
                 <ArrowLeft className="h-4 w-4 mr-2" />
                 Back
               </Button>
-              <Button variant="ghost" onClick={handleSaveDraft} disabled={isSaving}>
+              <Button variant="ghost" onClick={onSaveDraft || handleSaveDraft} disabled={isSaving}>
                 {isSaving ? (
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                 ) : (
@@ -287,6 +295,7 @@ export function LaunchStatusBar({
                 )}
                 Save Draft
               </Button>
+              <AutoSaveIndicator lastSaved={lastSaved || null} isDirty={isDirty || false} />
             </div>
 
             <div className="flex items-center gap-4">

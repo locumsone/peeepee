@@ -14,5 +14,7 @@ export { StepConnectChannels } from "./StepConnectChannels";
 export { StepPreviewMessage } from "./StepPreviewMessage";
 export { LaunchStatusBar } from "./LaunchStatusBar";
 export { TestCampaignModal } from "./TestCampaignModal";
+export { DraftRecoveryModal } from "./DraftRecoveryModal";
+export { AutoSaveIndicator } from "./AutoSaveIndicator";
 
 export * from "./types";

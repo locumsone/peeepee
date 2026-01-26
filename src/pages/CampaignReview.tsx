@@ -11,6 +11,8 @@ import { StepPrepareCandidates } from "@/components/campaign-review/StepPrepareC
 import { StepConnectChannels } from "@/components/campaign-review/StepConnectChannels";
 import { StepPreviewMessage } from "@/components/campaign-review/StepPreviewMessage";
 import { LaunchStatusBar } from "@/components/campaign-review/LaunchStatusBar";
+import { DraftRecoveryModal } from "@/components/campaign-review/DraftRecoveryModal";
+import { useCampaignDraft } from "@/hooks/useCampaignDraft";
 import type {
   Job,
   ChannelConfig,
@@ -32,6 +34,24 @@ interface Blocker {
 
 export default function CampaignReview() {
   const navigate = useNavigate();
+  
+  // Use the unified campaign draft hook
+  const {
+    draft,
+    isLoading: isDraftLoading,
+    isDirty,
+    lastSaved,
+    showRecoveryPrompt,
+    updateJob,
+    updateCandidates,
+    updateChannels,
+    saveDraft,
+    clearDraft,
+    recoverDraft,
+    discardAndStartFresh,
+    dismissRecovery,
+  } = useCampaignDraft();
+
   const [isLoading, setIsLoading] = useState(true);
   const [job, setJob] = useState<Job | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
@@ -46,22 +66,7 @@ export default function CampaignReview() {
   const [integrationDetails, setIntegrationDetails] = useState<IntegrationStatusType[]>([]);
   const [qualityResult, setQualityResult] = useState<QualityCheckResult | null>(null);
 
-  useEffect(() => {
-    loadSessionData();
-  }, []);
-
-  // Recalculate tier stats when candidates change
-  useEffect(() => {
-    const stats: TierStats = { tier1: 0, tier2: 0, tier3: 0, readyCount: 0, needsEnrichment: 0 };
-    candidates.forEach((c) => {
-      const tier = c.tier || (c.unified_score?.startsWith("A") ? 1 : c.unified_score?.startsWith("B") ? 2 : 3);
-      if (tier === 1) stats.tier1++; else if (tier === 2) stats.tier2++; else stats.tier3++;
-      const hasContact = (c.email || c.personal_email) || (c.phone || c.personal_mobile);
-      if (hasContact) stats.readyCount++; else stats.needsEnrichment++;
-    });
-    setTierStats(stats);
-  }, [candidates]);
-
+  // Legacy session loading function (fallback)
   const loadSessionData = async () => {
     setIsLoading(true);
     try {
@@ -158,14 +163,62 @@ export default function CampaignReview() {
     } finally { setIsLoading(false); }
   };
 
+  // Sync draft data to local state when draft loads
+  useEffect(() => {
+    if (!isDraftLoading && draft.jobId) {
+      setJobId(draft.jobId);
+      setJob(draft.job);
+      setCandidates(draft.candidates);
+      setChannels(draft.channels);
+      setCampaignName(draft.campaignName || "");
+      if (draft.channels?.email?.sender) {
+        setSenderEmail(draft.channels.email.sender);
+      }
+      setIsLoading(false);
+    } else if (!isDraftLoading) {
+      // Fall back to legacy loading
+      loadSessionData();
+    }
+  }, [isDraftLoading, draft]);
+
+  // Sync local changes back to draft (debounced via the hook's auto-save)
+  useEffect(() => {
+    if (!isLoading && job) {
+      updateJob(job, jobId || undefined);
+    }
+  }, [job, jobId, isLoading, updateJob]);
+
+  useEffect(() => {
+    if (!isLoading && candidates.length > 0) {
+      updateCandidates(candidates);
+    }
+  }, [candidates, isLoading, updateCandidates]);
+
+  useEffect(() => {
+    if (!isLoading && Object.keys(channels).length > 0) {
+      updateChannels(channels);
+    }
+  }, [channels, isLoading, updateChannels]);
+
+  // Recalculate tier stats when candidates change
+  useEffect(() => {
+    const stats: TierStats = { tier1: 0, tier2: 0, tier3: 0, readyCount: 0, needsEnrichment: 0 };
+    candidates.forEach((c) => {
+      const tier = c.tier || (c.unified_score?.startsWith("A") ? 1 : c.unified_score?.startsWith("B") ? 2 : 3);
+      if (tier === 1) stats.tier1++; else if (tier === 2) stats.tier2++; else stats.tier3++;
+      const hasContact = (c.email || c.personal_email) || (c.phone || c.personal_mobile);
+      if (hasContact) stats.readyCount++; else stats.needsEnrichment++;
+    });
+    setTierStats(stats);
+  }, [candidates]);
+
   const handleStartOver = () => {
-    ["campaign_job", "campaign_job_id", "campaign_candidates", "campaign_candidate_ids", "channelConfig", "selectedCandidates", "channels", "campaign_channels"].forEach(k => sessionStorage.removeItem(k));
+    clearDraft();
     navigate("/campaigns/new");
   };
 
   const handleCandidatesUpdate = (updatedCandidates: SelectedCandidate[]) => {
     setCandidates(updatedCandidates);
-    sessionStorage.setItem("campaign_candidates", JSON.stringify(updatedCandidates));
   };
 
   const handleIntegrationStatusChange = (connected: boolean, details?: IntegrationStatusType[]) => {
@@ -235,7 +288,7 @@ export default function CampaignReview() {
     return activeChannels.length > 0 ? `${activeChannels.length} channels connected` : "No channels";
   };
 
-  if (isLoading) {
+  if (isLoading || isDraftLoading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="text-center">
@@ -254,6 +307,18 @@ export default function CampaignReview() {
           <p className="text-muted-foreground mb-4">Please start from the beginning to create a campaign.</p>
           <Button onClick={handleStartOver}>Start New Campaign</Button>
         </div>
+
+        {/* Draft Recovery Modal */}
+        <DraftRecoveryModal
+          open={showRecoveryPrompt}
+          lastSavedAt={draft.lastSavedAt || new Date().toISOString()}
+          campaignName={draft.campaignName}
+          candidateCount={draft.candidates.length}
+          currentStep={draft.currentStep}
+          onRecover={recoverDraft}
+          onDiscard={discardAndStartFresh}
+          onDismiss={dismissRecovery}
+        />
       </div>
     );
   }
@@ -340,7 +405,7 @@ export default function CampaignReview() {
         </ReviewStepCard>
       </div>
 
-      {/* Launch Status Bar */}
+      {/* Launch Status Bar with auto-save indicator */}
       <LaunchStatusBar
         jobId={jobId}
         job={job}
@@ -351,6 +416,21 @@ export default function CampaignReview() {
         blockers={blockers}
         qualityResult={qualityResult}
         integrationsConnected={integrationsConnected}
+        lastSaved={lastSaved}
+        isDirty={isDirty}
+        onSaveDraft={saveDraft}
+      />
+
+      {/* Draft Recovery Modal */}
+      <DraftRecoveryModal
+        open={showRecoveryPrompt}
+        lastSavedAt={draft.lastSavedAt || new Date().toISOString()}
+        campaignName={draft.campaignName}
+        candidateCount={draft.candidates.length}
+        currentStep={draft.currentStep}
+        onRecover={recoverDraft}
+        onDiscard={discardAndStartFresh}
+        onDismiss={dismissRecovery}
       />
     </div>
   );
