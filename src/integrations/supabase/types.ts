@@ -3088,12 +3088,15 @@ export type Database = {
           delivered_at: string | null
           direction: string
           error_message: string | null
+          from_number: string | null
           id: string
           read_at: string | null
           sent_at: string | null
           status: string | null
           telnyx_message_id: string | null
           template_id: string | null
+          to_number: string | null
+          twilio_sid: string | null
         }
         Insert: {
           body: string
@@ -3102,12 +3105,15 @@ export type Database = {
           delivered_at?: string | null
           direction: string
           error_message?: string | null
+          from_number?: string | null
           id?: string
           read_at?: string | null
           sent_at?: string | null
           status?: string | null
           telnyx_message_id?: string | null
           template_id?: string | null
+          to_number?: string | null
+          twilio_sid?: string | null
         }
         Update: {
           body?: string
@@ -3116,12 +3122,15 @@ export type Database = {
           delivered_at?: string | null
           direction?: string
           error_message?: string | null
+          from_number?: string | null
           id?: string
           read_at?: string | null
           sent_at?: string | null
           status?: string | null
           telnyx_message_id?: string | null
           template_id?: string | null
+          to_number?: string | null
+          twilio_sid?: string | null
         }
         Relationships: [
           {

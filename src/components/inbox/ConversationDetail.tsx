@@ -434,7 +434,9 @@ export const ConversationDetail = ({ conversation }: ConversationDetailProps) =>
         body: {
           to_phone: conversation.candidatePhone,
           custom_message: messageText,
-          from_number: "+12185628671",
+          conversation_id: conversation.id,
+          candidate_id: conversation.candidateId,
+          contact_name: conversation.contactName || conversation.candidateName,
         },
       });
       if (error) throw error;

@@ -12,14 +12,26 @@ serve(async (req) => {
   }
 
   try {
-    const { to_phone, custom_message, from_number, candidate_id, conversation_id, contact_name } = await req.json();
+    const { to_phone: rawPhone, custom_message, from_number, candidate_id, conversation_id, contact_name } = await req.json();
 
-    if (!to_phone || !custom_message) {
+    if (!rawPhone || !custom_message) {
       return new Response(
         JSON.stringify({ error: "Missing required fields: to_phone and custom_message" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
+
+    // Normalize phone number to E.164 format
+    const normalizePhone = (phone: string): string => {
+      const digits = phone.replace(/\D/g, "");
+      if (digits.length === 10) return `+1${digits}`;
+      if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
+      if (digits.startsWith("+")) return phone;
+      return `+${digits}`;
+    };
+
+    const to_phone = normalizePhone(rawPhone);
+    console.log("Normalized phone:", rawPhone, "->", to_phone);
 
     // Get Twilio credentials
     const accountSid = Deno.env.get("TWILIO_ACCOUNT_SID");
@@ -41,7 +53,7 @@ serve(async (req) => {
 
     // Select a Twilio number using smart rotation
     // Priority: least messages sent today, then least recently used
-    let selectedNumber = from_number;
+    let selectedNumber = from_number || fallbackNumber;
     let selectedNumberId: string | null = null;
 
     if (!from_number) {
@@ -59,12 +71,14 @@ serve(async (req) => {
         }
       }
 
-      // If no existing number, get one from the pool with smart rotation
-      if (!selectedNumber) {
+      // If no existing number, try to get one from the pool with smart rotation
+      // Only use numbers that are confirmed Twilio numbers (start with verified prefix)
+      if (!selectedNumber || selectedNumber === fallbackNumber) {
         const { data: availableNumbers, error: numError } = await supabase
           .from("telnyx_numbers") // Table stores Twilio numbers despite legacy name
           .select("id, phone_number, messages_sent_today, daily_limit")
           .eq("status", "active")
+          .like("phone_number", "+1218%") // Only use verified Twilio numbers
           .lt("messages_sent_today", 200) // Under daily limit
           .order("messages_sent_today", { ascending: true })
           .order("last_used_at", { ascending: true, nullsFirst: true })
