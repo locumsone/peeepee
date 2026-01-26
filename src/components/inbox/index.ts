@@ -7,5 +7,6 @@ export { AIReplyPanel } from "./AIReplyPanel";
 export { InlineAISuggestions } from "./InlineAISuggestions";
 export { QuickReplyChips } from "./QuickReplyChips";
 export { CandidateContextSidebar } from "./CandidateContextSidebar";
+export { SnoozePopover } from "./SnoozePopover";
 export { PriorityBadge, PriorityDot, calculatePriorityLevel } from "./PriorityBadge";
 export type { PriorityLevel } from "./PriorityBadge";

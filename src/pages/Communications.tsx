@@ -2,17 +2,17 @@ import { useState, useEffect, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import Layout from "@/components/layout/Layout";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Plus, Inbox as InboxIcon, Flame, MessageSquare, Phone, Star } from "lucide-react";
+import { Plus, Inbox as InboxIcon, Flame, MessageSquare, Phone, Star, Clock, Mail, Zap } from "lucide-react";
 import { ConversationList } from "@/components/inbox/ConversationList";
 import { ConversationDetail } from "@/components/inbox/ConversationDetail";
 import { NewMessageModal } from "@/components/inbox/NewMessageModal";
 import { CampaignFilter } from "@/components/inbox/CampaignFilter";
 import { calculatePriorityLevel, type PriorityLevel } from "@/components/inbox/PriorityBadge";
 
-export type ChannelFilter = "all" | "urgent" | "hot" | "sms" | "calls";
+export type ChannelFilter = "all" | "urgent" | "hot" | "sms" | "calls" | "reminders";
 
 export interface ConversationItem {
   id: string;
@@ -21,6 +21,7 @@ export interface ConversationItem {
   candidateName: string;
   candidatePhone: string | null;
   candidateEmail?: string | null;
+  contactName?: string | null;
   preview: string;
   timestamp: string;
   unreadCount: number;
@@ -31,6 +32,9 @@ export interface ConversationItem {
   interestLevel?: string | null;
   priorityLevel?: PriorityLevel;
   priorityScore?: number;
+  reminderAt?: string | null;
+  reminderNote?: string | null;
+  snoozedUntil?: string | null;
 }
 
 const Communications = () => {
@@ -52,12 +56,16 @@ const Communications = () => {
           id,
           candidate_id,
           candidate_phone,
+          contact_name,
           last_message_at,
           last_message_preview,
           unread_count,
           campaign_id,
           interest_detected,
           candidate_replied,
+          reminder_at,
+          reminder_note,
+          snoozed_until,
           candidates (
             id,
             first_name,
@@ -71,7 +79,7 @@ const Communications = () => {
       if (error) throw error;
       return data || [];
     },
-    refetchInterval: 10000, // Poll every 10 seconds as backup
+    refetchInterval: 10000,
   });
 
   // Real-time subscription for conversation updates
@@ -165,6 +173,11 @@ const Communications = () => {
         ? `${candidate.first_name || ""} ${candidate.last_name || ""}`.trim()
         : null;
       
+      // Use contact_name if no candidate, fallback to phone
+      const displayName = candidateName && candidateName !== "" 
+        ? candidateName 
+        : conv.contact_name || conv.candidate_phone || "Unknown";
+      
       const { level, score } = calculatePriorityLevel({
         unreadCount: conv.unread_count || 0,
         repliedRecently: conv.candidate_replied,
@@ -175,9 +188,10 @@ const Communications = () => {
         id: conv.id,
         channel: "sms" as const,
         candidateId: conv.candidate_id,
-        candidateName: candidateName || conv.candidate_phone || "Unknown",
+        candidateName: displayName,
         candidatePhone: conv.candidate_phone,
         candidateEmail: candidate?.email || null,
+        contactName: conv.contact_name,
         preview: conv.last_message_preview || "No messages",
         timestamp: conv.last_message_at,
         unreadCount: conv.unread_count || 0,
@@ -185,11 +199,14 @@ const Communications = () => {
         isHot: level === "urgent" || level === "hot",
         priorityLevel: level,
         priorityScore: score,
+        reminderAt: conv.reminder_at,
+        reminderNote: conv.reminder_note,
+        snoozedUntil: conv.snoozed_until,
       };
     }),
     ...aiCallLogs
       .filter((call: any) => {
-        // Filter out incomplete test data (no candidate info and still in progress)
+        // Filter out incomplete test data
         if (call.status === "in_progress" && !call.candidate_name && !call.candidate_id) {
           return false;
         }
@@ -230,10 +247,16 @@ const Communications = () => {
   // Filter by tab and search
   const filteredConversations = campaignFiltered
     .filter((conv) => {
+      // Handle snoozed - hide from main views if snoozed until future
+      if (conv.snoozedUntil && new Date(conv.snoozedUntil) > new Date()) {
+        if (activeTab !== "reminders") return false;
+      }
+      
       if (activeTab === "urgent") return conv.priorityLevel === "urgent";
       if (activeTab === "hot") return conv.priorityLevel === "hot" || conv.priorityLevel === "urgent";
       if (activeTab === "sms") return conv.channel === "sms";
       if (activeTab === "calls") return conv.channel === "call";
+      if (activeTab === "reminders") return !!conv.reminderAt || !!conv.snoozedUntil;
       return true;
     })
     .filter((conv) => {
@@ -245,6 +268,13 @@ const Communications = () => {
       );
     })
     .sort((a, b) => {
+      // For reminders tab, sort by reminder time
+      if (activeTab === "reminders") {
+        const aTime = a.reminderAt || a.snoozedUntil || "";
+        const bTime = b.reminderAt || b.snoozedUntil || "";
+        return new Date(aTime).getTime() - new Date(bTime).getTime();
+      }
+      // Default: priority then recency
       if ((b.priorityScore || 0) !== (a.priorityScore || 0)) {
         return (b.priorityScore || 0) - (a.priorityScore || 0);
       }
@@ -254,12 +284,12 @@ const Communications = () => {
   // Calculate counts
   const totalUnread = conversations.reduce((sum, c) => sum + c.unreadCount, 0);
   const urgentCount = conversations.filter((c) => c.priorityLevel === "urgent").length;
+  const remindersCount = conversations.filter((c) => c.reminderAt || c.snoozedUntil).length;
 
   // Keyboard navigation
   const handleKeyNavigation = useCallback((e: KeyboardEvent) => {
     // Don't handle if typing in input
     if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
-      // Allow Cmd+Enter to still work for sending
       if (!((e.metaKey || e.ctrlKey) && e.key === "Enter")) {
         return;
       }
@@ -297,13 +327,6 @@ const Communications = () => {
     window.addEventListener("keydown", handleKeyNavigation);
     return () => window.removeEventListener("keydown", handleKeyNavigation);
   }, [handleKeyNavigation]);
-
-  // Update selected conversation when navigating with keyboard
-  useEffect(() => {
-    if (filteredConversations[selectedIndex] && !selectedConversation) {
-      // Only auto-select on keyboard nav, not on initial load
-    }
-  }, [selectedIndex, filteredConversations]);
 
   const handleSelectConversation = (conversation: ConversationItem) => {
     setSelectedConversation(conversation);
@@ -353,7 +376,7 @@ const Communications = () => {
                 </TabsTrigger>
                 <TabsTrigger value="urgent" className="text-xs px-3 h-7 gap-1">
                   <Flame className="h-3 w-3 text-red-500" />
-                  Urgent
+                  <span className="hidden sm:inline">Urgent</span>
                   {urgentCount > 0 && (
                     <span className="ml-1 text-[10px] bg-destructive text-destructive-foreground rounded-full px-1.5">
                       {urgentCount}
@@ -362,7 +385,7 @@ const Communications = () => {
                 </TabsTrigger>
                 <TabsTrigger value="hot" className="text-xs px-3 h-7 gap-1">
                   <Star className="h-3 w-3 text-orange-500" />
-                  Hot
+                  <span className="hidden sm:inline">Hot</span>
                 </TabsTrigger>
                 <TabsTrigger value="sms" className="text-xs px-3 h-7 gap-1">
                   <MessageSquare className="h-3 w-3" />
@@ -371,6 +394,20 @@ const Communications = () => {
                 <TabsTrigger value="calls" className="text-xs px-3 h-7 gap-1">
                   <Phone className="h-3 w-3" />
                   <span className="hidden sm:inline">Calls</span>
+                </TabsTrigger>
+                <TabsTrigger value="reminders" className="text-xs px-3 h-7 gap-1">
+                  <Clock className="h-3 w-3" />
+                  <span className="hidden sm:inline">Reminders</span>
+                  {remindersCount > 0 && (
+                    <span className="ml-1 text-[10px] bg-muted-foreground/20 text-muted-foreground rounded-full px-1.5">
+                      {remindersCount}
+                    </span>
+                  )}
+                </TabsTrigger>
+                <TabsTrigger value="email" className="text-xs px-3 h-7 gap-1" disabled>
+                  <Mail className="h-3 w-3" />
+                  <span className="hidden sm:inline">Email</span>
+                  <Badge variant="outline" className="text-[8px] px-1 ml-1">Soon</Badge>
                 </TabsTrigger>
               </TabsList>
             </Tabs>
@@ -401,9 +438,30 @@ const Communications = () => {
             />
           </div>
 
-          {/* Right: Conversation detail */}
+          {/* Right: Conversation detail or empty state */}
           <div className="hidden sm:flex flex-1 overflow-hidden">
-            <ConversationDetail conversation={selectedConversation} />
+            {filteredConversations.length === 0 && !isLoading ? (
+              <div className="flex flex-col items-center justify-center h-full text-center px-6 bg-background w-full">
+                <div className="p-4 rounded-full bg-muted mb-4">
+                  <Zap className="h-8 w-8 text-muted-foreground" />
+                </div>
+                <h3 className="text-lg font-medium text-foreground mb-1">
+                  Inbox Zero!
+                </h3>
+                <p className="text-sm text-muted-foreground max-w-sm mb-4">
+                  All caught up. Start a new conversation or check back later for replies.
+                </p>
+                <Button
+                  onClick={() => setIsNewMessageOpen(true)}
+                  className="gradient-primary"
+                >
+                  <Plus className="h-4 w-4 mr-1" />
+                  New Message
+                </Button>
+              </div>
+            ) : (
+              <ConversationDetail conversation={selectedConversation} />
+            )}
           </div>
         </div>
 

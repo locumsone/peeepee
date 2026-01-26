@@ -12,7 +12,7 @@ serve(async (req) => {
   }
 
   try {
-    const { to_phone, custom_message, from_number, candidate_id, conversation_id } = await req.json();
+    const { to_phone, custom_message, from_number, candidate_id, conversation_id, contact_name } = await req.json();
 
     if (!to_phone || !custom_message) {
       return new Response(
@@ -88,6 +88,7 @@ serve(async (req) => {
           .insert({
             candidate_phone: to_phone,
             candidate_id: candidate_id || null,
+            contact_name: contact_name || null,
             last_message_at: new Date().toISOString(),
             last_message_preview: custom_message.substring(0, 100),
             unread_count: 0,
