@@ -1,6 +1,7 @@
-import { Search, MessageSquare, Phone, Loader2, Flame, Star, Snowflake, Clock } from "lucide-react";
+import { Search, MessageSquare, Phone, Loader2, Flame, Star, Snowflake, Clock, Bot, PhoneIncoming, PhoneOutgoing } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { formatDistanceToNow, isPast, format } from "date-fns";
 import { formatPhoneNumber } from "@/lib/formatPhone";
@@ -109,19 +110,43 @@ export const ConversationList = ({
                       : "hover:bg-muted/50"
                   )}
                 >
-                  {/* Avatar / Channel icon */}
-                  <div
-                    className={cn(
-                      "flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center relative",
-                      conversation.channel === "sms"
-                        ? "bg-accent/20 text-accent"
-                        : "bg-success/20 text-success"
-                    )}
-                  >
-                    {conversation.channel === "sms" ? (
-                      <MessageSquare className="h-4 w-4" />
-                    ) : (
-                      <Phone className="h-4 w-4" />
+                  {/* Avatar / Channel icon with call type indicator */}
+                  <div className="relative">
+                    <div
+                      className={cn(
+                        "flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center",
+                        conversation.channel === "sms"
+                          ? "bg-accent/20 text-accent"
+                          : conversation.callType === "ai" || conversation.callType === "cold_call"
+                            ? "bg-cyan-500/20 text-cyan-400"
+                            : conversation.callType === "inbound"
+                              ? "bg-success/20 text-success"
+                              : "bg-primary/20 text-primary"
+                      )}
+                    >
+                      {conversation.channel === "sms" ? (
+                        <MessageSquare className="h-4 w-4" />
+                      ) : conversation.callType === "ai" || conversation.callType === "cold_call" ? (
+                        <Bot className="h-4 w-4" />
+                      ) : conversation.callType === "inbound" ? (
+                        <PhoneIncoming className="h-4 w-4" />
+                      ) : (
+                        <PhoneOutgoing className="h-4 w-4" />
+                      )}
+                    </div>
+                    {/* Call type badge */}
+                    {conversation.channel === "call" && conversation.callType && (
+                      <div className={cn(
+                        "absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold border-2 border-card",
+                        conversation.callType === "ai" || conversation.callType === "cold_call"
+                          ? "bg-cyan-500 text-white"
+                          : conversation.callType === "inbound"
+                            ? "bg-success text-success-foreground"
+                            : "bg-primary text-primary-foreground"
+                      )}>
+                        {conversation.callType === "ai" || conversation.callType === "cold_call" ? "AI" : 
+                         conversation.callType === "inbound" ? "IN" : "OUT"}
+                      </div>
                     )}
                   </div>
 

@@ -77,25 +77,48 @@ export const useTwilioDevice = (userId: string | null) => {
       });
 
       device.on('incoming', async (call) => {
-        // Try to get caller context from ai_call_logs (ARIA transfers)
+        // Try to get caller context - first from ARIA transfers, then from candidate database
         let callerContext = null;
         const fromNumber = call.parameters.From;
+        const normalizedPhone = fromNumber?.replace(/\D/g, '') || '';
         
         try {
-          const { data } = await supabase
+          // Check for ARIA transfers first
+          const { data: ariaTransfer } = await supabase
             .from('ai_call_logs')
             .select('*')
             .eq('phone_number', fromNumber)
             .eq('transferred_to_recruiter', true)
             .order('created_at', { ascending: false })
             .limit(1)
-            .single();
+            .maybeSingle();
           
-          if (data) {
-            callerContext = data;
+          if (ariaTransfer) {
+            callerContext = {
+              ...ariaTransfer,
+              source: 'aria_transfer'
+            };
+          } else {
+            // Try to match caller to candidate in database
+            const { data: candidate } = await supabase
+              .from('candidates')
+              .select('id, first_name, last_name, specialty, state, phone, personal_mobile')
+              .or(`phone.ilike.%${normalizedPhone},personal_mobile.ilike.%${normalizedPhone}`)
+              .limit(1)
+              .maybeSingle();
+            
+            if (candidate) {
+              callerContext = {
+                candidate_id: candidate.id,
+                candidate_name: `${candidate.first_name || ''} ${candidate.last_name || ''}`.trim(),
+                specialty: candidate.specialty,
+                state: candidate.state,
+                source: 'database_match'
+              };
+            }
           }
         } catch (e) {
-          // No context available
+          console.log('No caller context found:', e);
         }
 
         setState(prev => ({ 
