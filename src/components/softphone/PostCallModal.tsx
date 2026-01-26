@@ -56,21 +56,48 @@ export const PostCallModal = ({ open, onOpenChange, callData }: PostCallModalPro
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      // Insert call log
-      const { error: callError } = await supabase.from("ai_call_logs").insert({
-        phone_number: callData.phoneNumber,
-        candidate_id: callData.candidateId || null,
-        candidate_name: callData.candidateName || null,
-        call_summary: notes,
-        call_result: outcome,
-        duration_seconds: callData.duration,
-        status: "completed",
-        call_type: "manual",
-        platform: "twilio",
-        created_at: new Date().toISOString(),
-      });
+      // First, try to find the existing call log (created by voice-incoming webhook)
+      const { data: existingCall } = await supabase
+        .from("ai_call_logs")
+        .select("id")
+        .eq("phone_number", callData.phoneNumber)
+        .gte("created_at", new Date(Date.now() - 300000).toISOString()) // Within last 5 mins
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-      if (callError) throw callError;
+      if (existingCall) {
+        // Update existing record created by webhook
+        const { error: updateError } = await supabase
+          .from("ai_call_logs")
+          .update({
+            call_summary: notes,
+            call_result: outcome,
+            duration_seconds: callData.duration,
+            status: "completed",
+            candidate_id: callData.candidateId || null,
+            candidate_name: callData.candidateName || null,
+          })
+          .eq("id", existingCall.id);
+
+        if (updateError) throw updateError;
+      } else {
+        // Create new record (fallback for manual calls without webhook)
+        const { error: insertError } = await supabase.from("ai_call_logs").insert({
+          phone_number: callData.phoneNumber,
+          candidate_id: callData.candidateId || null,
+          candidate_name: callData.candidateName || null,
+          call_summary: notes,
+          call_result: outcome,
+          duration_seconds: callData.duration,
+          status: "completed",
+          call_type: "manual",
+          platform: "twilio",
+          created_at: new Date().toISOString(),
+        });
+
+        if (insertError) throw insertError;
+      }
 
       // Insert scheduled callback if requested
       if (scheduleCallback && callbackTime) {
@@ -87,10 +114,12 @@ export const PostCallModal = ({ open, onOpenChange, callData }: PostCallModalPro
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["ai-call-logs"] });
+      queryClient.invalidateQueries({ queryKey: ["scheduled-callbacks"] });
       toast.success("Call notes saved");
       handleClose();
     },
-    onError: () => {
+    onError: (err) => {
+      console.error("Save error:", err);
       toast.error("Failed to save call notes");
     },
   });
