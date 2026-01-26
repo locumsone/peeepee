@@ -13,5 +13,6 @@ export { StepPrepareCandidates } from "./StepPrepareCandidates";
 export { StepConnectChannels } from "./StepConnectChannels";
 export { StepPreviewMessage } from "./StepPreviewMessage";
 export { LaunchStatusBar } from "./LaunchStatusBar";
+export { TestCampaignModal } from "./TestCampaignModal";
 
 export * from "./types";
