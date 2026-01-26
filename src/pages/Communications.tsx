@@ -11,6 +11,7 @@ import { ConversationList } from "@/components/inbox/ConversationList";
 import { ConversationDetail } from "@/components/inbox/ConversationDetail";
 import { NewMessageModal } from "@/components/inbox/NewMessageModal";
 import { CampaignFilter } from "@/components/inbox/CampaignFilter";
+import { RemindersList } from "@/components/inbox/RemindersList";
 import { calculatePriorityLevel, type PriorityLevel } from "@/components/inbox/PriorityBadge";
 
 export type ChannelFilter = "all" | "urgent" | "hot" | "sms" | "calls" | "reminders";
@@ -427,21 +428,29 @@ const Communications = () => {
 
         {/* Two-column layout */}
         <div className="flex flex-1 overflow-hidden">
-          {/* Left: Conversation list */}
+          {/* Left: Conversation list or Reminders list */}
           <div className="w-full sm:w-[320px] md:w-[360px] flex-shrink-0 border-r border-border overflow-hidden">
-            <ConversationList
-              conversations={filteredConversations}
-              selectedId={selectedConversation?.id || null}
-              onSelect={handleSelectConversation}
-              searchQuery={searchQuery}
-              onSearchChange={setSearchQuery}
-              isLoading={isLoading}
-            />
+            {activeTab === "reminders" ? (
+              <RemindersList
+                conversations={conversations}
+                selectedId={selectedConversation?.id || null}
+                onSelect={handleSelectConversation}
+              />
+            ) : (
+              <ConversationList
+                conversations={filteredConversations}
+                selectedId={selectedConversation?.id || null}
+                onSelect={handleSelectConversation}
+                searchQuery={searchQuery}
+                onSearchChange={setSearchQuery}
+                isLoading={isLoading}
+              />
+            )}
           </div>
 
           {/* Right: Conversation detail or empty state */}
           <div className="hidden sm:flex flex-1 overflow-hidden">
-            {filteredConversations.length === 0 && !isLoading ? (
+            {filteredConversations.length === 0 && !isLoading && activeTab !== "reminders" ? (
               <div className="flex flex-col items-center justify-center h-full text-center px-6 bg-background w-full">
                 <div className="p-4 rounded-full bg-muted mb-4">
                   <Zap className="h-8 w-8 text-muted-foreground" />
