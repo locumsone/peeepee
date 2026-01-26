@@ -244,7 +244,7 @@ export const ConversationDetail = ({ conversation }: ConversationDetailProps) =>
   const queryClient = useQueryClient();
 
   // Fetch messages
-  const { data: messages = [], isLoading: messagesLoading } = useQuery({
+  const { data: messages = [], isLoading: messagesLoading, refetch: refetchMessages } = useQuery({
     queryKey: ["sms-messages", conversation?.id],
     queryFn: async () => {
       if (!conversation || conversation.channel !== "sms") return [];
@@ -257,7 +257,35 @@ export const ConversationDetail = ({ conversation }: ConversationDetailProps) =>
       return (data || []) as SMSMessage[];
     },
     enabled: !!conversation && conversation.channel === "sms",
+    refetchInterval: 5000, // Poll every 5 seconds for new messages
   });
+
+  // Real-time subscription for new messages
+  useEffect(() => {
+    if (!conversation || conversation.channel !== "sms") return;
+
+    const channel = supabase
+      .channel(`sms-messages-${conversation.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "sms_messages",
+          filter: `conversation_id=eq.${conversation.id}`,
+        },
+        () => {
+          console.log("New message received via realtime");
+          refetchMessages();
+          queryClient.invalidateQueries({ queryKey: ["sms-conversations"] });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [conversation?.id, conversation?.channel, refetchMessages, queryClient]);
 
   // Auto-scroll and focus
   useEffect(() => {

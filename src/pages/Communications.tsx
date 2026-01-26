@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import Layout from "@/components/layout/Layout";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -40,9 +40,10 @@ const Communications = () => {
   const [isNewMessageOpen, setIsNewMessageOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
   // Fetch SMS conversations
-  const { data: smsConversations = [], isLoading: smsLoading } = useQuery({
+  const { data: smsConversations = [], isLoading: smsLoading, refetch: refetchConversations } = useQuery({
     queryKey: ["sms-conversations"],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -70,7 +71,43 @@ const Communications = () => {
       if (error) throw error;
       return data || [];
     },
+    refetchInterval: 10000, // Poll every 10 seconds as backup
   });
+
+  // Real-time subscription for conversation updates
+  useEffect(() => {
+    const channel = supabase
+      .channel("sms-conversations-realtime")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "sms_conversations",
+        },
+        () => {
+          console.log("Conversation update received via realtime");
+          refetchConversations();
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "sms_messages",
+        },
+        () => {
+          console.log("New message received via realtime - refreshing conversations");
+          refetchConversations();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [refetchConversations]);
 
   // Fetch AI call logs
   const { data: aiCallLogs = [], isLoading: callsLoading } = useQuery({

@@ -69,22 +69,20 @@ serve(async (req) => {
       }
     }
 
-    // Insert the inbound message
+    // Insert the inbound message - using only columns that exist in the table
     if (conversationId) {
       const { error: msgError } = await supabase.from("sms_messages").insert({
         conversation_id: conversationId,
         direction: "inbound",
         body: body,
         status: "received",
-        twilio_sid: messageSid,
-        from_number: from,
-        to_number: to,
+        telnyx_message_id: messageSid, // Use existing column for Twilio SID
       });
 
       if (msgError) {
         console.error("Error inserting message:", msgError);
       } else {
-        console.log("Message inserted successfully");
+        console.log("Message inserted successfully for conversation:", conversationId);
       }
 
       // Detect interest keywords
@@ -110,6 +108,8 @@ serve(async (req) => {
 
       if (updateError) {
         console.error("Error updating conversation:", updateError);
+      } else {
+        console.log("Conversation updated successfully");
       }
     }
 
