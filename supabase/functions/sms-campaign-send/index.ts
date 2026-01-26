@@ -24,7 +24,7 @@ serve(async (req) => {
     // Get Twilio credentials
     const accountSid = Deno.env.get("TWILIO_ACCOUNT_SID");
     const authToken = Deno.env.get("TWILIO_AUTH_TOKEN");
-    const defaultFromNumber = Deno.env.get("TWILIO_PHONE_NUMBER") || "+12185628671";
+    const fallbackNumber = Deno.env.get("TWILIO_PHONE_NUMBER") || "+12185628671";
 
     if (!accountSid || !authToken) {
       console.error("Missing Twilio credentials");
@@ -34,7 +34,57 @@ serve(async (req) => {
       );
     }
 
-    const fromPhone = from_number || defaultFromNumber;
+    // Initialize Supabase client
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // Select a Twilio number using smart rotation
+    // Priority: least messages sent today, then least recently used
+    let selectedNumber = from_number;
+    let selectedNumberId: string | null = null;
+
+    if (!from_number) {
+      // Check if this conversation already has an assigned number (for consistency)
+      if (conversation_id) {
+        const { data: existingConv } = await supabase
+          .from("sms_conversations")
+          .select("twilio_number")
+          .eq("id", conversation_id)
+          .maybeSingle();
+        
+        if (existingConv?.twilio_number) {
+          selectedNumber = existingConv.twilio_number;
+          console.log("Using existing conversation number:", selectedNumber);
+        }
+      }
+
+      // If no existing number, get one from the pool with smart rotation
+      if (!selectedNumber) {
+        const { data: availableNumbers, error: numError } = await supabase
+          .from("telnyx_numbers") // Table stores Twilio numbers despite legacy name
+          .select("id, phone_number, messages_sent_today, daily_limit")
+          .eq("status", "active")
+          .lt("messages_sent_today", 200) // Under daily limit
+          .order("messages_sent_today", { ascending: true })
+          .order("last_used_at", { ascending: true, nullsFirst: true })
+          .limit(1);
+
+        if (numError) {
+          console.error("Error fetching numbers:", numError);
+        }
+
+        if (availableNumbers && availableNumbers.length > 0) {
+          selectedNumber = availableNumbers[0].phone_number;
+          selectedNumberId = availableNumbers[0].id;
+          console.log("Selected number from pool:", selectedNumber, "Messages today:", availableNumbers[0].messages_sent_today);
+        } else {
+          // Fallback if no numbers available in pool
+          selectedNumber = fallbackNumber;
+          console.log("No available numbers in pool, using fallback:", fallbackNumber);
+        }
+      }
+    }
 
     // Send via Twilio
     const twilioUrl = `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`;
@@ -42,7 +92,7 @@ serve(async (req) => {
 
     const formData = new URLSearchParams();
     formData.append("To", to_phone);
-    formData.append("From", fromPhone);
+    formData.append("From", selectedNumber);
     formData.append("Body", custom_message);
 
     const twilioResponse = await fetch(twilioUrl, {
@@ -64,12 +114,25 @@ serve(async (req) => {
       );
     }
 
-    console.log("SMS sent successfully:", twilioResult.sid);
+    console.log("SMS sent successfully via", selectedNumber, "SID:", twilioResult.sid);
 
-    // Update database
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    // Update number usage stats
+    if (selectedNumberId) {
+      // Get current count and increment
+      const { data: currentNum } = await supabase
+        .from("telnyx_numbers")
+        .select("messages_sent_today")
+        .eq("id", selectedNumberId)
+        .single();
+      
+      await supabase
+        .from("telnyx_numbers")
+        .update({
+          messages_sent_today: (currentNum?.messages_sent_today || 0) + 1,
+          last_used_at: new Date().toISOString(),
+        })
+        .eq("id", selectedNumberId);
+    }
 
     // Find or create conversation
     let convId = conversation_id;
@@ -89,8 +152,8 @@ serve(async (req) => {
             candidate_phone: to_phone,
             candidate_id: candidate_id || null,
             contact_name: contact_name || null,
-            telnyx_number: fromPhone, // Required NOT NULL field
-            twilio_number: fromPhone,
+            telnyx_number: selectedNumber, // Legacy column (NOT NULL)
+            twilio_number: selectedNumber,
             last_message_at: new Date().toISOString(),
             last_message_preview: custom_message.substring(0, 100),
             last_message_direction: "outbound",
@@ -117,7 +180,7 @@ serve(async (req) => {
         body: custom_message,
         status: "sent",
         twilio_sid: twilioResult.sid,
-        from_number: fromPhone,
+        from_number: selectedNumber,
         to_number: to_phone,
       });
 
@@ -128,6 +191,7 @@ serve(async (req) => {
           last_message_at: new Date().toISOString(),
           last_message_preview: custom_message.substring(0, 100),
           last_message_direction: "outbound",
+          twilio_number: selectedNumber,
         })
         .eq("id", convId);
     }
@@ -137,6 +201,7 @@ serve(async (req) => {
         success: true,
         message_sid: twilioResult.sid,
         conversation_id: convId,
+        from_number: selectedNumber,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
