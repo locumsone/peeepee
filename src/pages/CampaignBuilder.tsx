@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, Link, useSearchParams } from "react-router-dom";
 import { 
   Search, Sparkles, Building2, MapPin, DollarSign, 
   Calendar, CheckCircle2, ArrowRight, Loader2, FileText,
@@ -55,6 +55,8 @@ const WIZARD_STEPS = [
 
 const CampaignBuilder = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const preselectedJobId = searchParams.get("jobId");
   
   // Job selection state
   const [activeTab, setActiveTab] = useState<"select" | "create">("select");
@@ -75,6 +77,16 @@ const CampaignBuilder = () => {
   useEffect(() => {
     fetchJobs();
   }, []);
+
+  // Auto-select job if jobId is provided in URL
+  useEffect(() => {
+    if (preselectedJobId && jobs.length > 0 && !selectedJob) {
+      const job = jobs.find(j => j.id === preselectedJobId);
+      if (job) {
+        setSelectedJob(job);
+      }
+    }
+  }, [preselectedJobId, jobs, selectedJob]);
 
   const fetchJobs = async () => {
     try {

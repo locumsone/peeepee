@@ -163,7 +163,11 @@ const Dashboard = () => {
               {format(new Date(), "EEEE, MMMM d, yyyy")}
             </p>
           </div>
-          <Button variant="default" className="gap-2">
+          <Button 
+            variant="default" 
+            className="gap-2"
+            onClick={() => window.location.href = "/campaigns/new"}
+          >
             <Zap className="h-4 w-4" />
             Quick Campaign
           </Button>

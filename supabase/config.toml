@@ -20,3 +20,6 @@ verify_jwt = false
 
 [functions.enrich-contact]
 verify_jwt = false
+
+[functions.instantly-webhook]
+verify_jwt = false
