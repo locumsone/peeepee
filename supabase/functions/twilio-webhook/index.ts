@@ -29,6 +29,18 @@ serve(async (req) => {
       );
     }
 
+    // Normalize phone number to E.164 format
+    const normalizePhone = (phone: string): string => {
+      const digits = phone.replace(/\D/g, "");
+      if (digits.length === 10) return `+1${digits}`;
+      if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
+      if (phone.startsWith("+")) return phone;
+      return `+${digits}`;
+    };
+
+    const normalizedFrom = normalizePhone(from);
+    console.log("Normalized inbound phone:", from, "->", normalizedFrom);
+
     // Initialize Supabase client
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -38,7 +50,7 @@ serve(async (req) => {
     const { data: conversation, error: convError } = await supabase
       .from("sms_conversations")
       .select("id, unread_count, candidate_id")
-      .eq("candidate_phone", from)
+      .eq("candidate_phone", normalizedFrom)
       .maybeSingle();
 
     if (convError) {
@@ -49,11 +61,11 @@ serve(async (req) => {
 
     // If no conversation exists, create one
     if (!conversationId) {
-      console.log("Creating new conversation for:", from);
+      console.log("Creating new conversation for:", normalizedFrom);
       const { data: newConv, error: createError } = await supabase
         .from("sms_conversations")
         .insert({
-          candidate_phone: from,
+          candidate_phone: normalizedFrom,
           telnyx_number: to, // The Twilio number that received the message
           twilio_number: to,
           last_message_at: new Date().toISOString(),
