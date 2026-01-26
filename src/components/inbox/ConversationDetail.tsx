@@ -226,6 +226,14 @@ const CallDetailView = ({ conversation }: { conversation: ConversationItem }) =>
     );
   }
 
+  // Compute display name - prefer candidate_name, fallback to formatted phone
+  const displayPhone = callData?.phone_number || conversation.candidatePhone;
+  const displayName = callData?.candidate_name && callData.candidate_name !== ""
+    ? callData.candidate_name
+    : conversation.candidateName && conversation.candidateName !== "Unknown"
+      ? conversation.candidateName
+      : formatPhoneNumber(displayPhone) || "Unknown";
+
   return (
     <div className="flex flex-col h-full w-full overflow-hidden">
       {/* Compact header */}
@@ -237,8 +245,14 @@ const CallDetailView = ({ conversation }: { conversation: ConversationItem }) =>
             </div>
             <div className="flex-1 min-w-0">
               <h2 className="font-semibold text-foreground truncate">
-                {callData?.candidate_name || conversation.candidateName}
+                {displayName}
               </h2>
+              {/* Show phone number if we have a name */}
+              {displayName !== formatPhoneNumber(displayPhone) && displayPhone && (
+                <p className="text-xs text-muted-foreground font-mono">
+                  {formatPhoneNumber(displayPhone)}
+                </p>
+              )}
               <div className="flex items-center gap-2 mt-0.5">
                 {getStatusBadge(callData?.status)}
                 {getOutcomeBadge(callData?.call_result)}
