@@ -1,16 +1,15 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import Layout from "@/components/layout/Layout";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Plus, Inbox as InboxIcon, Flame, MessageSquare, Phone, Star, Snowflake } from "lucide-react";
+import { Plus, Inbox as InboxIcon, Flame, MessageSquare, Phone, Star } from "lucide-react";
 import { ConversationList } from "@/components/inbox/ConversationList";
 import { ConversationDetail } from "@/components/inbox/ConversationDetail";
 import { NewMessageModal } from "@/components/inbox/NewMessageModal";
-import { CampaignNavigator } from "@/components/inbox/CampaignNavigator";
-import { CandidateContextSidebar } from "@/components/inbox/CandidateContextSidebar";
+import { CampaignFilter } from "@/components/inbox/CampaignFilter";
 import { calculatePriorityLevel, type PriorityLevel } from "@/components/inbox/PriorityBadge";
 
 export type ChannelFilter = "all" | "urgent" | "hot" | "sms" | "calls";
@@ -37,11 +36,12 @@ export interface ConversationItem {
 const Communications = () => {
   const [activeTab, setActiveTab] = useState<ChannelFilter>("all");
   const [selectedConversation, setSelectedConversation] = useState<ConversationItem | null>(null);
+  const [selectedIndex, setSelectedIndex] = useState<number>(0);
   const [isNewMessageOpen, setIsNewMessageOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
 
-  // Fetch SMS conversations with candidate data via proper join
+  // Fetch SMS conversations
   const { data: smsConversations = [], isLoading: smsLoading } = useQuery({
     queryKey: ["sms-conversations"],
     queryFn: async () => {
@@ -72,7 +72,7 @@ const Communications = () => {
     },
   });
 
-  // Fetch AI call logs with candidate data
+  // Fetch AI call logs
   const { data: aiCallLogs = [], isLoading: callsLoading } = useQuery({
     queryKey: ["ai-call-logs"],
     queryFn: async () => {
@@ -97,14 +97,6 @@ const Communications = () => {
     },
   });
 
-  // Format duration as M:SS
-  const formatDuration = (seconds: number | null) => {
-    if (!seconds) return "0:00";
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, "0")}`;
-  };
-
   // Get outcome display text
   const getOutcomePreview = (result: string | null, status: string | null, duration: number | null) => {
     if (result) {
@@ -120,34 +112,16 @@ const Communications = () => {
     if (status) {
       return status.charAt(0).toUpperCase() + status.slice(1).replace(/_/g, " ");
     }
-    return `Call ${formatDuration(duration)}`;
-  };
-
-  // Check if conversation is "hot" (recent activity, interested, or unread)
-  const isConversationHot = (conv: any, channel: "sms" | "call") => {
-    const now = new Date();
-    const timestamp = new Date(conv.last_message_at || conv.created_at);
-    const hoursDiff = (now.getTime() - timestamp.getTime()) / (1000 * 60 * 60);
-    
-    if (channel === "sms") {
-      return (
-        (conv.unread_count || 0) > 0 ||
-        conv.interest_detected ||
-        hoursDiff <= 48
-      );
+    if (duration) {
+      const mins = Math.floor(duration / 60);
+      const secs = duration % 60;
+      return `Call ${mins}:${secs.toString().padStart(2, "0")}`;
     }
-    
-    // For calls
-    return (
-      conv.call_result === "interested" ||
-      conv.call_result === "callback_requested" ||
-      hoursDiff <= 48
-    );
+    return "Call";
   };
 
   // Transform data into unified conversation items with priority
   const conversations: ConversationItem[] = [
-    // SMS conversations with proper candidate name
     ...smsConversations.map((conv: any) => {
       const candidate = conv.candidates;
       const candidateName = candidate 
@@ -176,7 +150,6 @@ const Communications = () => {
         priorityScore: score,
       };
     }),
-    // AI Call logs with proper candidate name and outcome
     ...aiCallLogs.map((call: any) => {
       const { level, score } = calculatePriorityLevel({
         sentiment: call.call_result === "interested" ? "interested" : 
@@ -227,7 +200,6 @@ const Communications = () => {
       );
     })
     .sort((a, b) => {
-      // Sort by priority score first, then by timestamp
       if ((b.priorityScore || 0) !== (a.priorityScore || 0)) {
         return (b.priorityScore || 0) - (a.priorityScore || 0);
       }
@@ -237,104 +209,158 @@ const Communications = () => {
   // Calculate counts
   const totalUnread = conversations.reduce((sum, c) => sum + c.unreadCount, 0);
   const urgentCount = conversations.filter((c) => c.priorityLevel === "urgent").length;
-  const hotCount = conversations.filter((c) => c.priorityLevel === "hot" || c.priorityLevel === "urgent").length;
+
+  // Keyboard navigation
+  const handleKeyNavigation = useCallback((e: KeyboardEvent) => {
+    // Don't handle if typing in input
+    if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+      // Allow Cmd+Enter to still work for sending
+      if (!((e.metaKey || e.ctrlKey) && e.key === "Enter")) {
+        return;
+      }
+    }
+
+    switch (e.key) {
+      case "ArrowUp":
+        e.preventDefault();
+        setSelectedIndex((prev) => Math.max(0, prev - 1));
+        break;
+      case "ArrowDown":
+        e.preventDefault();
+        setSelectedIndex((prev) => Math.min(filteredConversations.length - 1, prev + 1));
+        break;
+      case "Enter":
+        e.preventDefault();
+        if (filteredConversations[selectedIndex]) {
+          setSelectedConversation(filteredConversations[selectedIndex]);
+        }
+        break;
+      case "Escape":
+        e.preventDefault();
+        setSelectedConversation(null);
+        break;
+      case "n":
+        if (e.metaKey || e.ctrlKey) {
+          e.preventDefault();
+          setIsNewMessageOpen(true);
+        }
+        break;
+    }
+  }, [filteredConversations, selectedIndex]);
+
+  useEffect(() => {
+    window.addEventListener("keydown", handleKeyNavigation);
+    return () => window.removeEventListener("keydown", handleKeyNavigation);
+  }, [handleKeyNavigation]);
+
+  // Update selected conversation when navigating with keyboard
+  useEffect(() => {
+    if (filteredConversations[selectedIndex] && !selectedConversation) {
+      // Only auto-select on keyboard nav, not on initial load
+    }
+  }, [selectedIndex, filteredConversations]);
+
+  const handleSelectConversation = (conversation: ConversationItem) => {
+    setSelectedConversation(conversation);
+    const index = filteredConversations.findIndex((c) => c.id === conversation.id);
+    if (index !== -1) {
+      setSelectedIndex(index);
+    }
+  };
 
   const isLoading = smsLoading || callsLoading;
 
   return (
     <Layout>
       <div className="flex flex-col h-[calc(100vh-4rem)]">
-        {/* Header */}
-        <div className="flex-shrink-0 border-b border-border bg-card px-6 py-4">
-          <div className="flex items-center justify-between mb-4">
+        {/* Compact header */}
+        <div className="flex-shrink-0 border-b border-border bg-card px-4 py-3">
+          <div className="flex items-center justify-between gap-4">
+            {/* Left: Title and campaign filter */}
             <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-primary/10">
-                <InboxIcon className="h-6 w-6 text-primary" />
-              </div>
-              <h1 className="text-2xl font-display font-bold text-foreground">
-                Communication Hub
-              </h1>
-              {totalUnread > 0 && (
-                <Badge variant="destructive" className="rounded-full px-2.5">
-                  {totalUnread}
-                </Badge>
-              )}
-            </div>
-          </div>
-
-          {/* Tabs */}
-          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as ChannelFilter)}>
-            <TabsList className="bg-muted">
-              <TabsTrigger value="all" className="gap-1.5">
-                All
-              </TabsTrigger>
-              <TabsTrigger value="urgent" className="gap-1.5">
-                <Flame className="h-3.5 w-3.5 text-red-500" />
-                Urgent
-                {urgentCount > 0 && (
-                  <Badge variant="destructive" className="ml-1 h-5 px-1.5 text-[10px]">
-                    {urgentCount}
+              <div className="flex items-center gap-2">
+                <div className="p-1.5 rounded-lg bg-primary/10">
+                  <InboxIcon className="h-5 w-5 text-primary" />
+                </div>
+                <h1 className="text-lg font-display font-bold text-foreground hidden sm:block">
+                  Inbox
+                </h1>
+                {totalUnread > 0 && (
+                  <Badge variant="destructive" className="rounded-full px-2 text-xs">
+                    {totalUnread}
                   </Badge>
                 )}
-              </TabsTrigger>
-              <TabsTrigger value="hot" className="gap-1.5">
-                <Star className="h-3.5 w-3.5 text-orange-500" />
-                Hot
-              </TabsTrigger>
-              <TabsTrigger value="sms" className="gap-1.5">
-                <MessageSquare className="h-3.5 w-3.5" />
-                SMS
-              </TabsTrigger>
-              <TabsTrigger value="calls" className="gap-1.5">
-                <Phone className="h-3.5 w-3.5" />
-                Calls
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
+              </div>
+              
+              <div className="hidden md:block">
+                <CampaignFilter
+                  selectedCampaignId={selectedCampaignId}
+                  onSelectCampaign={setSelectedCampaignId}
+                />
+              </div>
+            </div>
+
+            {/* Center: Tabs */}
+            <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as ChannelFilter)}>
+              <TabsList className="bg-muted h-8">
+                <TabsTrigger value="all" className="text-xs px-3 h-7">
+                  All
+                </TabsTrigger>
+                <TabsTrigger value="urgent" className="text-xs px-3 h-7 gap-1">
+                  <Flame className="h-3 w-3 text-red-500" />
+                  Urgent
+                  {urgentCount > 0 && (
+                    <span className="ml-1 text-[10px] bg-destructive text-destructive-foreground rounded-full px-1.5">
+                      {urgentCount}
+                    </span>
+                  )}
+                </TabsTrigger>
+                <TabsTrigger value="hot" className="text-xs px-3 h-7 gap-1">
+                  <Star className="h-3 w-3 text-orange-500" />
+                  Hot
+                </TabsTrigger>
+                <TabsTrigger value="sms" className="text-xs px-3 h-7 gap-1">
+                  <MessageSquare className="h-3 w-3" />
+                  <span className="hidden sm:inline">SMS</span>
+                </TabsTrigger>
+                <TabsTrigger value="calls" className="text-xs px-3 h-7 gap-1">
+                  <Phone className="h-3 w-3" />
+                  <span className="hidden sm:inline">Calls</span>
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+
+            {/* Right: New message button */}
+            <Button
+              onClick={() => setIsNewMessageOpen(true)}
+              size="sm"
+              className="gradient-primary h-8"
+            >
+              <Plus className="h-4 w-4 mr-1" />
+              <span className="hidden sm:inline">New</span>
+            </Button>
+          </div>
         </div>
 
-        {/* Three-column layout */}
+        {/* Two-column layout */}
         <div className="flex flex-1 overflow-hidden">
-          {/* Left sidebar - Campaign Navigator */}
-          <div className="hidden lg:flex w-[250px] flex-shrink-0 overflow-hidden">
-            <CampaignNavigator
-              selectedCampaignId={selectedCampaignId}
-              onSelectCampaign={setSelectedCampaignId}
-            />
-          </div>
-
-          {/* Center - Conversation list */}
-          <div className="w-full md:w-[400px] flex-shrink-0 border-r border-border bg-card overflow-hidden flex flex-col">
+          {/* Left: Conversation list */}
+          <div className="w-full sm:w-[320px] md:w-[360px] flex-shrink-0 border-r border-border overflow-hidden">
             <ConversationList
               conversations={filteredConversations}
               selectedId={selectedConversation?.id || null}
-              onSelect={setSelectedConversation}
+              onSelect={handleSelectConversation}
               searchQuery={searchQuery}
               onSearchChange={setSearchQuery}
               isLoading={isLoading}
             />
           </div>
 
-          {/* Right panel - Conversation detail */}
-          <div className="hidden md:flex flex-1 bg-background overflow-hidden">
+          {/* Right: Conversation detail */}
+          <div className="hidden sm:flex flex-1 overflow-hidden">
             <ConversationDetail conversation={selectedConversation} />
           </div>
-
-          {/* Candidate Context Sidebar */}
-          <CandidateContextSidebar 
-            conversation={selectedConversation}
-            className="hidden xl:flex w-[280px] flex-shrink-0"
-          />
         </div>
-
-        {/* Floating action button */}
-        <Button
-          onClick={() => setIsNewMessageOpen(true)}
-          className="fixed bottom-6 right-6 h-14 w-14 rounded-full shadow-lg gradient-primary hover:shadow-glow transition-all"
-          size="icon"
-        >
-          <Plus className="h-6 w-6" />
-        </Button>
 
         {/* New Message Modal */}
         <NewMessageModal 
