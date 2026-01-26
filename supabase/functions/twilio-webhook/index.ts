@@ -54,9 +54,13 @@ serve(async (req) => {
         .from("sms_conversations")
         .insert({
           candidate_phone: from,
+          telnyx_number: to, // The Twilio number that received the message
+          twilio_number: to,
           last_message_at: new Date().toISOString(),
           last_message_preview: body.substring(0, 100),
+          last_message_direction: "inbound",
           unread_count: 1,
+          total_messages: 1,
           candidate_replied: true,
         })
         .select("id")
@@ -66,6 +70,7 @@ serve(async (req) => {
         console.error("Error creating conversation:", createError);
       } else {
         conversationId = newConv.id;
+        console.log("Created new inbound conversation:", conversationId);
       }
     }
 
@@ -93,6 +98,7 @@ serve(async (req) => {
       const updateData: Record<string, unknown> = {
         last_message_at: new Date().toISOString(),
         last_message_preview: body.substring(0, 100),
+        last_message_direction: "inbound",
         unread_count: (conversation?.unread_count || 0) + 1,
         candidate_replied: true,
       };
