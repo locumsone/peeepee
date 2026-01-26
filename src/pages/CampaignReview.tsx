@@ -343,6 +343,7 @@ export default function CampaignReview() {
       {/* Launch Status Bar */}
       <LaunchStatusBar
         jobId={jobId}
+        job={job}
         campaignName={campaignName}
         candidates={candidates}
         channels={channels}
