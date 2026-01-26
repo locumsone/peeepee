@@ -54,14 +54,66 @@ export function StepPrepareCandidates({
   const estimatedCost = (needsEnrichment * 0.20).toFixed(2);
 
   const handleEnrichAll = async () => {
-    const candidatesToEnrich = candidates.filter(c => {
+    // First, get candidates that appear to need enrichment based on local state
+    const potentialCandidates = candidates.filter(c => {
       const hasEmail = c.email || c.personal_email;
       const hasPhone = c.phone || c.personal_mobile;
       return !hasEmail && !hasPhone;
     });
 
-    if (candidatesToEnrich.length === 0) {
+    if (potentialCandidates.length === 0) {
       toast({ title: "All candidates already have contact info" });
+      return;
+    }
+
+    // Check database for already-enriched candidates to avoid re-enrichment costs
+    const candidateIds = potentialCandidates.map(c => c.id);
+    const { data: dbCandidates } = await supabase
+      .from('candidates')
+      .select('id, personal_email, personal_mobile, enrichment_source')
+      .in('id', candidateIds);
+
+    const alreadyEnriched: EnrichmentResult[] = [];
+    const candidatesToEnrich: SelectedCandidate[] = [];
+    const updatedCandidates = [...candidates];
+
+    for (const candidate of potentialCandidates) {
+      const dbRecord = dbCandidates?.find(d => d.id === candidate.id);
+      if (dbRecord?.personal_email || dbRecord?.personal_mobile) {
+        // Already enriched in DB - update local state and skip API call
+        const idx = updatedCandidates.findIndex(c => c.id === candidate.id);
+        if (idx !== -1) {
+          updatedCandidates[idx] = {
+            ...updatedCandidates[idx],
+            personal_email: dbRecord.personal_email || updatedCandidates[idx].personal_email,
+            personal_mobile: dbRecord.personal_mobile || updatedCandidates[idx].personal_mobile,
+            enrichment_source: dbRecord.enrichment_source || undefined,
+            enrichment_tier: "Platinum",
+          };
+        }
+        alreadyEnriched.push({
+          candidateId: candidate.id,
+          candidateName: `Dr. ${candidate.first_name} ${candidate.last_name}`,
+          status: 'success',
+          email: dbRecord.personal_email,
+          phone: dbRecord.personal_mobile,
+          source: `${dbRecord.enrichment_source || 'DB'} (cached)`
+        });
+      } else {
+        candidatesToEnrich.push(candidate);
+      }
+    }
+
+    if (candidatesToEnrich.length === 0) {
+      // All were already enriched in DB
+      setEnrichmentResults(alreadyEnriched);
+      setTotalCostSpent(0);
+      setShowResults(true);
+      onCandidatesUpdate(updatedCandidates);
+      toast({ 
+        title: "Contact info already exists", 
+        description: `${alreadyEnriched.length} candidates were previously enriched (no cost)` 
+      });
       return;
     }
 
@@ -71,10 +123,9 @@ export function StepPrepareCandidates({
       status: "enriching",
     });
 
-    const results: EnrichmentResult[] = [];
+    const results: EnrichmentResult[] = [...alreadyEnriched];
     let totalCost = 0;
-    let successCount = 0;
-    const updatedCandidates = [...candidates];
+    let successCount = alreadyEnriched.length;
 
     for (let i = 0; i < candidatesToEnrich.length; i++) {
       const candidate = candidatesToEnrich[i];
