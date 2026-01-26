@@ -336,7 +336,7 @@ export default function CampaignReview() {
           defaultOpen={false}
           autoCollapseOnComplete={false}
         >
-          <StepPreviewMessage candidates={candidates} />
+          <StepPreviewMessage candidates={candidates} job={job} />
         </ReviewStepCard>
       </div>
 
