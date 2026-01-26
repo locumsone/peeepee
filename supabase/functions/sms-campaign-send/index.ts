@@ -89,9 +89,13 @@ serve(async (req) => {
             candidate_phone: to_phone,
             candidate_id: candidate_id || null,
             contact_name: contact_name || null,
+            telnyx_number: fromPhone, // Required NOT NULL field
+            twilio_number: fromPhone,
             last_message_at: new Date().toISOString(),
             last_message_preview: custom_message.substring(0, 100),
+            last_message_direction: "outbound",
             unread_count: 0,
+            total_messages: 1,
           })
           .select("id")
           .single();
@@ -100,6 +104,7 @@ serve(async (req) => {
           console.error("Error creating conversation:", convError);
         } else {
           convId = newConv.id;
+          console.log("Created new conversation:", convId);
         }
       }
     }
@@ -116,12 +121,13 @@ serve(async (req) => {
         to_number: to_phone,
       });
 
-      // Update conversation
+      // Update conversation with last message info
       await supabase
         .from("sms_conversations")
         .update({
           last_message_at: new Date().toISOString(),
           last_message_preview: custom_message.substring(0, 100),
+          last_message_direction: "outbound",
         })
         .eq("id", convId);
     }

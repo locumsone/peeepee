@@ -276,10 +276,18 @@ const Communications = () => {
         const bTime = b.reminderAt || b.snoozedUntil || "";
         return new Date(aTime).getTime() - new Date(bTime).getTime();
       }
-      // Default: priority then recency
-      if ((b.priorityScore || 0) !== (a.priorityScore || 0)) {
-        return (b.priorityScore || 0) - (a.priorityScore || 0);
+      
+      // iMessage style: Sort by most recent message first (recency)
+      // Unread conversations float to top, then sort by timestamp
+      const aHasUnread = a.unreadCount > 0 ? 1 : 0;
+      const bHasUnread = b.unreadCount > 0 ? 1 : 0;
+      
+      // First sort by unread status
+      if (bHasUnread !== aHasUnread) {
+        return bHasUnread - aHasUnread;
       }
+      
+      // Then by recency (most recent first)
       return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
     });
 
