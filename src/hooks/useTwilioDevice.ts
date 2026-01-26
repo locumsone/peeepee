@@ -81,6 +81,9 @@ export const useTwilioDevice = (userId: string | null) => {
         let callerContext = null;
         const fromNumber = call.parameters.From;
         const normalizedPhone = fromNumber?.replace(/\D/g, '') || '';
+        const last10 = normalizedPhone.slice(-10); // Get last 10 digits for matching
+        
+        console.log('Incoming call lookup:', { fromNumber, normalizedPhone, last10 });
         
         try {
           // Check for ARIA transfers first
@@ -99,13 +102,15 @@ export const useTwilioDevice = (userId: string | null) => {
               source: 'aria_transfer'
             };
           } else {
-            // Try to match caller to candidate in database
+            // Try to match caller to candidate in database with flexible matching
             const { data: candidate } = await supabase
               .from('candidates')
-              .select('id, first_name, last_name, specialty, state, phone, personal_mobile')
-              .or(`phone.ilike.%${normalizedPhone},personal_mobile.ilike.%${normalizedPhone}`)
+              .select('id, first_name, last_name, specialty, state, phone, personal_mobile, phone_enriched')
+              .or(`phone.ilike.%${last10},personal_mobile.ilike.%${last10},phone_enriched.ilike.%${last10}`)
               .limit(1)
               .maybeSingle();
+            
+            console.log('Candidate lookup result:', candidate);
             
             if (candidate) {
               callerContext = {

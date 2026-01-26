@@ -222,11 +222,16 @@ const Communications = () => {
           callbackRequested: call.call_result === "callback_requested",
         });
 
+        // Use candidate_name, fallback to formatted phone number
+        const displayName = call.candidate_name && call.candidate_name !== "" 
+          ? call.candidate_name 
+          : formatPhoneNumber(call.phone_number) || "Unknown";
+
         return {
           id: call.id,
           channel: "call" as const,
           candidateId: call.candidate_id,
-          candidateName: call.candidate_name || "Unknown",
+          candidateName: displayName,
           candidatePhone: call.phone_number,
           preview: getOutcomePreview(call.call_result, call.status, call.duration_seconds),
           timestamp: call.created_at,
