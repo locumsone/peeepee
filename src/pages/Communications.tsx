@@ -5,13 +5,15 @@ import Layout from "@/components/layout/Layout";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Plus, Inbox as InboxIcon, Flame, MessageSquare, Phone } from "lucide-react";
+import { Plus, Inbox as InboxIcon, Flame, MessageSquare, Phone, Star, Snowflake } from "lucide-react";
 import { ConversationList } from "@/components/inbox/ConversationList";
 import { ConversationDetail } from "@/components/inbox/ConversationDetail";
 import { NewMessageModal } from "@/components/inbox/NewMessageModal";
 import { CampaignNavigator } from "@/components/inbox/CampaignNavigator";
+import { CandidateContextSidebar } from "@/components/inbox/CandidateContextSidebar";
+import { calculatePriorityLevel, type PriorityLevel } from "@/components/inbox/PriorityBadge";
 
-export type ChannelFilter = "all" | "hot" | "sms" | "calls";
+export type ChannelFilter = "all" | "urgent" | "hot" | "sms" | "calls";
 
 export interface ConversationItem {
   id: string;
@@ -28,6 +30,8 @@ export interface ConversationItem {
   campaignId?: string | null;
   isHot?: boolean;
   interestLevel?: string | null;
+  priorityLevel?: PriorityLevel;
+  priorityScore?: number;
 }
 
 const Communications = () => {
@@ -141,7 +145,7 @@ const Communications = () => {
     );
   };
 
-  // Transform data into unified conversation items
+  // Transform data into unified conversation items with priority
   const conversations: ConversationItem[] = [
     // SMS conversations with proper candidate name
     ...smsConversations.map((conv: any) => {
@@ -150,6 +154,12 @@ const Communications = () => {
         ? `${candidate.first_name || ""} ${candidate.last_name || ""}`.trim()
         : null;
       
+      const { level, score } = calculatePriorityLevel({
+        unreadCount: conv.unread_count || 0,
+        repliedRecently: conv.candidate_replied,
+        sentiment: conv.interest_detected ? "interested" : undefined,
+      });
+
       return {
         id: conv.id,
         channel: "sms" as const,
@@ -161,23 +171,35 @@ const Communications = () => {
         timestamp: conv.last_message_at,
         unreadCount: conv.unread_count || 0,
         campaignId: conv.campaign_id,
-        isHot: isConversationHot(conv, "sms"),
+        isHot: level === "urgent" || level === "hot",
+        priorityLevel: level,
+        priorityScore: score,
       };
     }),
     // AI Call logs with proper candidate name and outcome
-    ...aiCallLogs.map((call: any) => ({
-      id: call.id,
-      channel: "call" as const,
-      candidateId: call.candidate_id,
-      candidateName: call.candidate_name || "Unknown",
-      candidatePhone: call.phone_number,
-      preview: getOutcomePreview(call.call_result, call.status, call.duration_seconds),
-      timestamp: call.created_at,
-      unreadCount: 0,
-      duration: call.duration_seconds,
-      outcome: call.call_result,
-      isHot: isConversationHot(call, "call"),
-    })),
+    ...aiCallLogs.map((call: any) => {
+      const { level, score } = calculatePriorityLevel({
+        sentiment: call.call_result === "interested" ? "interested" : 
+                  call.call_result === "not_interested" ? "not_interested" : undefined,
+        callbackRequested: call.call_result === "callback_requested",
+      });
+
+      return {
+        id: call.id,
+        channel: "call" as const,
+        candidateId: call.candidate_id,
+        candidateName: call.candidate_name || "Unknown",
+        candidatePhone: call.phone_number,
+        preview: getOutcomePreview(call.call_result, call.status, call.duration_seconds),
+        timestamp: call.created_at,
+        unreadCount: 0,
+        duration: call.duration_seconds,
+        outcome: call.call_result,
+        isHot: level === "urgent" || level === "hot",
+        priorityLevel: level,
+        priorityScore: score,
+      };
+    }),
   ];
 
   // Filter by campaign
@@ -190,7 +212,8 @@ const Communications = () => {
   // Filter by tab and search
   const filteredConversations = campaignFiltered
     .filter((conv) => {
-      if (activeTab === "hot") return conv.isHot;
+      if (activeTab === "urgent") return conv.priorityLevel === "urgent";
+      if (activeTab === "hot") return conv.priorityLevel === "hot" || conv.priorityLevel === "urgent";
       if (activeTab === "sms") return conv.channel === "sms";
       if (activeTab === "calls") return conv.channel === "call";
       return true;
@@ -203,11 +226,18 @@ const Communications = () => {
         (conv.candidatePhone && conv.candidatePhone.includes(query))
       );
     })
-    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    .sort((a, b) => {
+      // Sort by priority score first, then by timestamp
+      if ((b.priorityScore || 0) !== (a.priorityScore || 0)) {
+        return (b.priorityScore || 0) - (a.priorityScore || 0);
+      }
+      return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+    });
 
   // Calculate counts
   const totalUnread = conversations.reduce((sum, c) => sum + c.unreadCount, 0);
-  const hotCount = conversations.filter((c) => c.isHot).length;
+  const urgentCount = conversations.filter((c) => c.priorityLevel === "urgent").length;
+  const hotCount = conversations.filter((c) => c.priorityLevel === "hot" || c.priorityLevel === "urgent").length;
 
   const isLoading = smsLoading || callsLoading;
 
@@ -238,14 +268,18 @@ const Communications = () => {
               <TabsTrigger value="all" className="gap-1.5">
                 All
               </TabsTrigger>
-              <TabsTrigger value="hot" className="gap-1.5">
-                <Flame className="h-3.5 w-3.5 text-orange-500" />
-                Hot
-                {hotCount > 0 && (
-                  <Badge variant="secondary" className="ml-1 h-5 px-1.5 text-[10px]">
-                    {hotCount}
+              <TabsTrigger value="urgent" className="gap-1.5">
+                <Flame className="h-3.5 w-3.5 text-red-500" />
+                Urgent
+                {urgentCount > 0 && (
+                  <Badge variant="destructive" className="ml-1 h-5 px-1.5 text-[10px]">
+                    {urgentCount}
                   </Badge>
                 )}
+              </TabsTrigger>
+              <TabsTrigger value="hot" className="gap-1.5">
+                <Star className="h-3.5 w-3.5 text-orange-500" />
+                Hot
               </TabsTrigger>
               <TabsTrigger value="sms" className="gap-1.5">
                 <MessageSquare className="h-3.5 w-3.5" />
@@ -285,6 +319,12 @@ const Communications = () => {
           <div className="hidden md:flex flex-1 bg-background overflow-hidden">
             <ConversationDetail conversation={selectedConversation} />
           </div>
+
+          {/* Candidate Context Sidebar */}
+          <CandidateContextSidebar 
+            conversation={selectedConversation}
+            className="hidden xl:flex w-[280px] flex-shrink-0"
+          />
         </div>
 
         {/* Floating action button */}
