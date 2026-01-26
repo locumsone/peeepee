@@ -41,3 +41,6 @@ verify_jwt = false
 
 [functions.voice-incoming]
 verify_jwt = false
+
+[functions.analyze-call]
+verify_jwt = false

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { MessageSquare, Phone, Send, Loader2, Download, Calendar, PhoneCall, MessageCircle, User, Shield, MapPin, Check, CheckCheck, X, Clock, Briefcase, History } from "lucide-react";
+import { MessageSquare, Phone, Send, Loader2, Download, Calendar, PhoneCall, MessageCircle, User, Shield, MapPin, Check, CheckCheck, X, Clock, Briefcase, History, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +20,16 @@ import { InlineAISuggestions } from "./InlineAISuggestions";
 import { SnoozePopover } from "./SnoozePopover";
 import { CandidateActivityTimeline } from "./CandidateActivityTimeline";
 import { useSoftphoneActions } from "@/hooks/useSoftphoneActions";
+
+interface AIAnalysis {
+  sentiment: "positive" | "neutral" | "negative";
+  key_points: string[];
+  objections: string[];
+  next_steps: string[];
+  interest_level: number;
+  recommended_action: string;
+  summary?: string;
+}
 
 interface SMSMessage {
   id: string;
@@ -47,6 +57,8 @@ interface CallLog {
   transcript_text: string | null;
   recording_url: string | null;
   call_summary: string | null;
+  ai_analysis: AIAnalysis | null;
+  sentiment: string | null;
 }
 
 // Call Detail View Component
@@ -79,7 +91,11 @@ const CallDetailView = ({ conversation }: { conversation: ConversationItem }) =>
         .eq("id", conversation.id)
         .maybeSingle();
       if (error) throw error;
-      return data as CallLog | null;
+      if (!data) return null;
+      return {
+        ...data,
+        ai_analysis: data.ai_analysis as unknown as AIAnalysis | null,
+      } as CallLog;
     },
     enabled: !!conversation.id,
   });
@@ -117,6 +133,52 @@ const CallDetailView = ({ conversation }: { conversation: ConversationItem }) =>
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["call-detail", conversation.id] });
       toast.success("Notes saved");
+    },
+  });
+
+  // Schedule callback mutation
+  const scheduleCallbackMutation = useMutation({
+    mutationFn: async () => {
+      if (!callbackDate) throw new Error("No date selected");
+      
+      const { error } = await supabase
+        .from("scheduled_callbacks")
+        .insert({
+          candidate_id: conversation.candidateId || null,
+          candidate_name: conversation.candidateName,
+          phone: conversation.candidatePhone,
+          scheduled_time: callbackDate,
+          status: "pending",
+        });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["scheduled-callbacks"] });
+      toast.success("Callback scheduled");
+      setCallbackDate("");
+    },
+    onError: () => {
+      toast.error("Failed to schedule callback");
+    },
+  });
+
+  // AI analysis mutation
+  const analyzeMutation = useMutation({
+    mutationFn: async () => {
+      if (!callData?.transcript_text) throw new Error("No transcript available");
+      const { data, error } = await supabase.functions.invoke("analyze-call", {
+        body: { call_id: conversation.id, transcript: callData.transcript_text },
+      });
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["call-detail", conversation.id] });
+      toast.success("AI analysis complete");
+    },
+    onError: (error) => {
+      console.error("Analysis error:", error);
+      toast.error("Failed to analyze call");
     },
   });
 
@@ -260,6 +322,86 @@ const CallDetailView = ({ conversation }: { conversation: ConversationItem }) =>
             </div>
           )}
 
+          {/* AI Analysis Section */}
+          {callData?.ai_analysis && (
+            <Card className="bg-primary/5 border-primary/20">
+              <CardContent className="pt-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="h-4 w-4 text-primary" />
+                  <h3 className="text-xs font-medium text-primary">AI Insights</h3>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <span className="text-xs text-muted-foreground">Sentiment</span>
+                    <Badge 
+                      className={cn(
+                        "block w-fit mt-1",
+                        callData.ai_analysis.sentiment === "positive" && "bg-success/20 text-success border-0",
+                        callData.ai_analysis.sentiment === "neutral" && "bg-muted text-muted-foreground border-0",
+                        callData.ai_analysis.sentiment === "negative" && "bg-destructive/20 text-destructive border-0"
+                      )}
+                    >
+                      {callData.ai_analysis.sentiment}
+                    </Badge>
+                  </div>
+                  <div>
+                    <span className="text-xs text-muted-foreground">Interest Level</span>
+                    <p className="font-medium">{callData.ai_analysis.interest_level}/5</p>
+                  </div>
+                </div>
+
+                {callData.ai_analysis.summary && (
+                  <div>
+                    <span className="text-xs text-muted-foreground">Summary</span>
+                    <p className="text-sm mt-1">{callData.ai_analysis.summary}</p>
+                  </div>
+                )}
+
+                {callData.ai_analysis.key_points?.length > 0 && (
+                  <div>
+                    <span className="text-xs text-muted-foreground">Key Points</span>
+                    <ul className="text-sm mt-1 list-disc list-inside space-y-0.5">
+                      {callData.ai_analysis.key_points.map((point, i) => (
+                        <li key={i} className="text-muted-foreground">{point}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {callData.ai_analysis.objections?.length > 0 && (
+                  <div>
+                    <span className="text-xs text-muted-foreground">Objections/Concerns</span>
+                    <ul className="text-sm mt-1 list-disc list-inside space-y-0.5">
+                      {callData.ai_analysis.objections.map((obj, i) => (
+                        <li key={i} className="text-warning">{obj}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                <div className="pt-2 border-t border-primary/10">
+                  <span className="text-xs text-muted-foreground">Recommended Action</span>
+                  <p className="text-sm font-medium text-primary mt-1">{callData.ai_analysis.recommended_action}</p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Analyze button - show if transcript exists but no analysis */}
+          {callData?.transcript_text && !callData?.ai_analysis && (
+            <Button 
+              variant="outline" 
+              size="sm" 
+              onClick={() => analyzeMutation.mutate()}
+              disabled={analyzeMutation.isPending}
+              className="w-full"
+            >
+              <Sparkles className="h-4 w-4 mr-2" />
+              {analyzeMutation.isPending ? "Analyzing..." : "Analyze with AI"}
+            </Button>
+          )}
+
           {callData?.recording_url && (
             <div>
               <h3 className="text-xs font-medium text-muted-foreground mb-2">Recording</h3>
@@ -329,7 +471,14 @@ const CallDetailView = ({ conversation }: { conversation: ConversationItem }) =>
                   onChange={(e) => setCallbackDate(e.target.value)}
                   className="h-8 text-sm"
                 />
-                <Button size="sm" className="w-full">Confirm</Button>
+                <Button 
+                  size="sm" 
+                  className="w-full"
+                  onClick={() => scheduleCallbackMutation.mutate()}
+                  disabled={!callbackDate || scheduleCallbackMutation.isPending}
+                >
+                  {scheduleCallbackMutation.isPending ? "Scheduling..." : "Confirm"}
+                </Button>
               </div>
             </PopoverContent>
           </Popover>
