@@ -60,6 +60,7 @@ export const Softphone = () => {
     isOnHold,
     incomingCall,
     callerContext,
+    error: deviceError,
     makeCall,
     hangUp,
     toggleMute,
@@ -337,6 +338,13 @@ export const Softphone = () => {
                 </button>
               ))}
             </div>
+
+            {/* Error Display */}
+            {deviceError && (
+              <div className="bg-red-500/20 text-red-300 text-xs p-2 rounded-lg border border-red-500/30">
+                {deviceError}
+              </div>
+            )}
 
             {/* Call Button */}
             <Button
