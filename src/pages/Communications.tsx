@@ -37,6 +37,7 @@ export interface ConversationItem {
   reminderAt?: string | null;
   reminderNote?: string | null;
   snoozedUntil?: string | null;
+  callType?: "ai" | "cold_call" | "inbound" | "outbound" | "manual" | null;
 }
 
 const Communications = () => {
@@ -235,6 +236,7 @@ const Communications = () => {
           isHot: level === "urgent" || level === "hot",
           priorityLevel: level,
           priorityScore: score,
+          callType: call.call_type as "ai" | "cold_call" | "inbound" | "outbound" | "manual" | null,
         };
       }),
   ];
