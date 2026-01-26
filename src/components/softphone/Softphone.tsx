@@ -123,6 +123,10 @@ export const Softphone = () => {
     });
   }, []);
 
+  // Available Twilio numbers for outbound calls
+  const TWILIO_CALLER_IDS = ['+12185628671', '+14355628671'];
+  const [selectedCallerId, setSelectedCallerId] = useState(TWILIO_CALLER_IDS[0]);
+
   const handleCall = useCallback(() => {
     const digits = phoneNumber.replace(/\D/g, '');
     if (digits.length >= 10) {
@@ -130,9 +134,9 @@ export const Softphone = () => {
         phoneNumber: `+1${digits}`,
         duration: 0,
       });
-      makeCall(`+1${digits}`, '+12185628671');
+      makeCall(`+1${digits}`, selectedCallerId);
     }
-  }, [phoneNumber, makeCall]);
+  }, [phoneNumber, makeCall, selectedCallerId]);
 
   const handleCallBack = useCallback((number: string, candidateName?: string | null) => {
     const digits = number.replace(/\D/g, '');
@@ -141,8 +145,8 @@ export const Softphone = () => {
       candidateName: candidateName || undefined,
       duration: 0,
     });
-    makeCall(`+1${digits}`, '+12185628671');
-  }, [makeCall]);
+    makeCall(`+1${digits}`, selectedCallerId);
+  }, [makeCall, selectedCallerId]);
 
   const handleHangUp = useCallback(() => {
     // Capture final duration before hanging up
