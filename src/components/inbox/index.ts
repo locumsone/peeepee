@@ -8,5 +8,7 @@ export { InlineAISuggestions } from "./InlineAISuggestions";
 export { QuickReplyChips } from "./QuickReplyChips";
 export { CandidateContextSidebar } from "./CandidateContextSidebar";
 export { SnoozePopover } from "./SnoozePopover";
+export { RemindersList } from "./RemindersList";
+export { CandidateActivityTimeline } from "./CandidateActivityTimeline";
 export { PriorityBadge, PriorityDot, calculatePriorityLevel } from "./PriorityBadge";
 export type { PriorityLevel } from "./PriorityBadge";

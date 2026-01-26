@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { MessageSquare, Phone, Send, Loader2, Download, Calendar, PhoneCall, MessageCircle, User, Shield, MapPin, Check, CheckCheck, X, Clock } from "lucide-react";
+import { MessageSquare, Phone, Send, Loader2, Download, Calendar, PhoneCall, MessageCircle, User, Shield, MapPin, Check, CheckCheck, X, Clock, Briefcase, History } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -18,6 +18,7 @@ import type { ConversationItem } from "@/pages/Communications";
 import { QuickReplyChips } from "./QuickReplyChips";
 import { InlineAISuggestions } from "./InlineAISuggestions";
 import { SnoozePopover } from "./SnoozePopover";
+import { CandidateActivityTimeline } from "./CandidateActivityTimeline";
 
 interface SMSMessage {
   id: string;
@@ -40,6 +41,7 @@ interface CallLog {
   created_at: string | null;
   started_at: string | null;
   campaign_id?: string | null;
+  job_id?: string | null;
   call_result: string | null;
   transcript_text: string | null;
   recording_url: string | null;
@@ -50,6 +52,7 @@ interface CallLog {
 const CallDetailView = ({ conversation }: { conversation: ConversationItem }) => {
   const [notes, setNotes] = useState("");
   const [callbackDate, setCallbackDate] = useState("");
+  const [showTimeline, setShowTimeline] = useState(false);
   const queryClient = useQueryClient();
 
   const { data: callData, isLoading: callLoading } = useQuery({
@@ -59,11 +62,27 @@ const CallDetailView = ({ conversation }: { conversation: ConversationItem }) =>
         .from("ai_call_logs")
         .select("*")
         .eq("id", conversation.id)
-        .single();
+        .maybeSingle();
       if (error) throw error;
-      return data as CallLog;
+      return data as CallLog | null;
     },
     enabled: !!conversation.id,
+  });
+
+  // Fetch job info if job_id exists
+  const { data: jobData } = useQuery({
+    queryKey: ["job-for-call", callData?.job_id],
+    queryFn: async () => {
+      if (!callData?.job_id) return null;
+      const { data, error } = await supabase
+        .from("jobs")
+        .select("job_name, facility_name, city, state, pay_rate")
+        .eq("id", callData.job_id)
+        .maybeSingle();
+      if (error) return null;
+      return data;
+    },
+    enabled: !!callData?.job_id,
   });
 
   useEffect(() => {
@@ -107,6 +126,21 @@ const CallDetailView = ({ conversation }: { conversation: ConversationItem }) =>
     }
   };
 
+  const getOutcomeBadge = (result: string | null) => {
+    switch (result?.toLowerCase()) {
+      case "interested":
+        return <Badge className="bg-success/20 text-success border-0">Interested</Badge>;
+      case "callback_requested":
+        return <Badge className="bg-accent/20 text-accent border-0">Callback</Badge>;
+      case "not_interested":
+        return <Badge className="bg-muted text-muted-foreground border-0">Not Interested</Badge>;
+      case "voicemail":
+        return <Badge className="bg-warning/20 text-warning border-0">Voicemail</Badge>;
+      default:
+        return null;
+    }
+  };
+
   if (callLoading) {
     return (
       <div className="flex items-center justify-center h-full">
@@ -119,82 +153,139 @@ const CallDetailView = ({ conversation }: { conversation: ConversationItem }) =>
     <div className="flex flex-col h-full w-full overflow-hidden">
       {/* Compact header */}
       <div className="flex-shrink-0 px-4 py-3 border-b border-border bg-card">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full flex items-center justify-center bg-success/20 text-success">
-            <Phone className="h-4 w-4" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <h2 className="font-semibold text-foreground truncate">
-              {callData?.candidate_name || conversation.candidateName}
-            </h2>
-            <div className="flex items-center gap-2 mt-0.5">
-              {getStatusBadge(callData?.status)}
-              <span className="text-xs text-muted-foreground font-mono">
-                {formatDuration(callData?.duration_seconds)}
-              </span>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full flex items-center justify-center bg-success/20 text-success">
+              <Phone className="h-4 w-4" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h2 className="font-semibold text-foreground truncate">
+                {callData?.candidate_name || conversation.candidateName}
+              </h2>
+              <div className="flex items-center gap-2 mt-0.5">
+                {getStatusBadge(callData?.status)}
+                {getOutcomeBadge(callData?.call_result)}
+                <span className="text-xs text-muted-foreground font-mono">
+                  {formatDuration(callData?.duration_seconds)}
+                </span>
+              </div>
             </div>
           </div>
+          
+          {/* Toggle timeline */}
+          <Button
+            variant={showTimeline ? "secondary" : "outline"}
+            size="sm"
+            onClick={() => setShowTimeline(!showTimeline)}
+            className="h-8"
+          >
+            <History className="h-4 w-4 mr-1" />
+            Activity
+          </Button>
         </div>
       </div>
 
-      {/* Scrollable content */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        <Card className="bg-muted/30 border-border">
-          <CardContent className="pt-4">
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              <div>
-                <span className="text-xs text-muted-foreground">Date</span>
-                <p className="font-medium text-sm">
-                  {callData?.created_at
-                    ? format(new Date(callData.created_at), "MMM d, h:mm a")
-                    : "—"}
-                </p>
+      {/* Content area - split if timeline shown */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Main content */}
+        <div className={cn(
+          "flex-1 overflow-y-auto p-4 space-y-4",
+          showTimeline && "border-r border-border"
+        )}>
+          {/* Job context card */}
+          {jobData && (
+            <Card className="bg-accent/5 border-accent/20">
+              <CardContent className="pt-4">
+                <div className="flex items-start gap-2">
+                  <Briefcase className="h-4 w-4 text-accent flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-medium text-sm text-foreground">{jobData.job_name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {jobData.facility_name} • {jobData.city}, {jobData.state}
+                    </p>
+                    {jobData.pay_rate && (
+                      <p className="text-xs text-accent font-medium mt-1">
+                        ${jobData.pay_rate}/hr
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Call metadata */}
+          <Card className="bg-muted/30 border-border">
+            <CardContent className="pt-4">
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <span className="text-xs text-muted-foreground">Date</span>
+                  <p className="font-medium text-sm">
+                    {callData?.created_at
+                      ? format(new Date(callData.created_at), "MMM d, h:mm a")
+                      : "—"}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-xs text-muted-foreground">Phone</span>
+                  <p className="font-medium text-sm font-mono">
+                    {formatPhoneNumber(conversation.candidatePhone)}
+                  </p>
+                </div>
               </div>
-              <div>
-                <span className="text-xs text-muted-foreground">Outcome</span>
-                <p className="font-medium text-sm capitalize">
-                  {callData?.call_result?.replace(/_/g, " ") || "—"}
-                </p>
+            </CardContent>
+          </Card>
+
+          {callData?.transcript_text && (
+            <div>
+              <h3 className="text-xs font-medium text-muted-foreground mb-2">Transcript</h3>
+              <div className="bg-muted/30 rounded-lg p-3 max-h-[200px] overflow-y-auto text-sm whitespace-pre-wrap">
+                {callData.transcript_text}
               </div>
             </div>
-          </CardContent>
-        </Card>
+          )}
 
-        {callData?.transcript_text && (
-          <div>
-            <h3 className="text-xs font-medium text-muted-foreground mb-2">Transcript</h3>
-            <div className="bg-muted/30 rounded-lg p-3 max-h-[200px] overflow-y-auto text-sm">
-              {callData.transcript_text}
+          {callData?.recording_url && (
+            <div>
+              <h3 className="text-xs font-medium text-muted-foreground mb-2">Recording</h3>
+              <audio controls className="w-full h-10">
+                <source src={callData.recording_url} type="audio/mpeg" />
+              </audio>
             </div>
-          </div>
-        )}
+          )}
 
-        {callData?.recording_url && (
           <div>
-            <h3 className="text-xs font-medium text-muted-foreground mb-2">Recording</h3>
-            <audio controls className="w-full h-10">
-              <source src={callData.recording_url} type="audio/mpeg" />
-            </audio>
+            <h3 className="text-xs font-medium text-muted-foreground mb-2">Notes</h3>
+            <Textarea
+              placeholder="Add notes..."
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              className="min-h-[80px] text-sm"
+            />
+            <Button
+              onClick={() => saveNotesMutation.mutate()}
+              disabled={saveNotesMutation.isPending}
+              size="sm"
+              className="mt-2"
+            >
+              Save Notes
+            </Button>
           </div>
-        )}
-
-        <div>
-          <h3 className="text-xs font-medium text-muted-foreground mb-2">Notes</h3>
-          <Textarea
-            placeholder="Add notes..."
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            className="min-h-[80px] text-sm"
-          />
-          <Button
-            onClick={() => saveNotesMutation.mutate()}
-            disabled={saveNotesMutation.isPending}
-            size="sm"
-            className="mt-2"
-          >
-            Save Notes
-          </Button>
         </div>
+
+        {/* Activity timeline panel */}
+        {showTimeline && (
+          <div className="w-[280px] overflow-hidden flex flex-col bg-muted/20">
+            <div className="px-3 py-2 border-b border-border">
+              <h3 className="text-xs font-medium text-muted-foreground">All Activity</h3>
+            </div>
+            <CandidateActivityTimeline
+              candidateId={conversation.candidateId}
+              candidatePhone={conversation.candidatePhone}
+              className="flex-1"
+            />
+          </div>
+        )}
       </div>
 
       {/* Actions */}
