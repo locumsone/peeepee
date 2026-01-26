@@ -6,6 +6,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Plus, Inbox as InboxIcon, Flame, MessageSquare, Phone, Star, Clock, Mail, Zap } from "lucide-react";
+import { formatPhoneNumber } from "@/lib/formatPhone";
 import { ConversationList } from "@/components/inbox/ConversationList";
 import { ConversationDetail } from "@/components/inbox/ConversationDetail";
 import { NewMessageModal } from "@/components/inbox/NewMessageModal";
@@ -173,10 +174,10 @@ const Communications = () => {
         ? `${candidate.first_name || ""} ${candidate.last_name || ""}`.trim()
         : null;
       
-      // Use contact_name if no candidate, fallback to phone
+      // Use contact_name if no candidate, fallback to formatted phone
       const displayName = candidateName && candidateName !== "" 
         ? candidateName 
-        : conv.contact_name || conv.candidate_phone || "Unknown";
+        : conv.contact_name || formatPhoneNumber(conv.candidate_phone) || "Unknown";
       
       const { level, score } = calculatePriorityLevel({
         unreadCount: conv.unread_count || 0,
