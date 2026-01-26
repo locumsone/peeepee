@@ -26,12 +26,16 @@ const KEYPAD = [
   { digit: '#', letters: '' },
 ];
 
-const formatPhoneNumber = (value: string): string => {
+// Local phone formatter for dialer input
+const formatPhoneNumberInput = (value: string): string => {
   const digits = value.replace(/\D/g, '');
   if (digits.length <= 3) return digits;
   if (digits.length <= 6) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`;
   return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6, 10)}`;
 };
+
+// Import the shared formatPhoneNumber for display
+import { formatPhoneNumber } from '@/lib/formatPhone';
 
 const formatDuration = (seconds: number): string => {
   const mins = Math.floor(seconds / 60);
@@ -126,13 +130,23 @@ export const Softphone = () => {
   // Update lastCallData while on call
   useEffect(() => {
     if (currentCall) {
-      const toNumber = currentCall.parameters?.To || currentCall.parameters?.From || phoneNumber;
-      setLastCallData({
-        phoneNumber: toNumber,
-        candidateName: callerContext?.candidate_name,
-        candidateId: callerContext?.candidate_id,
+      // Get phone from call params, normalize if needed
+      let toNumber = currentCall.parameters?.To || currentCall.parameters?.From || '';
+      
+      // If toNumber is empty, try to get from phoneNumber state (formatted)
+      if (!toNumber && phoneNumber) {
+        const digits = phoneNumber.replace(/\D/g, '');
+        if (digits.length >= 10) {
+          toNumber = `+1${digits.slice(-10)}`;
+        }
+      }
+      
+      setLastCallData((prev) => ({
+        phoneNumber: toNumber || prev?.phoneNumber || '',
+        candidateName: callerContext?.candidate_name || prev?.candidateName,
+        candidateId: callerContext?.candidate_id || prev?.candidateId,
         duration: callDuration,
-      });
+      }));
     }
   }, [currentCall, callDuration, callerContext, phoneNumber]);
 
@@ -142,7 +156,7 @@ export const Softphone = () => {
     } else {
       setPhoneNumber(prev => {
         const digits = prev.replace(/\D/g, '');
-        if (digits.length < 10) return formatPhoneNumber(digits + digit);
+        if (digits.length < 10) return formatPhoneNumberInput(digits + digit);
         return prev;
       });
     }
@@ -151,7 +165,7 @@ export const Softphone = () => {
   const handleBackspace = useCallback(() => {
     setPhoneNumber(prev => {
       const digits = prev.replace(/\D/g, '').slice(0, -1);
-      return formatPhoneNumber(digits);
+      return formatPhoneNumberInput(digits);
     });
   }, []);
 
@@ -391,26 +405,34 @@ export const Softphone = () => {
                 {recentCalls.length === 0 ? (
                   <p className="text-xs text-slate-500 text-center py-2">No recent calls</p>
                 ) : (
-                  recentCalls.slice(0, 5).map((call) => (
-                    <button
-                      key={call.id}
-                      onClick={() => handleCallBack(call.phone_number, call.candidate_name)}
-                      className="w-full flex items-center gap-2 p-2 rounded-lg hover:bg-slate-800 text-left transition-colors"
-                    >
-                      <Phone className={cn("h-3 w-3", getCallTypeIcon(call.call_type, call.status))} />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium text-slate-200 truncate">
-                          {call.candidate_name || 'Unknown'}
-                        </p>
-                        <p className="text-[10px] text-slate-500 truncate font-mono">
-                          {call.phone_number}
-                        </p>
-                      </div>
-                      <span className="text-[10px] text-slate-500 shrink-0">
-                        {formatTimeAgo(call.created_at)}
-                      </span>
-                    </button>
-                  ))
+                  recentCalls
+                    .filter((call) => call.phone_number && call.phone_number !== '') // Filter out calls with no phone
+                    .slice(0, 5)
+                    .map((call) => {
+                      const displayName = call.candidate_name || formatPhoneNumber(call.phone_number);
+                      return (
+                        <button
+                          key={call.id}
+                          onClick={() => handleCallBack(call.phone_number, call.candidate_name)}
+                          className="w-full flex items-center gap-2 p-2 rounded-lg hover:bg-slate-800 text-left transition-colors"
+                        >
+                          <Phone className={cn("h-3 w-3", getCallTypeIcon(call.call_type, call.status))} />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium text-slate-200 truncate">
+                              {displayName}
+                            </p>
+                            {call.candidate_name && (
+                              <p className="text-[10px] text-slate-500 truncate font-mono">
+                                {formatPhoneNumber(call.phone_number)}
+                              </p>
+                            )}
+                          </div>
+                          <span className="text-[10px] text-slate-500 shrink-0">
+                            {formatTimeAgo(call.created_at)}
+                          </span>
+                        </button>
+                      );
+                    })
                 )}
               </div>
             </ScrollArea>

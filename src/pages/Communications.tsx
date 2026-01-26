@@ -209,8 +209,12 @@ const Communications = () => {
     }),
     ...aiCallLogs
       .filter((call: any) => {
-        // Filter out incomplete test data
+        // Filter out incomplete test data or calls with no phone number
         if (call.status === "in_progress" && !call.candidate_name && !call.candidate_id) {
+          return false;
+        }
+        // Filter out calls with no phone number at all
+        if (!call.phone_number || call.phone_number === "") {
           return false;
         }
         return true;
