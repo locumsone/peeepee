@@ -35,6 +35,12 @@ interface Campaign {
   leads_count: number | null;
   created_at: string | null;
   external_id: string | null;
+  emails_sent: number | null;
+  emails_opened: number | null;
+  emails_replied: number | null;
+  sms_sent: number | null;
+  sms_replied: number | null;
+  calls_connected: number | null;
   jobs?: {
     job_name: string | null;
   } | null;
@@ -168,6 +174,33 @@ const Campaigns = () => {
     );
   };
 
+  const renderMetrics = (campaign: Campaign) => {
+    const sent = campaign.emails_sent || 0;
+    const opened = campaign.emails_opened || 0;
+    const replied = campaign.emails_replied || 0;
+    
+    if (sent === 0) {
+      return <span className="font-mono text-muted-foreground">— | — | —</span>;
+    }
+
+    const openRate = sent > 0 ? Math.round((opened / sent) * 100) : 0;
+    const replyRate = sent > 0 ? Math.round((replied / sent) * 100) : 0;
+
+    return (
+      <span className="font-mono tabular-nums">
+        <span className="text-foreground">{sent}</span>
+        <span className="text-muted-foreground"> | </span>
+        <span className={openRate >= 30 ? "text-success" : openRate >= 15 ? "text-warning" : "text-muted-foreground"}>
+          {openRate}%
+        </span>
+        <span className="text-muted-foreground"> | </span>
+        <span className={replied > 0 ? "text-primary font-semibold" : "text-muted-foreground"}>
+          {replyRate}%
+        </span>
+      </span>
+    );
+  };
+
   const filterTabs: { key: FilterTab; label: string }[] = [
     { key: "all", label: "All" },
     { key: "active", label: "Active" },
@@ -183,7 +216,7 @@ const Campaigns = () => {
           <h1 className="font-display text-3xl font-bold text-foreground">
             📊 Campaigns
           </h1>
-          <Button variant="default" onClick={() => navigate("/jobs")}>
+          <Button variant="default" onClick={() => navigate("/campaigns/new")}>
             <Plus className="h-4 w-4 mr-2" />
             New Campaign
           </Button>
@@ -303,7 +336,7 @@ const Campaigns = () => {
                     <Button 
                       variant="outline" 
                       className="mt-4"
-                      onClick={() => navigate("/jobs")}
+                      onClick={() => navigate("/campaigns/new")}
                     >
                       Create Your First Campaign
                     </Button>
@@ -329,7 +362,7 @@ const Campaigns = () => {
                       {campaign.leads_count || 0}
                     </TableCell>
                     <TableCell className="text-center text-muted-foreground">
-                      <span className="font-mono">— | — | —</span>
+                      {renderMetrics(campaign)}
                     </TableCell>
                     <TableCell className="text-muted-foreground text-sm">
                       {campaign.created_at

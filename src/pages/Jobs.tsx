@@ -200,7 +200,7 @@ export default function Jobs() {
                         className="bg-primary hover:bg-primary/90"
                         onClick={(e) => {
                           e.stopPropagation();
-                          navigate(`/candidates/matching?jobId=${job.id}`);
+                          navigate(`/campaigns/new?jobId=${job.id}`);
                         }}
                       >
                         Start Campaign

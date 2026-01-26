@@ -768,6 +768,54 @@ export type Database = {
           },
         ]
       }
+      campaign_events: {
+        Row: {
+          campaign_id: string | null
+          channel: string | null
+          created_at: string
+          event_type: string
+          external_id: string | null
+          id: string
+          lead_id: string | null
+          metadata: Json | null
+        }
+        Insert: {
+          campaign_id?: string | null
+          channel?: string | null
+          created_at?: string
+          event_type: string
+          external_id?: string | null
+          id?: string
+          lead_id?: string | null
+          metadata?: Json | null
+        }
+        Update: {
+          campaign_id?: string | null
+          channel?: string | null
+          created_at?: string
+          event_type?: string
+          external_id?: string | null
+          id?: string
+          lead_id?: string | null
+          metadata?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "campaign_events_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "campaigns"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "campaign_events_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "campaign_leads_v2"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       campaign_leads: {
         Row: {
           campaign_id: string | null
@@ -960,9 +1008,16 @@ export type Database = {
       }
       campaigns: {
         Row: {
+          calls_attempted: number | null
+          calls_connected: number | null
           channel: string | null
           created_at: string | null
           created_by: string | null
+          emails_bounced: number | null
+          emails_clicked: number | null
+          emails_opened: number | null
+          emails_replied: number | null
+          emails_sent: number | null
           external_id: string | null
           id: string
           job_id: string | null
@@ -972,12 +1027,23 @@ export type Database = {
           playbook_notion_id: string | null
           playbook_synced_at: string | null
           sender_account: string | null
+          sms_delivered: number | null
+          sms_replied: number | null
+          sms_sent: number | null
           status: string | null
+          updated_at: string | null
         }
         Insert: {
+          calls_attempted?: number | null
+          calls_connected?: number | null
           channel?: string | null
           created_at?: string | null
           created_by?: string | null
+          emails_bounced?: number | null
+          emails_clicked?: number | null
+          emails_opened?: number | null
+          emails_replied?: number | null
+          emails_sent?: number | null
           external_id?: string | null
           id?: string
           job_id?: string | null
@@ -987,12 +1053,23 @@ export type Database = {
           playbook_notion_id?: string | null
           playbook_synced_at?: string | null
           sender_account?: string | null
+          sms_delivered?: number | null
+          sms_replied?: number | null
+          sms_sent?: number | null
           status?: string | null
+          updated_at?: string | null
         }
         Update: {
+          calls_attempted?: number | null
+          calls_connected?: number | null
           channel?: string | null
           created_at?: string | null
           created_by?: string | null
+          emails_bounced?: number | null
+          emails_clicked?: number | null
+          emails_opened?: number | null
+          emails_replied?: number | null
+          emails_sent?: number | null
           external_id?: string | null
           id?: string
           job_id?: string | null
@@ -1002,7 +1079,11 @@ export type Database = {
           playbook_notion_id?: string | null
           playbook_synced_at?: string | null
           sender_account?: string | null
+          sms_delivered?: number | null
+          sms_replied?: number | null
+          sms_sent?: number | null
           status?: string | null
+          updated_at?: string | null
         }
         Relationships: [
           {
