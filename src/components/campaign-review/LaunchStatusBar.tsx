@@ -1,6 +1,8 @@
 import { useState } from "react";
-import { Rocket, ArrowLeft, Save, AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
+import { Rocket, ArrowLeft, Save, AlertCircle, CheckCircle2, Loader2, FlaskConical } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { useNavigate } from "react-router-dom";
 import {
   Dialog,
@@ -12,7 +14,8 @@ import {
 } from "@/components/ui/dialog";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
-import type { SelectedCandidate, ChannelConfig, QualityCheckResult } from "./types";
+import { TestCampaignModal } from "./TestCampaignModal";
+import type { SelectedCandidate, ChannelConfig, QualityCheckResult, Job } from "./types";
 
 interface Blocker {
   step: number;
@@ -22,6 +25,7 @@ interface Blocker {
 
 interface LaunchStatusBarProps {
   jobId: string | null;
+  job: Job | null;
   campaignName: string;
   candidates: SelectedCandidate[];
   channels: ChannelConfig;
@@ -39,6 +43,7 @@ interface PreFlightCheck {
 
 export function LaunchStatusBar({
   jobId,
+  job,
   campaignName,
   candidates,
   channels,
@@ -49,6 +54,8 @@ export function LaunchStatusBar({
 }: LaunchStatusBarProps) {
   const navigate = useNavigate();
   const [isLaunchModalOpen, setIsLaunchModalOpen] = useState(false);
+  const [isTestModalOpen, setIsTestModalOpen] = useState(false);
+  const [testModeEnabled, setTestModeEnabled] = useState(false);
   const [isLaunching, setIsLaunching] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [preFlightChecks, setPreFlightChecks] = useState<PreFlightCheck[]>([]);
@@ -282,15 +289,42 @@ export function LaunchStatusBar({
               </Button>
             </div>
 
-            <Button
-              size="lg"
-              onClick={handleOpenLaunchModal}
-              disabled={!canLaunch}
-              className="bg-gradient-to-r from-primary to-sky-500 hover:from-primary/90 hover:to-sky-500/90 text-white font-semibold shadow-lg shadow-primary/20"
-            >
-              <Rocket className="h-5 w-5 mr-2" />
-              Launch Campaign
-            </Button>
+            <div className="flex items-center gap-4">
+              {/* Test Mode Toggle */}
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-muted/30 border border-border">
+                <FlaskConical className={`h-4 w-4 ${testModeEnabled ? "text-amber-400" : "text-muted-foreground"}`} />
+                <Label htmlFor="test-mode" className={`text-sm ${testModeEnabled ? "text-amber-400" : "text-muted-foreground"}`}>
+                  Test Mode
+                </Label>
+                <Switch
+                  id="test-mode"
+                  checked={testModeEnabled}
+                  onCheckedChange={setTestModeEnabled}
+                />
+              </div>
+
+              {/* Test Campaign Button */}
+              {testModeEnabled && (
+                <Button
+                  variant="outline"
+                  onClick={() => setIsTestModalOpen(true)}
+                  className="border-amber-500/50 text-amber-400 hover:bg-amber-500/10"
+                >
+                  <FlaskConical className="h-4 w-4 mr-2" />
+                  Send Test
+                </Button>
+              )}
+
+              <Button
+                size="lg"
+                onClick={handleOpenLaunchModal}
+                disabled={!canLaunch}
+                className="bg-gradient-to-r from-primary to-sky-500 hover:from-primary/90 hover:to-sky-500/90 text-white font-semibold shadow-lg shadow-primary/20"
+              >
+                <Rocket className="h-5 w-5 mr-2" />
+                Launch Campaign
+              </Button>
+            </div>
           </div>
         </div>
       </div>
@@ -366,6 +400,17 @@ export function LaunchStatusBar({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Test Campaign Modal */}
+      <TestCampaignModal
+        open={isTestModalOpen}
+        onOpenChange={setIsTestModalOpen}
+        job={job}
+        candidates={candidates}
+        channels={channels}
+        senderEmail={senderEmail}
+        campaignName={campaignName}
+      />
     </>
   );
 }
