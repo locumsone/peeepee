@@ -2958,6 +2958,7 @@ export type Database = {
           candidate_id: string | null
           candidate_phone: string
           candidate_replied: boolean | null
+          contact_name: string | null
           created_at: string | null
           id: string
           interest_detected: boolean | null
@@ -2967,6 +2968,9 @@ export type Database = {
           last_message_preview: string | null
           opted_out_at: string | null
           recruiter_id: string | null
+          reminder_at: string | null
+          reminder_note: string | null
+          snoozed_until: string | null
           status: string | null
           telnyx_number: string
           total_messages: number | null
@@ -2979,6 +2983,7 @@ export type Database = {
           candidate_id?: string | null
           candidate_phone: string
           candidate_replied?: boolean | null
+          contact_name?: string | null
           created_at?: string | null
           id?: string
           interest_detected?: boolean | null
@@ -2988,6 +2993,9 @@ export type Database = {
           last_message_preview?: string | null
           opted_out_at?: string | null
           recruiter_id?: string | null
+          reminder_at?: string | null
+          reminder_note?: string | null
+          snoozed_until?: string | null
           status?: string | null
           telnyx_number: string
           total_messages?: number | null
@@ -3000,6 +3008,7 @@ export type Database = {
           candidate_id?: string | null
           candidate_phone?: string
           candidate_replied?: boolean | null
+          contact_name?: string | null
           created_at?: string | null
           id?: string
           interest_detected?: boolean | null
@@ -3009,6 +3018,9 @@ export type Database = {
           last_message_preview?: string | null
           opted_out_at?: string | null
           recruiter_id?: string | null
+          reminder_at?: string | null
+          reminder_note?: string | null
+          snoozed_until?: string | null
           status?: string | null
           telnyx_number?: string
           total_messages?: number | null

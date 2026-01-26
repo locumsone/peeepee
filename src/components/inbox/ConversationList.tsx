@@ -1,8 +1,8 @@
-import { Search, MessageSquare, Phone, Loader2, Flame, Star, Snowflake } from "lucide-react";
+import { Search, MessageSquare, Phone, Loader2, Flame, Star, Snowflake, Clock } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
-import { formatDistanceToNow } from "date-fns";
+import { formatDistanceToNow, isPast, format } from "date-fns";
 import { formatPhoneNumber } from "@/lib/formatPhone";
 import type { ConversationItem } from "@/pages/Communications";
 import type { PriorityLevel } from "./PriorityBadge";
@@ -52,6 +52,17 @@ export const ConversationList = ({
     return text.substring(0, maxLength).trim() + "...";
   };
 
+  const getReminderDisplay = (reminderAt: string | null, snoozedUntil: string | null) => {
+    const reminderDate = reminderAt ? new Date(reminderAt) : snoozedUntil ? new Date(snoozedUntil) : null;
+    if (!reminderDate) return null;
+    
+    const isOverdue = isPast(reminderDate);
+    return {
+      text: format(reminderDate, "MMM d, h:mm a"),
+      isOverdue,
+    };
+  };
+
   return (
     <div className="flex flex-col h-full bg-card">
       {/* Search bar */}
@@ -83,6 +94,7 @@ export const ConversationList = ({
             {conversations.map((conversation) => {
               const priority = conversation.priorityLevel || "cold";
               const isSelected = selectedId === conversation.id;
+              const reminder = getReminderDisplay(conversation.reminderAt || null, conversation.snoozedUntil || null);
 
               return (
                 <button
@@ -131,16 +143,27 @@ export const ConversationList = ({
                       {truncatePreview(conversation.preview)}
                     </p>
 
-                    {/* Phone number and duration */}
+                    {/* Phone number, duration, and reminder */}
                     <div className="flex items-center justify-between gap-2 mt-1">
                       <span className="text-[10px] text-muted-foreground/60 font-mono">
                         {formatPhoneNumber(conversation.candidatePhone)}
                       </span>
-                      {conversation.channel === "call" && conversation.duration && (
-                        <span className="text-[10px] text-muted-foreground font-mono">
-                          {Math.floor(conversation.duration / 60)}:{(conversation.duration % 60).toString().padStart(2, '0')}
-                        </span>
-                      )}
+                      <div className="flex items-center gap-2">
+                        {conversation.channel === "call" && conversation.duration && (
+                          <span className="text-[10px] text-muted-foreground font-mono">
+                            {Math.floor(conversation.duration / 60)}:{(conversation.duration % 60).toString().padStart(2, '0')}
+                          </span>
+                        )}
+                        {reminder && (
+                          <span className={cn(
+                            "text-[10px] flex items-center gap-0.5",
+                            reminder.isOverdue ? "text-destructive" : "text-muted-foreground"
+                          )}>
+                            <Clock className="h-3 w-3" />
+                            {format(new Date(conversation.reminderAt || conversation.snoozedUntil || ""), "MMM d")}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
 

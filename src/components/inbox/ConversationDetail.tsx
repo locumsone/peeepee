@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { MessageSquare, Phone, Send, Loader2, Download, Calendar, PhoneCall, MessageCircle, User, Shield, MapPin, Check, CheckCheck, X } from "lucide-react";
+import { MessageSquare, Phone, Send, Loader2, Download, Calendar, PhoneCall, MessageCircle, User, Shield, MapPin, Check, CheckCheck, X, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -12,11 +12,12 @@ import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { formatPhoneNumber } from "@/lib/formatPhone";
-import { format, isToday, isYesterday, isSameDay } from "date-fns";
+import { format, isToday, isYesterday, isSameDay, isPast } from "date-fns";
 import { toast } from "sonner";
 import type { ConversationItem } from "@/pages/Communications";
 import { QuickReplyChips } from "./QuickReplyChips";
 import { InlineAISuggestions } from "./InlineAISuggestions";
+import { SnoozePopover } from "./SnoozePopover";
 
 interface SMSMessage {
   id: string;
@@ -451,12 +452,41 @@ export const ConversationDetail = ({ conversation }: ConversationDetailProps) =>
             </div>
           </div>
 
-          {/* Inline context badges */}
+          {/* Inline actions */}
           <div className="flex items-center gap-2">
-            <Badge variant="outline" className="text-[10px] gap-1 hidden sm:flex">
-              <User className="h-3 w-3" />
-              Profile
-            </Badge>
+            {/* Reminder indicator */}
+            {(conversation.reminderAt || conversation.snoozedUntil) && (
+              <Badge 
+                variant="outline" 
+                className={cn(
+                  "text-[10px] gap-1",
+                  isPast(new Date(conversation.reminderAt || conversation.snoozedUntil || "")) 
+                    ? "border-destructive text-destructive" 
+                    : ""
+                )}
+              >
+                <Clock className="h-3 w-3" />
+                {format(new Date(conversation.reminderAt || conversation.snoozedUntil || ""), "MMM d")}
+              </Badge>
+            )}
+            <SnoozePopover 
+              onSnooze={async (date) => {
+                try {
+                  await supabase
+                    .from("sms_conversations")
+                    .update({ 
+                      reminder_at: date.toISOString(),
+                      snoozed_until: date.toISOString() 
+                    })
+                    .eq("id", conversation.id);
+                  queryClient.invalidateQueries({ queryKey: ["sms-conversations"] });
+                  toast.success(`Reminder set for ${format(date, "MMM d, h:mm a")}`);
+                } catch {
+                  toast.error("Failed to set reminder");
+                }
+              }}
+              currentReminder={conversation.reminderAt ? new Date(conversation.reminderAt) : null}
+            />
             <Button variant="outline" size="sm" className="h-7 text-xs">
               <PhoneCall className="h-3 w-3 mr-1" />
               Call
@@ -464,6 +494,7 @@ export const ConversationDetail = ({ conversation }: ConversationDetailProps) =>
           </div>
         </div>
       </div>
+
 
       {/* Message thread - takes most space */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4">
