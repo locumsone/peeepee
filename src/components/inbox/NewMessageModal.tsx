@@ -139,30 +139,22 @@ export const NewMessageModal = ({ open, onOpenChange }: NewMessageModalProps) =>
     return "text-muted-foreground";
   };
 
-  // Send SMS
+  // Send SMS using supabase.functions.invoke (secure)
   const handleSendSMS = async () => {
     if (!selectedCandidate?.phone || !messageText.trim()) return;
 
     setIsSending(true);
     try {
-      const response = await fetch(
-        "https://qpvyzyspwxwtwjhfcuhh.supabase.co/functions/v1/sms-campaign-send",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFwdnl6eXNwd3h3dHdqaGZjdWhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzQ3NTA3NDIsImV4cCI6MjA1MDMyNjc0Mn0.5R1H_6tsnp27PN5qYNE-4VdRT1H8kqH-NXQMJQL8sxg",
-          },
-          body: JSON.stringify({
-            to_phone: selectedCandidate.phone,
-            message: messageText,
-            from_number: "+12185628671",
-          }),
-        }
-      );
+      const { data, error } = await supabase.functions.invoke("sms-campaign-send", {
+        body: {
+          to_phone: selectedCandidate.phone,
+          message: messageText,
+          from_number: "+12185628671",
+        },
+      });
 
-      if (!response.ok) {
-        throw new Error("Failed to send SMS");
+      if (error) {
+        throw error;
       }
 
       toast.success("SMS sent successfully");

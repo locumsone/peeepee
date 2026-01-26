@@ -1,11 +1,10 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { MessageSquare, Phone, MoreVertical, Check, Send, FileText, Loader2, Download, Calendar, PhoneCall, MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -21,6 +20,7 @@ import { cn } from "@/lib/utils";
 import { format, isToday, isYesterday, isSameDay } from "date-fns";
 import { toast } from "sonner";
 import type { ConversationItem } from "@/pages/Communications";
+import { AIReplyPanel } from "./AIReplyPanel";
 
 interface CallLog {
   id: string;
@@ -454,7 +454,7 @@ export const ConversationDetail = ({ conversation }: ConversationDetailProps) =>
     },
   });
 
-  // Send SMS mutation
+  // Send SMS mutation using supabase.functions.invoke (secure)
   const sendMessage = async () => {
     if (!messageText.trim() || !conversation?.candidatePhone) return;
 
@@ -476,24 +476,16 @@ export const ConversationDetail = ({ conversation }: ConversationDetailProps) =>
     );
 
     try {
-      const response = await fetch(
-        "https://qpvyzyspwxwtwjhfcuhh.supabase.co/functions/v1/sms-campaign-send",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFwdnl6eXNwd3h3dHdqaGZjdWhoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzQ3NTA3NDIsImV4cCI6MjA1MDMyNjc0Mn0.5R1H_6tsnp27PN5qYNE-4VdRT1H8kqH-NXQMJQL8sxg",
-          },
-          body: JSON.stringify({
-            to_phone: conversation.candidatePhone,
-            custom_message: messageText,
-            from_number: "+12185628671",
-          }),
-        }
-      );
+      const { data, error } = await supabase.functions.invoke("sms-campaign-send", {
+        body: {
+          to_phone: conversation.candidatePhone,
+          custom_message: messageText,
+          from_number: "+12185628671",
+        },
+      });
 
-      if (!response.ok) {
-        throw new Error("Failed to send SMS");
+      if (error) {
+        throw error;
       }
 
       toast.success("Message sent");
@@ -510,6 +502,30 @@ export const ConversationDetail = ({ conversation }: ConversationDetailProps) =>
       setIsSending(false);
     }
   };
+
+  // Handle AI suggestion selection
+  const handleAISuggestion = useCallback((text: string) => {
+    setMessageText(text);
+  }, []);
+
+  // Get last inbound message for AI suggestions
+  const lastInboundMessage = messages
+    .filter((m) => m.direction === "inbound")
+    .slice(-1)[0]?.body || null;
+
+  // Keyboard shortcuts for AI suggestions
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && ["1", "2", "3"].includes(e.key)) {
+        e.preventDefault();
+        // Keyboard shortcut feedback - actual insertion handled by AIReplyPanel
+        toast.info(`Use suggestion ${e.key}`);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   const handleTemplateSelect = (template: SMSTemplate) => {
     setMessageText(template.template_text);
@@ -748,6 +764,16 @@ export const ConversationDetail = ({ conversation }: ConversationDetailProps) =>
           </div>
         )}
       </div>
+
+      {/* AI Reply Suggestions */}
+      <AIReplyPanel
+        conversationId={conversation.id}
+        candidateId={conversation.candidateId}
+        campaignId={conversation.campaignId}
+        lastInboundMessage={lastInboundMessage}
+        onSelectSuggestion={handleAISuggestion}
+        channel="sms"
+      />
 
       {/* Reply composer */}
       <div className="flex-shrink-0 border-t border-border bg-card p-4">
