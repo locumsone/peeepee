@@ -170,7 +170,11 @@ Deno.serve(async (req) => {
       );
     }
 
-    console.log(`Enriching contact for ${first_name} ${last_name} (${candidate_id})`);
+    // Strip "Dr." prefix for better matching
+    const cleanFirstName = first_name.replace(/^Dr\.?\s*/i, '').trim();
+    const cleanLastName = last_name.replace(/^Dr\.?\s*/i, '').trim();
+
+    console.log(`Enriching contact for ${cleanFirstName} ${cleanLastName} (${candidate_id})`);
 
     let result: EnrichmentResult = {
       success: false,
@@ -183,8 +187,8 @@ Deno.serve(async (req) => {
 
     // Step 1: Try PeopleDataLabs first (cheaper)
     if (pdlApiKey) {
-      console.log("Trying PeopleDataLabs...");
-      const pdlResult = await tryPDLEnrichment(pdlApiKey, first_name, last_name, city, state);
+      console.log("Trying PeopleDataLabs with cleaned name...");
+      const pdlResult = await tryPDLEnrichment(pdlApiKey, cleanFirstName, cleanLastName, city, state);
       
       if (pdlResult && (pdlResult.email || pdlResult.phone)) {
         result = {
@@ -195,14 +199,14 @@ Deno.serve(async (req) => {
           confidence: pdlResult.confidence as "high" | "medium" | "low",
           cost: 0.05,
         };
-        console.log("PDL match found:", { email: !!pdlResult.email, phone: !!pdlResult.phone });
+        console.log("PDL match found:", { email: pdlResult.email, phone: pdlResult.phone });
       }
     }
 
     // Step 2: If PDL didn't find results or low confidence, try Whitepages
     if (whitepagesApiKey && (!result.success || result.confidence === "low")) {
-      console.log("Trying Whitepages Pro...");
-      const wpResult = await tryWhitepagesEnrichment(whitepagesApiKey, first_name, last_name, city, state);
+      console.log("Trying Whitepages Pro with cleaned name...");
+      const wpResult = await tryWhitepagesEnrichment(whitepagesApiKey, cleanFirstName, cleanLastName, city, state);
       
       if (wpResult && (wpResult.email || wpResult.phone)) {
         // If PDL found something, add Whitepages cost; otherwise just Whitepages cost

@@ -91,14 +91,16 @@ export function StepPrepareCandidates({
           },
         });
 
+        console.log("Enrichment response for", candidate.first_name, candidate.last_name, ":", data);
+        
         if (!error && data?.success) {
           successCount++;
           const idx = updatedCandidates.findIndex(c => c.id === candidate.id);
           if (idx !== -1) {
             updatedCandidates[idx] = {
               ...updatedCandidates[idx],
-              personal_email: data.email || updatedCandidates[idx].personal_email,
-              personal_mobile: data.phone || updatedCandidates[idx].personal_mobile,
+              personal_email: data.personal_email || updatedCandidates[idx].personal_email,
+              personal_mobile: data.personal_mobile || updatedCandidates[idx].personal_mobile,
               enrichment_source: data.source,
               enrichment_tier: "Platinum",
             };
@@ -107,8 +109,8 @@ export function StepPrepareCandidates({
             candidateId: candidate.id,
             candidateName: `Dr. ${candidate.first_name} ${candidate.last_name}`,
             status: 'success',
-            email: data.email,
-            phone: data.phone,
+            email: data.personal_email,
+            phone: data.personal_mobile,
             source: data.source
           });
           totalCost += data.cost || 0.20;
