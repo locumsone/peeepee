@@ -168,9 +168,18 @@ export const useTwilioDevice = (userId: string | null) => {
         stopDurationTimer();
       });
 
-      call.on('error', (error) => {
+      call.on('error', (error: any) => {
         console.error('Call error:', error);
-        setState(prev => ({ ...prev, error: error.message, isConnecting: false }));
+        // Handle microphone/media errors gracefully
+        const errorMessage = error.message || error.name || 'Call failed';
+        setState(prev => ({ 
+          ...prev, 
+          error: errorMessage.includes('NotFoundError') 
+            ? 'Microphone not found. Please check your audio settings.'
+            : errorMessage,
+          isConnecting: false,
+          currentCall: null,
+        }));
       });
 
     } catch (error: any) {
