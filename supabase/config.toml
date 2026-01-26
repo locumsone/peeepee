@@ -29,3 +29,6 @@ verify_jwt = false
 
 [functions.suggest-replies]
 verify_jwt = false
+
+[functions.sms-campaign-send]
+verify_jwt = false

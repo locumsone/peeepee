@@ -3,6 +3,7 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
 import { formatDistanceToNow } from "date-fns";
+import { formatPhoneNumber } from "@/lib/formatPhone";
 import type { ConversationItem } from "@/pages/Communications";
 import type { PriorityLevel } from "./PriorityBadge";
 
@@ -133,7 +134,7 @@ export const ConversationList = ({
                     {/* Phone number and duration */}
                     <div className="flex items-center justify-between gap-2 mt-1">
                       <span className="text-[10px] text-muted-foreground/60 font-mono">
-                        {conversation.candidatePhone}
+                        {formatPhoneNumber(conversation.candidatePhone)}
                       </span>
                       {conversation.channel === "call" && conversation.duration && (
                         <span className="text-[10px] text-muted-foreground font-mono">

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { MessageSquare, Phone, Send, Loader2, Download, Calendar, PhoneCall, MessageCircle, User, Shield, MapPin } from "lucide-react";
+import { MessageSquare, Phone, Send, Loader2, Download, Calendar, PhoneCall, MessageCircle, User, Shield, MapPin, Check, CheckCheck, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import { formatPhoneNumber } from "@/lib/formatPhone";
 import { format, isToday, isYesterday, isSameDay } from "date-fns";
 import { toast } from "sonner";
 import type { ConversationItem } from "@/pages/Communications";
@@ -418,7 +419,7 @@ export const ConversationDetail = ({ conversation }: ConversationDetailProps) =>
               ) : (
                 <span className="font-semibold text-foreground truncate block">{conversation.candidateName}</span>
               )}
-              <span className="text-xs text-muted-foreground font-mono">{conversation.candidatePhone}</span>
+              <span className="text-xs text-muted-foreground font-mono">{formatPhoneNumber(conversation.candidatePhone)}</span>
             </div>
           </div>
 
@@ -482,10 +483,27 @@ export const ConversationDetail = ({ conversation }: ConversationDetailProps) =>
                     >
                       {message.body}
                     </div>
-                    <span className="text-[10px] text-muted-foreground mt-1 px-1">
-                      {format(messageDate, "h:mm a")}
-                      {message.status === "sending" && " • Sending..."}
-                    </span>
+                    <div className="flex items-center gap-1 mt-1 px-1">
+                      <span className="text-[10px] text-muted-foreground">
+                        {format(messageDate, "h:mm a")}
+                      </span>
+                      {message.direction === "outbound" && (
+                        <span className="flex items-center">
+                          {message.status === "sending" && (
+                            <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                          )}
+                          {message.status === "sent" && (
+                            <Check className="h-3 w-3 text-muted-foreground" />
+                          )}
+                          {message.status === "delivered" && (
+                            <CheckCheck className="h-3 w-3 text-success" />
+                          )}
+                          {message.status === "failed" && (
+                            <X className="h-3 w-3 text-destructive" />
+                          )}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
               );
