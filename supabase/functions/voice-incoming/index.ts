@@ -125,14 +125,18 @@ serve(async (req) => {
     if (direction === "inbound" || callStatus === "ringing") {
       console.log("Handling inbound call from:", from);
 
-      // Look up caller in candidates table
+      // Look up caller in candidates table with more flexible matching
       const normalizedPhone = from.replace(/\D/g, "");
+      const last10 = normalizedPhone.slice(-10); // Get last 10 digits for matching
+      
       const { data: candidate } = await supabase
         .from("candidates")
-        .select("id, first_name, last_name, specialty")
-        .or(`phone.ilike.%${normalizedPhone},personal_mobile.ilike.%${normalizedPhone}`)
+        .select("id, first_name, last_name, specialty, state")
+        .or(`phone.ilike.%${last10},personal_mobile.ilike.%${last10},phone_enriched.ilike.%${last10}`)
         .limit(1)
-        .single();
+        .maybeSingle();
+      
+      console.log("Candidate lookup result:", { normalizedPhone, last10, candidate });
 
       // Log the incoming call
       const { data: callLog, error: logError } = await supabase
@@ -183,14 +187,18 @@ serve(async (req) => {
     if (toNumber) {
       console.log("Handling outbound call to:", toNumber);
 
-      // Look up recipient in candidates table
+      // Look up recipient in candidates table with flexible matching
       const normalizedPhone = toNumber.replace(/\D/g, "");
+      const last10 = normalizedPhone.slice(-10);
+      
       const { data: candidate } = await supabase
         .from("candidates")
-        .select("id, first_name, last_name, specialty")
-        .or(`phone.ilike.%${normalizedPhone},personal_mobile.ilike.%${normalizedPhone}`)
+        .select("id, first_name, last_name, specialty, state")
+        .or(`phone.ilike.%${last10},personal_mobile.ilike.%${last10},phone_enriched.ilike.%${last10}`)
         .limit(1)
-        .single();
+        .maybeSingle();
+      
+      console.log("Outbound candidate lookup:", { toNumber, last10, candidate });
 
       // Log the outbound call
       await supabase
