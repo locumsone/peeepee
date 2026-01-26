@@ -1,7 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { Sparkles, Loader2, RefreshCw } from "lucide-react";
+import { Sparkles, Loader2, RefreshCw, MessageSquareText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -42,6 +42,40 @@ export const InlineAISuggestions = ({
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [sentiment, setSentiment] = useState<string>("neutral");
   const [hasGenerated, setHasGenerated] = useState(false);
+
+  // Expose suggestions for keyboard shortcuts
+  const handleKeyboardSelect = useCallback((index: number) => {
+    if (suggestions[index]) {
+      onSelectSuggestion(suggestions[index].text);
+      toast.success("Suggestion inserted");
+    }
+  }, [suggestions, onSelectSuggestion]);
+
+  // Add keyboard listener for 1, 2, 3 keys
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't trigger if user is typing in input/textarea
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+      
+      if (suggestions.length > 0) {
+        if (e.key === "1") {
+          e.preventDefault();
+          handleKeyboardSelect(0);
+        } else if (e.key === "2") {
+          e.preventDefault();
+          handleKeyboardSelect(1);
+        } else if (e.key === "3") {
+          e.preventDefault();
+          handleKeyboardSelect(2);
+        }
+      }
+    };
+    
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [suggestions, handleKeyboardSelect]);
 
   const generateMutation = useMutation({
     mutationFn: async () => {

@@ -150,29 +150,37 @@ const Communications = () => {
         priorityScore: score,
       };
     }),
-    ...aiCallLogs.map((call: any) => {
-      const { level, score } = calculatePriorityLevel({
-        sentiment: call.call_result === "interested" ? "interested" : 
-                  call.call_result === "not_interested" ? "not_interested" : undefined,
-        callbackRequested: call.call_result === "callback_requested",
-      });
+    ...aiCallLogs
+      .filter((call: any) => {
+        // Filter out incomplete test data (no candidate info and still in progress)
+        if (call.status === "in_progress" && !call.candidate_name && !call.candidate_id) {
+          return false;
+        }
+        return true;
+      })
+      .map((call: any) => {
+        const { level, score } = calculatePriorityLevel({
+          sentiment: call.call_result === "interested" ? "interested" : 
+                    call.call_result === "not_interested" ? "not_interested" : undefined,
+          callbackRequested: call.call_result === "callback_requested",
+        });
 
-      return {
-        id: call.id,
-        channel: "call" as const,
-        candidateId: call.candidate_id,
-        candidateName: call.candidate_name || "Unknown",
-        candidatePhone: call.phone_number,
-        preview: getOutcomePreview(call.call_result, call.status, call.duration_seconds),
-        timestamp: call.created_at,
-        unreadCount: 0,
-        duration: call.duration_seconds,
-        outcome: call.call_result,
-        isHot: level === "urgent" || level === "hot",
-        priorityLevel: level,
-        priorityScore: score,
-      };
-    }),
+        return {
+          id: call.id,
+          channel: "call" as const,
+          candidateId: call.candidate_id,
+          candidateName: call.candidate_name || "Unknown",
+          candidatePhone: call.phone_number,
+          preview: getOutcomePreview(call.call_result, call.status, call.duration_seconds),
+          timestamp: call.created_at,
+          unreadCount: 0,
+          duration: call.duration_seconds,
+          outcome: call.call_result,
+          isHot: level === "urgent" || level === "hot",
+          priorityLevel: level,
+          priorityScore: score,
+        };
+      }),
   ];
 
   // Filter by campaign
