@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Phone, Minus, Mic, MicOff, Pause, Play, PhoneOff, Delete } from 'lucide-react';
+import { SOFTPHONE_CALL_EVENT, type SoftphoneCallPayload, formatPhoneForDialing } from '@/hooks/useSoftphoneActions';
 import { cn } from '@/lib/utils';
 import { useTwilioDevice } from '@/hooks/useTwilioDevice';
 import { Button } from '@/components/ui/button';
@@ -49,6 +50,10 @@ export const Softphone = () => {
     duration: number;
   } | null>(null);
   
+  // Available Twilio numbers for outbound calls
+  const TWILIO_CALLER_IDS = ['+12185628671', '+14355628671'];
+  const [selectedCallerId, setSelectedCallerId] = useState(TWILIO_CALLER_IDS[0]);
+  
   const userId = 'recruiter-1';
   
   const {
@@ -84,6 +89,32 @@ export const Softphone = () => {
       return data || [];
     },
   });
+
+  // Listen for external call requests (from Comms Hub Call button)
+  useEffect(() => {
+    const handleExternalCall = (event: CustomEvent<SoftphoneCallPayload>) => {
+      const { phoneNumber: targetPhone, candidateName, candidateId } = event.detail;
+      const formattedPhone = formatPhoneForDialing(targetPhone);
+      
+      if (!formattedPhone || !isReady || currentCall) return;
+      
+      // Open the softphone if closed
+      setIsOpen(true);
+      
+      // Set the phone number and initiate call
+      setLastCallData({
+        phoneNumber: formattedPhone,
+        candidateName,
+        candidateId,
+        duration: 0,
+      });
+      
+      makeCall(formattedPhone, selectedCallerId);
+    };
+
+    window.addEventListener(SOFTPHONE_CALL_EVENT, handleExternalCall as EventListener);
+    return () => window.removeEventListener(SOFTPHONE_CALL_EVENT, handleExternalCall as EventListener);
+  }, [isReady, currentCall, makeCall, selectedCallerId]);
 
   // Track when call ends to show post-call modal
   useEffect(() => {
@@ -124,9 +155,6 @@ export const Softphone = () => {
     });
   }, []);
 
-  // Available Twilio numbers for outbound calls
-  const TWILIO_CALLER_IDS = ['+12185628671', '+14355628671'];
-  const [selectedCallerId, setSelectedCallerId] = useState(TWILIO_CALLER_IDS[0]);
 
   const handleCall = useCallback(() => {
     const digits = phoneNumber.replace(/\D/g, '');

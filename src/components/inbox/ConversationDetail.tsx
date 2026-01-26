@@ -19,6 +19,7 @@ import { QuickReplyChips } from "./QuickReplyChips";
 import { InlineAISuggestions } from "./InlineAISuggestions";
 import { SnoozePopover } from "./SnoozePopover";
 import { CandidateActivityTimeline } from "./CandidateActivityTimeline";
+import { useSoftphoneActions } from "@/hooks/useSoftphoneActions";
 
 interface SMSMessage {
   id: string;
@@ -54,6 +55,20 @@ const CallDetailView = ({ conversation }: { conversation: ConversationItem }) =>
   const [callbackDate, setCallbackDate] = useState("");
   const [showTimeline, setShowTimeline] = useState(false);
   const queryClient = useQueryClient();
+  const { initiateCall } = useSoftphoneActions();
+
+  const handleCallBack = () => {
+    if (conversation.candidatePhone) {
+      initiateCall({
+        phoneNumber: conversation.candidatePhone,
+        candidateName: conversation.candidateName,
+        candidateId: conversation.candidateId || undefined,
+      });
+      toast.success(`Calling ${conversation.candidateName}...`);
+    } else {
+      toast.error("No phone number available");
+    }
+  };
 
   const { data: callData, isLoading: callLoading } = useQuery({
     queryKey: ["call-detail", conversation.id],
@@ -291,7 +306,7 @@ const CallDetailView = ({ conversation }: { conversation: ConversationItem }) =>
       {/* Actions */}
       <div className="flex-shrink-0 border-t border-border bg-card p-3">
         <div className="flex gap-2">
-          <Button className="flex-1 gradient-primary" size="sm">
+          <Button className="flex-1 gradient-primary" size="sm" onClick={handleCallBack}>
             <PhoneCall className="h-4 w-4 mr-1" />
             Call Back
           </Button>
@@ -334,6 +349,20 @@ export const ConversationDetail = ({ conversation }: ConversationDetailProps) =>
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const queryClient = useQueryClient();
+  const { initiateCall } = useSoftphoneActions();
+
+  const handleCallFromSMS = useCallback(() => {
+    if (conversation?.candidatePhone) {
+      initiateCall({
+        phoneNumber: conversation.candidatePhone,
+        candidateName: conversation.candidateName,
+        candidateId: conversation.candidateId || undefined,
+      });
+      toast.success(`Calling ${conversation.candidateName}...`);
+    } else {
+      toast.error("No phone number available");
+    }
+  }, [conversation, initiateCall]);
 
   // Fetch messages
   const { data: messages = [], isLoading: messagesLoading, refetch: refetchMessages } = useQuery({
@@ -580,7 +609,12 @@ export const ConversationDetail = ({ conversation }: ConversationDetailProps) =>
               }}
               currentReminder={conversation.reminderAt ? new Date(conversation.reminderAt) : null}
             />
-            <Button variant="outline" size="sm" className="h-7 text-xs">
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="h-7 text-xs"
+              onClick={handleCallFromSMS}
+            >
               <PhoneCall className="h-3 w-3 mr-1" />
               Call
             </Button>
