@@ -237,7 +237,7 @@ export function LaunchStatusBar({
         onLaunchSuccess?.();
         sessionStorage.clear();
         navigate(`/campaigns/${campaignData.id}`);
-      } else {
+      } else if (data?.success && data?.campaign_id) {
         toast({
           title: "Campaign Launched",
           description: data?.message || `${campaignName} is now active`,
@@ -246,7 +246,16 @@ export function LaunchStatusBar({
         // Clear draft and session storage
         onLaunchSuccess?.();
         sessionStorage.clear();
-        navigate(data?.campaign_id ? `/campaigns/${data.campaign_id}` : "/campaigns");
+        navigate(`/campaigns/${data.campaign_id}`);
+      } else {
+        // Edge function returned but no campaign_id - fallback to campaigns list
+        toast({
+          title: "Campaign Launched",
+          description: `${campaignName} is now active`,
+        });
+        onLaunchSuccess?.();
+        sessionStorage.clear();
+        navigate("/campaigns");
       }
     } catch (err) {
       console.error("Launch failed:", err);
