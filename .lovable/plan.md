@@ -1,425 +1,377 @@
 
-
-# Improve Candidate Matching - Single Column Layout with Local/Other Sections
+# Auto-Save Progress & Local Candidates Count Improvements
 
 ## Overview
 
-This plan implements targeted UX improvements to the existing Candidate Matching page, keeping the single-column layout with ShortlistBanner but adding smart sectioning, auto-hide behavior, and better visual hierarchy.
+This plan addresses two key issues:
+1. **Auto-Save Visibility**: Display a persistent "Saved just now" indicator in the Campaign Builder header so users know their progress is being saved
+2. **Accurate Local Candidate Counts**: Show the real number of local candidates available in the database (e.g., 162 for Indiana) instead of just the loaded batch (8), with an option to load more local candidates in batches of 25-50
 
 ---
 
-## Changes Summary
+## Current State Analysis
 
-### 1. Split Table into LOCAL and OTHER Sections
-### 2. Add "Add All Local" and "Add All Other" Bulk Actions
-### 3. Auto-Hide + Undo Toast for Bulk Add Actions
-### 4. More Prominent "Hide Added" Toggle
-### 5. Empty State Messages per Section
-### 6. Local Count in Stats Header
-### 7. LOCAL Badge on In-State Candidate Rows
+### Auto-Save System
+- The `useCampaignDraft` hook exists and provides:
+  - `lastSaved: Date | null` - timestamp of last save
+  - `isDirty: boolean` - whether there are unsaved changes
+  - Auto-saves every 30 seconds to `localStorage` and `sessionStorage`
+- The `AutoSaveIndicator` component exists but is **only used in CampaignReview**, not across the entire Campaign Builder flow
 
----
-
-## Implementation Details
-
-### File: `src/pages/CandidateMatching.tsx`
-
-#### 1. Add Computed Arrays for Local vs Other Candidates
-
-After line 886 (after `sortedCandidates`), add:
-
-```typescript
-// Split pool into LOCAL vs OTHER sections
-const localPoolCandidates = useMemo(() => 
-  sortedCandidates.filter(c => c.state === jobState),
-[sortedCandidates, jobState]);
-
-const otherPoolCandidates = useMemo(() => 
-  sortedCandidates.filter(c => c.state !== jobState),
-[sortedCandidates, jobState]);
-```
-
-#### 2. Add Section-Level Bulk Add Handlers with Undo
-
-After `handleAddAllVisible` (around line 965), add:
-
-```typescript
-// Store previous state for undo functionality
-const [lastBulkAddAction, setLastBulkAddAction] = useState<{
-  ids: string[];
-  previousHideAdded: boolean;
-} | null>(null);
-
-const handleAddAllLocal = () => {
-  const localIds = localPoolCandidates.map(c => c.id);
-  if (localIds.length === 0) return;
-  
-  // Store for undo
-  const previousHideAdded = hideAdded;
-  setLastBulkAddAction({ ids: localIds, previousHideAdded });
-  
-  setAddedToJobIds(prev => {
-    const next = new Set(prev);
-    localIds.forEach(id => next.add(id));
-    return next;
-  });
-  setHideAdded(true);
-  
-  toast.success(`Added ${localIds.length} local candidates to shortlist`, {
-    action: {
-      label: "Undo",
-      onClick: () => {
-        setAddedToJobIds(prev => {
-          const next = new Set(prev);
-          localIds.forEach(id => next.delete(id));
-          return next;
-        });
-        setHideAdded(previousHideAdded);
-      }
-    }
-  });
-};
-
-const handleAddAllOther = () => {
-  const otherIds = otherPoolCandidates.map(c => c.id);
-  if (otherIds.length === 0) return;
-  
-  const previousHideAdded = hideAdded;
-  setLastBulkAddAction({ ids: otherIds, previousHideAdded });
-  
-  setAddedToJobIds(prev => {
-    const next = new Set(prev);
-    otherIds.forEach(id => next.add(id));
-    return next;
-  });
-  setHideAdded(true);
-  
-  toast.success(`Added ${otherIds.length} candidates to shortlist`, {
-    action: {
-      label: "Undo",
-      onClick: () => {
-        setAddedToJobIds(prev => {
-          const next = new Set(prev);
-          otherIds.forEach(id => next.delete(id));
-          return next;
-        });
-        setHideAdded(previousHideAdded);
-      }
-    }
-  });
-};
-```
-
-#### 3. Update `handleAddAllVisible` with Undo Support
-
-Replace the existing `handleAddAllVisible` function:
-
-```typescript
-const handleAddAllVisible = () => {
-  const visibleIds = sortedCandidates.map(c => c.id);
-  if (visibleIds.length === 0) return;
-  
-  const previousHideAdded = hideAdded;
-  
-  setAddedToJobIds(prev => {
-    const next = new Set(prev);
-    visibleIds.forEach(id => next.add(id));
-    return next;
-  });
-  setHideAdded(true);
-  
-  toast.success(`Added ${visibleIds.length} candidates to shortlist`, {
-    action: {
-      label: "Undo",
-      onClick: () => {
-        setAddedToJobIds(prev => {
-          const next = new Set(prev);
-          visibleIds.forEach(id => next.delete(id));
-          return next;
-        });
-        setHideAdded(previousHideAdded);
-      }
-    }
-  });
-};
-```
-
-#### 4. Update Stats Header to Include Local Count and Added Count
-
-In the job summary header (around lines 1229-1260), add new stats:
-
-```typescript
-{/* Added to Shortlist count */}
-<div className="text-center">
-  <p className="text-2xl font-bold text-success">{addedToJobIds.size}</p>
-  <p className="text-xs text-muted-foreground">Added</p>
-</div>
-
-{/* Local count already exists but ensure it's prominent */}
-<div className="text-center">
-  <p className="text-2xl font-bold text-emerald-400">{filterCounts.local}</p>
-  <p className="text-xs text-muted-foreground">Local ({jobState})</p>
-</div>
-```
-
-#### 5. Move "Hide Added" Toggle to Search Bar Area
-
-Move the toggle from its current location to next to the search bar (around line 1390). Update styling:
-
-```typescript
-{/* Search & Actions Bar */}
-<div className="flex flex-wrap gap-3 items-center">
-  <div className="relative flex-1 min-w-[200px] max-w-md">
-    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-    <Input
-      placeholder="Search by name, specialty, location..."
-      value={searchQuery}
-      onChange={(e) => setSearchQuery(e.target.value)}
-      className="pl-9"
-    />
-  </div>
-  
-  {/* Prominent Hide Added Toggle */}
-  <div className={cn(
-    "flex items-center gap-2 px-3 py-2 rounded-lg border transition-all",
-    addedToJobIds.size > 0 
-      ? "bg-success/10 border-success/30 shadow-sm" 
-      : "bg-muted/50 border-border"
-  )}>
-    <Checkbox
-      id="hideAdded"
-      checked={hideAdded}
-      onCheckedChange={(checked) => setHideAdded(!!checked)}
-    />
-    <label 
-      htmlFor="hideAdded" 
-      className={cn(
-        "text-sm cursor-pointer font-medium",
-        addedToJobIds.size > 0 ? "text-success" : "text-muted-foreground"
-      )}
-    >
-      {addedToJobIds.size > 0 
-        ? `Hide ${addedToJobIds.size} added` 
-        : "Hide added"}
-    </label>
-  </div>
-  
-  {/* Rest of actions... */}
-</div>
-```
-
-#### 6. Replace Single Table with Two Section Tables
-
-Replace the existing single table (lines 1538-2165) with two sectioned tables:
-
-```typescript
-{/* LOCAL CANDIDATES SECTION */}
-{localPoolCandidates.length > 0 ? (
-  <div className="space-y-3">
-    {/* Section Header */}
-    <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-success/10 border border-success/30">
-      <div className="flex items-center gap-3">
-        <MapPin className="h-5 w-5 text-success" />
-        <div>
-          <h3 className="font-semibold text-success flex items-center gap-2">
-            LOCAL CANDIDATES
-            <Badge className="bg-success text-success-foreground">
-              {localPoolCandidates.length}
-            </Badge>
-          </h3>
-          <p className="text-xs text-success/70">
-            Faster credentialing - No relocation - Immediate availability
-          </p>
-        </div>
-      </div>
-      <Button
-        size="sm"
-        onClick={handleAddAllLocal}
-        className="bg-success text-success-foreground hover:bg-success/90"
-      >
-        <Plus className="h-4 w-4 mr-1" />
-        Add All Local ({localPoolCandidates.length})
-      </Button>
-    </div>
-    
-    {/* Local Candidates Table */}
-    <CandidatesTable 
-      candidates={localPoolCandidates} 
-      isLocalSection={true}
-      // ...other props
-    />
-  </div>
-) : hideAdded && filterCounts.local > 0 ? (
-  /* Empty state when all local candidates are added */
-  <div className="rounded-xl border border-success/30 bg-success/5 p-6 text-center">
-    <CheckCircle2 className="h-8 w-8 text-success mx-auto mb-2" />
-    <p className="text-success font-medium">All local candidates added to shortlist</p>
-    <p className="text-xs text-muted-foreground mt-1">
-      Toggle "Hide added" to review your selections
-    </p>
-  </div>
-) : null}
-
-{/* OTHER CANDIDATES SECTION */}
-{otherPoolCandidates.length > 0 ? (
-  <div className="space-y-3">
-    {/* Section Header */}
-    <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-muted/50 border border-border">
-      <div className="flex items-center gap-3">
-        <Globe className="h-5 w-5 text-muted-foreground" />
-        <div>
-          <h3 className="font-semibold text-foreground flex items-center gap-2">
-            OTHER CANDIDATES
-            <Badge variant="secondary">
-              {otherPoolCandidates.length}
-            </Badge>
-          </h3>
-          <p className="text-xs text-muted-foreground">
-            Out-of-state candidates with matching qualifications
-          </p>
-        </div>
-      </div>
-      <Button
-        size="sm"
-        variant="outline"
-        onClick={handleAddAllOther}
-      >
-        <Plus className="h-4 w-4 mr-1" />
-        Add All Other ({otherPoolCandidates.length})
-      </Button>
-    </div>
-    
-    {/* Other Candidates Table */}
-    <CandidatesTable 
-      candidates={otherPoolCandidates} 
-      isLocalSection={false}
-      // ...other props
-    />
-  </div>
-) : hideAdded && (candidates.length - filterCounts.local) > 0 ? (
-  /* Empty state when all other candidates are added */
-  <div className="rounded-xl border border-border bg-muted/30 p-6 text-center">
-    <CheckCircle2 className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-    <p className="text-muted-foreground font-medium">All candidates added to shortlist</p>
-    <p className="text-xs text-muted-foreground mt-1">
-      Toggle "Hide added" to review your selections
-    </p>
-  </div>
-) : null}
-```
-
-#### 7. Add LOCAL Badge to In-State Candidate Rows
-
-In the candidate name cell (around line 1590), add a LOCAL badge for local section:
-
-```typescript
-<td className="px-4 py-4">
-  <div className="space-y-1">
-    <div className="flex items-center gap-2">
-      <span className="font-medium text-foreground">
-        {candidate.first_name} {candidate.last_name}
-      </span>
-      {/* LOCAL badge for in-state candidates */}
-      {isLocal(candidate) && (
-        <Badge 
-          className="bg-success/20 text-success border border-success/30 text-[10px] font-bold"
-        >
-          LOCAL
-        </Badge>
-      )}
-      {contactReady && (
-        <CheckCircle2 className="h-4 w-4 text-success" />
-      )}
-      {/* ... rest of badges */}
-    </div>
-    {/* ... rest of content */}
-  </div>
-</td>
-```
+### Local Candidate Counts
+- Database query shows **162 IR candidates in Indiana** but the page only loads 50 at a time
+- `filterCounts.local` shows only **8** because it counts from the loaded `candidates` array, not from the database
+- The AI matcher function uses a `campaign_candidate_search` database function that returns up to 500 candidates
 
 ---
 
-## Component Extraction (Optional Refactor)
+## Implementation Plan
 
-To avoid code duplication, extract the table body into a reusable component:
+### Part 1: Global Auto-Save Indicator
+
+#### 1.1 Update Layout Component to Accept Auto-Save Props
+
+**File: `src/components/layout/Layout.tsx`**
+
+Add optional props for auto-save state and display the indicator in the header next to "Campaign Builder":
 
 ```typescript
-interface CandidatesTableProps {
-  candidates: Candidate[];
-  isLocalSection: boolean;
-  selectedIds: Set<string>;
-  expandedIds: Set<string>;
-  addedToJobIds: Set<string>;
-  onToggleSelect: (id: string) => void;
-  onToggleExpand: (id: string) => void;
-  onAddToJob: (id: string) => void;
-  onRemoveFromJob: (id: string) => void;
-  onResearch: (candidate: Candidate) => void;
-  onEnrich: (candidate: Candidate) => void;
-  researchingIds: Set<string>;
-  enrichingIds: Set<string>;
-  deepResearchingIds: Set<string>;
-  // ... other handlers
+interface LayoutProps {
+  children: ReactNode;
+  currentStep?: number;
+  showSteps?: boolean;
+  // New auto-save props
+  lastSaved?: Date | null;
+  isDirty?: boolean;
+  isSaving?: boolean;
 }
 ```
 
-This keeps the code DRY while having separate section wrappers.
+In the header, add the AutoSaveIndicator after the "Campaign Builder" label:
+
+```typescript
+<header className="sticky top-0 z-50 h-14 flex items-center justify-between ...">
+  <div className="flex items-center gap-4">
+    <SidebarTrigger ... />
+    <div className="h-4 w-px bg-border" />
+    <span className="text-sm font-medium text-muted-foreground">Campaign Builder</span>
+    {/* Auto-save indicator */}
+    {lastSaved !== undefined && (
+      <>
+        <div className="h-4 w-px bg-border" />
+        <AutoSaveIndicator 
+          lastSaved={lastSaved} 
+          isDirty={isDirty ?? false}
+          isSaving={isSaving}
+        />
+      </>
+    )}
+  </div>
+  <UserMenu />
+</header>
+```
+
+#### 1.2 Integrate useCampaignDraft in Key Campaign Builder Pages
+
+**Files to update:**
+- `src/pages/CampaignBuilder.tsx` (Step 1: Job Selection)
+- `src/pages/CandidateMatching.tsx` (Step 2: Match Candidates)
+- `src/pages/CampaignReview.tsx` (already has it)
+
+Each page will:
+1. Import and use the `useCampaignDraft` hook
+2. Pass `lastSaved`, `isDirty` to the Layout component
+3. Call the appropriate update functions when state changes
+
+**Example for CandidateMatching.tsx:**
+
+```typescript
+import { useCampaignDraft } from "@/hooks/useCampaignDraft";
+
+const CandidateMatching = () => {
+  const { lastSaved, isDirty, updateCandidates } = useCampaignDraft();
+  
+  // ... existing state ...
+
+  // Sync added candidates to draft when they change
+  useEffect(() => {
+    if (addedToJobIds.size > 0) {
+      const addedCandidates = candidates.filter(c => addedToJobIds.has(c.id));
+      updateCandidates(addedCandidates as SelectedCandidate[]);
+    }
+  }, [addedToJobIds, candidates]);
+
+  return (
+    <Layout currentStep={2} lastSaved={lastSaved} isDirty={isDirty}>
+      {/* ... */}
+    </Layout>
+  );
+};
+```
+
+#### 1.3 Clear Draft on Campaign Launch
+
+**File: `src/pages/CampaignReview.tsx`**
+
+After successful campaign launch, call `clearDraft()`:
+
+```typescript
+const handleLaunch = async () => {
+  // ... launch logic ...
+  if (success) {
+    clearDraft(); // Clear all saved progress
+    navigate(`/campaigns/${campaignId}`);
+  }
+};
+```
 
 ---
 
-## File Changes Summary
+### Part 2: Accurate Local Candidate Counts & "Load More Local" Feature
 
-| File | Action | Description |
-|------|--------|-------------|
-| `src/pages/CandidateMatching.tsx` | Modify | Add local/other section logic, undo toasts, hide toggle, LOCAL badges |
+#### 2.1 Fetch Total Local Count from Database
+
+**File: `src/pages/CandidateMatching.tsx`**
+
+Add a new state and API call to get the total count of local candidates matching the specialty:
+
+```typescript
+// New state for actual database totals
+const [dbTotals, setDbTotals] = useState<{
+  localTotal: number;
+  otherTotal: number;
+} | null>(null);
+
+// Fetch total counts on mount
+useEffect(() => {
+  const fetchTotalCounts = async () => {
+    if (!job?.specialty || !jobState) return;
+    
+    const { data, error } = await supabase
+      .rpc('get_candidate_counts_by_state', {
+        p_specialty: job.specialty,
+        p_job_state: jobState
+      });
+    
+    if (!error && data) {
+      setDbTotals({
+        localTotal: data.local_count,
+        otherTotal: data.other_count
+      });
+    }
+  };
+  
+  fetchTotalCounts();
+}, [job?.specialty, jobState]);
+```
+
+#### 2.2 Create Database Function for Counts
+
+**New Migration:**
+
+```sql
+CREATE OR REPLACE FUNCTION get_candidate_counts_by_state(
+  p_specialty TEXT,
+  p_job_state TEXT
+)
+RETURNS TABLE(local_count INTEGER, other_count INTEGER)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  RETURN QUERY
+  SELECT 
+    COUNT(*) FILTER (WHERE c.state = p_job_state)::INTEGER AS local_count,
+    COUNT(*) FILTER (WHERE c.state != p_job_state)::INTEGER AS other_count
+  FROM candidates c
+  WHERE c.specialty ILIKE '%' || p_specialty || '%';
+END;
+$$;
+```
+
+#### 2.3 Update LOCAL Section Header with Real Counts
+
+**File: `src/pages/CandidateMatching.tsx`**
+
+Update the LOCAL CANDIDATES section header to show:
+- Loaded count: `localPoolCandidates.length`
+- Database total: `dbTotals?.localTotal`
+
+```typescript
+{/* LOCAL CANDIDATES SECTION */}
+<div className="flex items-center justify-between px-4 py-3 rounded-xl bg-success/10 border border-success/30">
+  <div className="flex items-center gap-3">
+    <MapPin className="h-5 w-5 text-success" />
+    <div>
+      <h3 className="font-semibold text-success flex items-center gap-2">
+        LOCAL CANDIDATES
+        <Badge className="bg-success text-success-foreground">
+          {localPoolCandidates.length}
+          {dbTotals?.localTotal && dbTotals.localTotal > localPoolCandidates.length && (
+            <span className="ml-1 opacity-80">/ {dbTotals.localTotal} in database</span>
+          )}
+        </Badge>
+      </h3>
+      <p className="text-xs text-success/70">
+        Faster credentialing • No relocation • Immediate availability
+      </p>
+    </div>
+  </div>
+  <div className="flex items-center gap-2">
+    {/* Load More Local button - only show if more exist */}
+    {dbTotals?.localTotal && dbTotals.localTotal > candidates.filter(c => c.state === jobState).length && (
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={handleLoadMoreLocal}
+        disabled={isLoadingMoreLocal}
+        className="border-success/30 text-success hover:bg-success/10"
+      >
+        {isLoadingMoreLocal ? (
+          <Loader2 className="h-4 w-4 animate-spin mr-1" />
+        ) : (
+          <Plus className="h-4 w-4 mr-1" />
+        )}
+        Load 25 More Local
+      </Button>
+    )}
+    <Button
+      size="sm"
+      onClick={handleAddAllLocal}
+      className="bg-success text-success-foreground hover:bg-success/90"
+    >
+      <Plus className="h-4 w-4 mr-1" />
+      Add All ({localPoolCandidates.length})
+    </Button>
+  </div>
+</div>
+```
+
+#### 2.4 Add "Load More Local" Handler
+
+**File: `src/pages/CandidateMatching.tsx`**
+
+Create a new handler that specifically fetches more local candidates:
+
+```typescript
+const [isLoadingMoreLocal, setIsLoadingMoreLocal] = useState(false);
+
+const handleLoadMoreLocal = async () => {
+  setIsLoadingMoreLocal(true);
+  
+  try {
+    // Get current local candidate IDs to exclude
+    const existingLocalIds = candidates
+      .filter(c => c.state === jobState)
+      .map(c => c.id);
+    
+    const { data, error } = await supabase
+      .from('candidates')
+      .select(`
+        id, first_name, last_name, specialty, state, city,
+        licenses, enrichment_tier, enrichment_source,
+        personal_mobile, personal_email, phone, email, npi
+      `)
+      .ilike('specialty', `%${job?.specialty}%`)
+      .eq('state', jobState)
+      .not('id', 'in', `(${existingLocalIds.join(',')})`)
+      .limit(25);
+    
+    if (error) throw error;
+    
+    if (data && data.length > 0) {
+      // Transform to match Candidate interface
+      const newCandidates = data.map(c => transformCandidate(c, jobState));
+      setCandidates(prev => [...prev, ...newCandidates]);
+      toast.success(`Loaded ${data.length} more local candidates`);
+    } else {
+      toast.info('No more local candidates available');
+    }
+  } catch (err) {
+    console.error('Error loading more local candidates:', err);
+    toast.error('Failed to load more candidates');
+  } finally {
+    setIsLoadingMoreLocal(false);
+  }
+};
+
+// Helper function to transform DB result to Candidate interface
+const transformCandidate = (c: any, jobState: string): Candidate => ({
+  id: c.id,
+  first_name: c.first_name || '',
+  last_name: c.last_name || '',
+  specialty: c.specialty || '',
+  state: c.state || '',
+  city: c.city || '',
+  licenses: c.licenses || [],
+  licenses_count: (c.licenses || []).length,
+  enrichment_tier: c.enrichment_tier || 'Unknown',
+  enrichment_source: c.enrichment_source,
+  unified_score: calculateUnifiedScore(c, jobState),
+  match_strength: calculateMatchStrength(c, jobState),
+  score_reason: `Loaded via "Load More Local"`,
+  icebreaker: '',
+  talking_points: [],
+  has_personal_contact: !!(c.personal_mobile || c.personal_email),
+  needs_enrichment: !(c.personal_mobile || c.personal_email),
+  is_enriched: !!(c.personal_mobile || c.personal_email),
+  personal_mobile: c.personal_mobile,
+  personal_email: c.personal_email,
+  work_email: c.email,
+  work_phone: c.phone,
+  npi: c.npi,
+  source: 'load_more_local',
+  is_local: c.state === jobState,
+});
+```
+
+---
+
+## Files to Modify
+
+| File | Changes |
+|------|---------|
+| `src/components/layout/Layout.tsx` | Add auto-save props and display AutoSaveIndicator in header |
+| `src/pages/CandidateMatching.tsx` | Integrate useCampaignDraft, add dbTotals state, add handleLoadMoreLocal |
+| `src/pages/CampaignBuilder.tsx` | Integrate useCampaignDraft, pass auto-save props to Layout |
+| `src/pages/CampaignReview.tsx` | Call clearDraft() on successful launch |
+| `supabase/migrations/` | Add get_candidate_counts_by_state function |
 
 ---
 
 ## Visual Summary
 
+### Header with Auto-Save Indicator
 ```text
-+------------------------------------------------------------------+
-|  Job Header + Stats                                               |
-|  [Total] [Local] [Added] [Researched] [Contact Ready] [10+ Lic]  |
-+------------------------------------------------------------------+
-|  Search [___________]  [Hide 12 added ✓]  [Select Actions...]    |
-+------------------------------------------------------------------+
-|                                                                   |
-|  ┌─ LOCAL CANDIDATES (8) ────────────────── [+ Add All Local] ─┐ |
-|  │  Green header with "Faster credentialing" subtitle          │ |
-|  │                                                              │ |
-|  │  ☐ Dr. Harris  [LOCAL] A+ 99% Gold  ✅ Contact  [+ Add]    │ |
-|  │  ☐ Dr. Natarajan [LOCAL] A+ 99% Gold ✅ Contact [✓ Added]  │ |
-|  │  ...                                                         │ |
-|  └──────────────────────────────────────────────────────────────┘ |
-|                                                                   |
-|  ┌─ OTHER CANDIDATES (486) ─────────────── [+ Add All Other] ─┐  |
-|  │  Default header with count                                  │  |
-|  │                                                              │  |
-|  │  ☐ Dr. Jean-Baptiste  A+ 99% Gold  ✅ Contact  [+ Add]     │  |
-|  │  ☐ Dr. Craig  A+ 98% Silver  🔍 Needs Enrich  [+ Add]      │  |
-|  │  ...                                                         │  |
-|  └──────────────────────────────────────────────────────────────┘ |
-|                                                                   |
-|  [Load More]                                                      |
-|                                                                   |
-|  [Back to Job]            [Search More] [Continue with 12 →]     |
-+------------------------------------------------------------------+
+┌──────────────────────────────────────────────────────────────────┐
+│ ☰  │  Campaign Builder  │  ☁ Saved just now        [UserMenu]  │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+### LOCAL Section with Counts
+```text
+┌── LOCAL CANDIDATES ──────────────────────────────────────────────┐
+│ 📍 LOCAL CANDIDATES [8 / 162 in database]   [Load 25 More] [Add]│
+│ Faster credentialing • No relocation • Immediate availability   │
+├──────────────────────────────────────────────────────────────────┤
+│ Dr. Harris    LOCAL  A+ 99%  ...                                │
+│ Dr. Natarajan LOCAL  A+ 99%  ...                                │
+│ ...                                                              │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
 ## Expected Behavior
 
-1. **Page Load**: Candidates split into LOCAL (top, green) and OTHER (bottom)
-2. **Click "Add All Local"**: 
-   - All local candidates added to shortlist
-   - "Hide added" toggle auto-enabled
-   - Toast appears with "Undo" button
-   - LOCAL section shows empty state: "All local candidates added"
-3. **Click "Undo"**: 
-   - Candidates removed from shortlist
-   - "Hide added" reverts to previous state
-4. **Toggle "Hide added" OFF**: Shows all candidates (both added and not)
-5. **LOCAL Badge**: Visible on all in-state candidate rows for quick identification
+1. **Auto-Save Visibility**:
+   - Header shows "Saved just now" or "Saved 2 min ago" after any state change
+   - Shows "Unsaved changes" (amber) if dirty and not yet saved
+   - Shows "Saving..." with spinner during save
+   - Cleared when campaign is launched
 
+2. **Local Candidate Counts**:
+   - Section header shows "8 / 162 in database" format
+   - "Load 25 More Local" button appears when more exist
+   - Each click loads 25 more local candidates from DB
+   - Stats update in real-time as more candidates are loaded
+   - Button disappears when all local candidates are loaded
