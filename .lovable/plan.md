@@ -1,171 +1,188 @@
 
-# Jobs & Campaigns Improvement Plan
 
-## Problems Identified
+# Job Detail Page Redesign - Enterprise ATS Standards
 
-### 1. Total Candidates Display Issue (Jobs Page)
-The Jobs page currently only shows candidates from `campaign_leads_v2` which requires campaigns to be launched. It doesn't show:
-- Candidates matched to the job but not yet added to a campaign
-- Candidates saved during campaign building (draft state)
+## Research Summary
 
-### 2. Candidates Not Saving to Campaigns
-The `campaigns` table stores `leads_count` but this only updates on launch. When you:
-- Select candidates in CandidateMatching
-- Work through PersonalizationStudio and SequenceStudio
-- Never launch the campaign
+Based on analysis of leading ATS platforms (Bullhorn, Greenhouse, JobDiva, Lever, Workday), the following are critical patterns for an optimal job detail page:
 
-The candidates exist only in `sessionStorage`/`localStorage` via `useCampaignDraft` and are never persisted to the database until the campaign launches.
+### Industry Best Practices Discovered
 
-### 3. Campaign Progress Not Resumable
-Related to issue 2 - while `useCampaignDraft` saves to local storage, there's no database persistence for draft campaigns with their candidate selections. Users can't resume from another device or after clearing browser data.
+| ATS Platform | Key Features |
+|-------------|--------------|
+| **Bullhorn** | Multi-section layout (Information, Compensation, Requirements, Internal Notes, Status), Match button for instant candidate matching, Action buttons (Edit, Delete, Clone) |
+| **Greenhouse** | Visual candidate pipeline, Interview scorecards, Collaboration tools (@mentions), Job-specific analytics, Stage-based automation alerts |
+| **Lever** | Interview scorecard system, Stage-based candidate tracking, Feedback forms integrated into job view |
+| **Workday** | Requisition-centric view, Approval workflows visible, Hiring team panel, Multi-opening tracking |
 
-### 4. Jobs Need Expandable Details
-Currently jobs require navigating to JobDetail page. Users want inline expansion to see progress without leaving the Jobs list.
+### Current Gaps in Locums One Job Detail Page
 
----
-
-## Solution Overview
-
-### Part A: Add `candidate_job_matches` Count to Jobs Page
-The `candidate_job_matches` table already tracks candidates matched to jobs. We should aggregate this count along with `campaign_leads_v2` for a complete picture.
-
-### Part B: Save Draft Candidates to Database
-Create early persistence for campaign drafts so candidates are saved before launch:
-1. Insert a "draft" campaign record when user first adds candidates
-2. Insert `campaign_leads_v2` records with status "draft" immediately
-3. Update the draft hook to sync with database, not just local storage
-
-### Part C: Expandable Job Cards
-Add collapsible sections to job cards showing:
-- Pipeline progress (from existing components)
-- Recent activity
-- Quick action buttons
+1. **Missing Quick Stats Panel** - No at-a-glance metrics in header
+2. **No Hiring Team Section** - Can't see who's working this job
+3. **Limited Quick Actions** - Buried in tabs instead of prominent
+4. **No Job Health Score** - No visual indicator of job performance
+5. **Missing Time Metrics** - Days open, time-to-fill estimates not shown
+6. **No Scorecard/Notes** - No quick notes or scoring for candidates inline
+7. **Activity is Tab-Gated** - Recent activity should be visible immediately
 
 ---
 
-## Technical Implementation
+## Proposed Redesign
 
-### File 1: `src/pages/Jobs.tsx`
-
-**Changes:**
-1. Fetch candidate counts from `candidate_job_matches` table
-2. Show both "Matched" and "In Pipeline" counts
-3. Add expandable/collapsible row for each job
+### New Layout Architecture
 
 ```text
-Before:
-+------------------------------------------+
-| IR - Middletown, NY              [ACTIVE] |
-| Pipeline: 18 contacted                    |
-+------------------------------------------+
-
-After:
-+------------------------------------------+
-| IR - Middletown, NY              [ACTIVE] |
-| 47 Matched · 18 In Pipeline               |
-|                                [▼ Expand] |
-+------------------------------------------+
-   ↓ Expanded:
-+------------------------------------------+
-| PIPELINE STAGES                          |
-| [Sourced: 12] [Contacted: 8] [...]       |
-|                                          |
-| RECENT ACTIVITY                          |
-| • Dr. Smith replied via SMS (2h ago)     |
-| • Dr. Jones opened email (4h ago)        |
-|                                          |
-| [View Full Details] [Create Campaign]    |
-+------------------------------------------+
++------------------------------------------------------------------+
+|  HEADER BAR                                                       |
+|  [Back] IR - Middletown Regional | $185/hr | ACTIVE | URGENT     |
+|  Facility Name, NY | REQ #12345 | 2 Openings                     |
++------------------------------------------------------------------+
+|                                                                   |
+|  QUICK STATS ROW (new)                                           |
+|  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐     |
+|  │ 47      │ │ 12      │ │ 5       │ │ 23 days │ │ 78%     │     |
+|  │ Matched │ │ Active  │ │ Replies │ │ Open    │ │ Health  │     |
+|  └─────────┘ └─────────┘ └─────────┘ └─────────┘ └─────────┘     |
+|                                                                   |
+|  QUICK ACTIONS (new - always visible)                            |
+|  [Find Candidates] [Create Campaign] [Edit Job] [Clone] [Share]  |
+|                                                                   |
++------------------------------------------------------------------+
+|                                                                   |
+|  PIPELINE (existing, enhanced)                                   |
+|  Visual bar + Stage cards with click-to-filter                   |
+|                                                                   |
++------------------------------------------------------------------+
+|  LEFT COLUMN (60%)          |  RIGHT COLUMN (40%)                |
+|  ┌────────────────────────┐ | ┌────────────────────────────────┐ |
+|  │ TABS                   │ | │ JOB DETAILS CARD (new sidebar) │ |
+|  │ Candidates | Activity  │ | │ • Specialty: IR                │ |
+|  │ Outreach | Scorecards  │ | │ • Schedule: 7on/7off           │ |
+|  │                        │ | │ • Start: Mar 15, 2026          │ |
+|  │ [Tab Content Area]     │ | │ • Requirements: TX license...  │ |
+|  │                        │ | ├────────────────────────────────┤ |
+|  │                        │ | │ PAY BREAKDOWN                  │ |
+|  │                        │ | │ Bill: $250 | Pay: $185 | 73%   │ |
+|  │                        │ | ├────────────────────────────────┤ |
+|  │                        │ | │ HIRING TEAM (new)              │ |
+|  │                        │ | │ 👤 John Smith (Owner)          │ |
+|  │                        │ | │ 👤 Jane Doe (Recruiter)        │ |
+|  │                        │ | ├────────────────────────────────┤ |
+|  │                        │ | │ RECENT ACTIVITY (3 items)      │ |
+|  │                        │ | │ • Dr. Smith replied (2h ago)   │ |
+|  │                        │ | │ • SMS sent to Dr. Jones        │ |
+|  │                        │ | │ [View All Activity]            │ |
+|  └────────────────────────┘ | └────────────────────────────────┘ |
++------------------------------------------------------------------+
 ```
 
-### File 2: `src/hooks/useCampaignDraft.ts`
+---
 
-**Changes:**
-1. Add `persistToDatabase` function that creates/updates draft campaign in DB
-2. Save `campaign_leads_v2` records with status "draft" when candidates are added
-3. Add `loadFromDatabase` fallback when local storage is empty
+## Detailed Component Changes
 
-```typescript
-// New function to persist draft to database
-const persistToDatabase = async (draft: CampaignDraft) => {
-  if (!draft.jobId || draft.candidates.length === 0) return;
-  
-  // Upsert campaign record with draft status
-  const { data: campaign } = await supabase
-    .from("campaigns")
-    .upsert({
-      id: draft.databaseCampaignId, // New field to track DB record
-      job_id: draft.jobId,
-      name: draft.campaignName || "Draft Campaign",
-      status: "draft",
-      leads_count: draft.candidates.length,
-    })
-    .select()
-    .single();
-    
-  if (campaign) {
-    // Upsert campaign_leads_v2 records
-    const leads = draft.candidates.map(c => ({
-      campaign_id: campaign.id,
-      candidate_id: c.id,
-      candidate_name: `${c.first_name} ${c.last_name}`,
-      status: "draft",
-      // ... other fields
-    }));
-    
-    await supabase.from("campaign_leads_v2").upsert(leads, {
-      onConflict: "campaign_id,candidate_id"
-    });
-  }
-};
-```
+### Component 1: JobDetailHeader (New)
 
-### File 3: New Component `src/components/jobs/ExpandableJobRow.tsx`
-
-**Purpose:** Self-contained expandable job card with inline pipeline view
+**Purpose:** Compact, information-dense header with all critical job info visible immediately
 
 **Features:**
-- Collapsible panel with animation
-- Embedded JobPipeline component
-- Embedded mini-activity feed (last 5 items)
-- Quick action buttons
+- Job name + facility + location on one line
+- Status badges (Active, Urgent, On Hold)
+- Pay rate prominently displayed
+- Requisition ID as copyable badge
+- Number of openings indicator
 
-### File 4: `src/pages/JobDetail.tsx`
+### Component 2: JobQuickStats (New)
 
-**Minor update:** Ensure it handles "draft" status leads correctly in pipeline display
+**Purpose:** At-a-glance metrics row below header
 
----
+**Metrics to Display:**
+- **Matched**: Total candidates matched to this job (from `candidate_job_matches`)
+- **In Pipeline**: Active candidates in campaigns
+- **Replies**: Total responses received (email + SMS + calls)
+- **Days Open**: Calculated from job creation date
+- **Health Score**: Composite score based on activity, response rate, pipeline movement
 
-## Database Changes
-
-### Add Unique Constraint for Upsert
-The `campaign_leads_v2` table needs a unique constraint on `(campaign_id, candidate_id)` for upsert operations.
-
-```sql
-ALTER TABLE campaign_leads_v2 
-ADD CONSTRAINT campaign_leads_v2_campaign_candidate_unique 
-UNIQUE (campaign_id, candidate_id);
+**Implementation:**
+```typescript
+interface QuickStatsProps {
+  matchedCount: number;
+  pipelineCount: number;
+  totalReplies: number;
+  daysOpen: number;
+  healthScore: number; // 0-100
+}
 ```
 
----
+### Component 3: JobQuickActions (New)
 
-## Data Flow After Fix
+**Purpose:** Prominent action buttons always visible (not hidden in tabs)
 
-```text
-User Flow:
-1. User navigates to /campaigns/new?jobId=xxx
-2. Selects candidates in CandidateMatching
-   → Immediately saves draft campaign to DB
-   → Inserts campaign_leads_v2 with status="draft"
-3. Continues through PersonalizationStudio
-   → Updates icebreaker/talking_points in campaign_leads_v2
-4. Navigates away or closes browser
-   → Data persists in database
-5. Returns later
-   → Draft recovered from DB, resume where left off
-6. Launches campaign
-   → Updates status from "draft" to "pending"/"active"
-```
+**Actions:**
+- Find Candidates (navigates to search)
+- Create Campaign (navigates to matching)
+- Edit Job (inline edit or modal)
+- Clone Job (duplicate for similar positions)
+- Share Job (copy link or send to team member)
+- Archive/Close (with confirmation)
+
+### Component 4: JobDetailSidebar (New)
+
+**Purpose:** Right-side panel with job details, pay breakdown, team, and recent activity
+
+**Sections:**
+1. **Job Requirements Card**
+   - Specialty, schedule, dates, requirements text
+   - Click to expand full requirements
+   
+2. **Pay Breakdown Card**
+   - Bill rate, pay rate, margin, percentage breakdown
+   - Visual comparison bar
+   
+3. **Hiring Team Card** (new concept)
+   - Job owner/creator
+   - Assigned recruiters
+   - Quick @mention capability
+   
+4. **Recent Activity Mini-Feed**
+   - Last 3-5 activity items
+   - "View All" link to Activity tab
+
+### Component 5: Enhanced Tabs
+
+**Current Tabs:** Candidates, Activity, Outreach, Settings
+
+**Proposed Tabs:**
+1. **Candidates** - Keep Kanban/List view (existing)
+2. **Activity** - Full activity timeline (existing)
+3. **Outreach** - Channel performance stats (existing)
+4. **Scorecards** (NEW) - Candidate ratings and interview notes
+5. **Notes** (NEW) - Internal job notes and updates
+
+### Component 6: JobScorecard (New Tab Content)
+
+**Purpose:** Greenhouse-style scorecard for rating candidates against job requirements
+
+**Features:**
+- Define 3-5 key attributes for this job (e.g., "State License", "Fellowship", "Years Experience")
+- Rate each candidate on each attribute (1-5 stars or Yes/No)
+- Quick visual of which candidates meet criteria
+- Sorting/filtering by scorecard completion
+
+### Component 7: JobHealthIndicator (New)
+
+**Purpose:** Visual health score with drill-down explanations
+
+**Calculation Factors:**
+- Days open (older = lower score)
+- Pipeline movement (stagnant = lower)
+- Response rate vs benchmark
+- Time since last activity
+- Candidate quality (tier distribution)
+
+**Visual Treatment:**
+- Circular progress indicator with percentage
+- Color coding (green > 70%, yellow 40-70%, red < 40%)
+- Hover tooltip with breakdown
 
 ---
 
@@ -173,35 +190,94 @@ User Flow:
 
 | File | Purpose |
 |------|---------|
-| `src/components/jobs/ExpandableJobRow.tsx` | Collapsible job card with embedded pipeline |
-| `src/components/jobs/JobQuickActivity.tsx` | Compact activity list for expanded view |
+| `src/components/jobs/JobDetailHeader.tsx` | Enhanced header with all critical info |
+| `src/components/jobs/JobQuickStats.tsx` | At-a-glance metrics row |
+| `src/components/jobs/JobQuickActions.tsx` | Prominent action buttons |
+| `src/components/jobs/JobDetailSidebar.tsx` | Right-side info panel |
+| `src/components/jobs/JobHealthIndicator.tsx` | Visual health score |
+| `src/components/jobs/JobScorecard.tsx` | Candidate rating system |
+| `src/components/jobs/JobNotesPanel.tsx` | Internal notes section |
+| `src/components/jobs/JobTeamCard.tsx` | Hiring team display |
 
 ## Files to Modify
 
 | File | Changes |
 |------|---------|
-| `src/pages/Jobs.tsx` | Add matched count query, integrate ExpandableJobRow |
-| `src/hooks/useCampaignDraft.ts` | Add database persistence, load from DB fallback |
-| `src/pages/CandidateMatching.tsx` | Trigger draft save when candidates added to job |
+| `src/pages/JobDetail.tsx` | Complete restructure with new layout, fetch additional data |
+| `src/components/jobs/index.ts` | Export new components |
+| `src/components/jobs/JobPipeline.tsx` | Add stage filtering callback |
 
 ---
 
-## UI Improvements Summary
+## Database Queries Needed
 
-1. **Jobs List**: Shows "47 Matched / 18 In Pipeline" instead of just pipeline count
-2. **Expandable Cards**: Click to expand any job to see pipeline, activity, and actions inline
-3. **Draft Persistence**: Candidates saved to database immediately, not just browser storage
-4. **Resume Drafts**: Can continue campaign from any device or after browser data cleared
-5. **Real-time Updates**: Pipeline counts update when leads are added via campaigns
+### New Aggregations for Quick Stats
+
+```typescript
+// Matched candidates count
+const { count: matchedCount } = await supabase
+  .from("candidate_job_matches")
+  .select("*", { count: "exact", head: true })
+  .eq("job_id", jobId);
+
+// Days open calculation
+const daysOpen = differenceInDays(new Date(), new Date(job.created_at));
+
+// Health score calculation
+const healthScore = calculateHealthScore({
+  daysOpen,
+  pipelineMovementRate,
+  responseRate,
+  lastActivityDate,
+});
+```
+
+---
+
+## Visual Design Notes
+
+Following the "Corporate Xbox Console" aesthetic:
+- Quick Stats cards: Rounded square tiles with subtle glow on hover
+- Health indicator: Ring/donut chart with Electric Blue (#0EA5E9) accent
+- Sidebar cards: Deep surface (#16191D) with border-border
+- Action buttons: Primary uses success color for positive actions (Create Campaign)
+- Scorecard: Table layout with star ratings or checkbox indicators
 
 ---
 
 ## Implementation Order
 
-1. **Database migration**: Add unique constraint to campaign_leads_v2
-2. **useCampaignDraft.ts**: Add database sync logic
-3. **CandidateMatching.tsx**: Trigger early draft save
-4. **ExpandableJobRow.tsx**: Create new component
-5. **Jobs.tsx**: Integrate new component and matched count query
-6. **Testing**: Verify end-to-end flow with resume capability
+1. **Phase 1: Layout Restructure**
+   - Create two-column layout (60/40 split)
+   - Move job details to sidebar
+   - Add Quick Stats row
+
+2. **Phase 2: New Components**
+   - JobQuickStats
+   - JobDetailSidebar
+   - JobHealthIndicator
+   - JobQuickActions
+
+3. **Phase 3: New Features**
+   - Scorecards tab
+   - Notes tab
+   - Team card
+
+4. **Phase 4: Data Integration**
+   - Fetch `candidate_job_matches` count
+   - Calculate health score
+   - Add days open tracking
+
+---
+
+## Success Criteria
+
+After implementation:
+1. All critical job info visible without scrolling
+2. Quick actions always accessible (not buried in tabs)
+3. Health score provides instant job status assessment
+4. Hiring team visible for collaboration
+5. Recent activity shown without clicking Activity tab
+6. Scorecard system enables structured candidate evaluation
+7. Layout matches enterprise ATS standards (Bullhorn, Greenhouse quality)
 
