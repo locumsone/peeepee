@@ -44,6 +44,3 @@ verify_jwt = false
 
 [functions.analyze-call]
 verify_jwt = false
-
-[functions.launch-campaign]
-verify_jwt = false
