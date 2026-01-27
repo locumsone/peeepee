@@ -3968,6 +3968,16 @@ export type Database = {
         }
         Returns: string
       }
+      update_candidate_enrichment: {
+        Args: {
+          p_candidate_id: string
+          p_enrichment_source?: string
+          p_enrichment_tier?: string
+          p_personal_email?: string
+          p_personal_mobile?: string
+        }
+        Returns: undefined
+      }
       upsert_candidate_job_match: {
         Args: {
           p_candidate_id: string
