@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { 
   Users, Loader2, ArrowRight, ArrowLeft, ChevronDown, ChevronUp,
   AlertCircle, CheckCircle2, Star, Phone, X, Sparkles, Mail, MapPin, Search, Globe,
-  Filter, Shield, Zap, Target, Award
+  Filter, Shield, Zap, Target, Award, Plus
 } from "lucide-react";
 import Layout from "@/components/layout/Layout";
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { ResearchInsights } from "@/components/candidates/ResearchInsights";
+import AddCandidatesPanel from "@/components/candidates/AddCandidatesPanel";
 
 // Connection object from personalization engine
 interface ConnectionMatch {
@@ -251,8 +252,10 @@ const CandidateMatching = () => {
   const [autoResearchDone, setAutoResearchDone] = useState(false);
   const [bulkResearching, setBulkResearching] = useState(false);
   const [bulkDeepResearching, setBulkDeepResearching] = useState(false);
+  const [addPanelOpen, setAddPanelOpen] = useState(false);
 
   const effectiveJobId = jobId || "befd5ba5-4e46-41d9-b144-d4077f750035";
+
   const jobState = job?.state || job?.location?.split(', ').pop() || 'TX';
 
   // Helper functions
@@ -929,6 +932,31 @@ const CandidateMatching = () => {
     }
     
     navigate("/campaigns/new/personalize");
+  };
+
+  // Handler to merge new candidates from the AddCandidatesPanel
+  const handleAddCandidates = (newCandidates: Candidate[]) => {
+    // Merge new candidates with existing list (avoid duplicates)
+    const existingIds = new Set(candidates.map(c => c.id));
+    const uniqueNew = newCandidates.filter(c => !existingIds.has(c.id));
+    
+    if (uniqueNew.length === 0) {
+      toast.info("All selected candidates are already in your list");
+      setAddPanelOpen(false);
+      return;
+    }
+    
+    setCandidates(prev => [...prev, ...uniqueNew]);
+    
+    // Auto-select the newly added candidates
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      uniqueNew.forEach(c => next.add(c.id));
+      return next;
+    });
+    
+    toast.success(`Added ${uniqueNew.length} candidate${uniqueNew.length !== 1 ? 's' : ''} to your selection`);
+    setAddPanelOpen(false);
   };
 
   // Key indicators for a candidate
@@ -1980,17 +2008,40 @@ const CandidateMatching = () => {
             <ArrowLeft className="h-4 w-4 mr-2" />
             Back to Job
           </Button>
-          <Button
-            variant="gradient"
-            size="lg"
-            onClick={handleContinue}
-            disabled={selectedIds.size === 0}
-          >
-            Continue with {selectedIds.size} Candidates
-            <ArrowRight className="h-5 w-5 ml-2" />
-          </Button>
+          <div className="flex items-center gap-3">
+            {selectedIds.size > 0 && (
+              <Button 
+                variant="outline" 
+                onClick={() => setAddPanelOpen(true)}
+                className="bg-primary/10 border-primary/30 text-primary hover:bg-primary/20"
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add More Candidates
+              </Button>
+            )}
+            <Button
+              variant="gradient"
+              size="lg"
+              onClick={handleContinue}
+              disabled={selectedIds.size === 0}
+            >
+              Continue with {selectedIds.size} Candidates
+              <ArrowRight className="h-5 w-5 ml-2" />
+            </Button>
+          </div>
         </div>
       </div>
+
+      {/* Add More Candidates Panel */}
+      <AddCandidatesPanel
+        isOpen={addPanelOpen}
+        onClose={() => setAddPanelOpen(false)}
+        jobId={effectiveJobId}
+        jobState={jobState}
+        specialty={job?.specialty || ""}
+        existingCandidateIds={new Set(candidates.map(c => c.id))}
+        onAddCandidates={handleAddCandidates}
+      />
     </Layout>
   );
 };
