@@ -1,275 +1,343 @@
 
-# Campaigns Page Overhaul - ATS/CRM Command Center
+# Campaigns Page Overhaul + Inbox Caller Fix - Complete Implementation Plan
 
 ## Overview
 
-Transform the Campaigns page from a basic list view into a comprehensive **Outreach Command Center** that combines the best practices from Greenhouse, Outreach.io, Apollo.io, and Bullhorn. This redesign treats campaigns as **job-centric outreach trackers** with deep candidate pipeline visibility, real-time metrics, and quick actions.
+This plan implements two major features:
+1. **Campaigns Page Overhaul** - Transform the flat table into a comprehensive ATS/CRM Command Center with rich campaign cards, Kanban view, pipeline visualization, and candidate quick-view
+2. **Inbox "Unknown" Caller Fix** - Improve phone number matching and display logic to eliminate "Unknown" entries
 
 ---
 
-## Current State Analysis
+## Part 1: Campaigns Page Overhaul
 
-### Problems Identified
-1. **Flat Table Design** - No visual hierarchy or pipeline visualization
-2. **Limited Metrics** - Only shows Sent/Opened/Replied in a compressed format
-3. **No Job Context** - Missing job details (specialty, location, pay rate) that give campaigns meaning
-4. **Missing Quick Actions** - Can't call/SMS candidates directly from the list
-5. **No Pipeline View** - Can't see where candidates are in the outreach funnel
-6. **Weak Visual Status** - Status badges don't communicate urgency or health
-7. **No Candidate Preview** - Must navigate away to see candidate details
-8. **Emoji in Header** - Violates brand guidelines (no emojis in professional UI)
+### Current State Problems
+- Flat table design with no visual hierarchy
+- Missing job context (specialty, facility, pay rate, location)
+- No pipeline/funnel visualization
+- No quick actions for candidates
+- Limited metrics display (only Sent/Opened/Replied text)
+- Emoji in header violating brand guidelines
+- No Kanban or card view options
 
----
-
-## New Architecture
-
-### Three View Modes
+### New Architecture
 
 ```text
-+----------------------------------------------------------+
-|  CAMPAIGNS                                     [+ New]   |
-+----------------------------------------------------------+
-|  [List View]  [Kanban View]  [Pipeline View]             |
-+----------------------------------------------------------+
++------------------------------------------------------------------+
+|  CAMPAIGNS                        [Search]   [+ New Campaign]    |
++------------------------------------------------------------------+
+|  [List] [Kanban] [Pipeline]    Filter: [All] [Active] [Paused]   |
++------------------------------------------------------------------+
+|                                                                   |
+|  +------------------------------------------------------------+  |
+|  | [Active] IR Campaign - Interventional Radiology             |  |
+|  | Chippewa Valley Health, WI | $500/hr                        |  |
+|  +------------------------------------------------------------+  |
+|  | SENT    OPENED    REPLIED    INTERESTED                     |  |
+|  | ████░   ███░░     █░░░░      ●●○○○                          |  |
+|  | 156     42 (27%)  8 (5%)     4 leads                        |  |
+|  +------------------------------------------------------------+  |
+|  | EMAIL: 120 | SMS: 36 | CALLS: 8 connected                   |  |
+|  +------------------------------------------------------------+  |
+|  | [Pause] [View Leads] [Inbox] [Duplicate] [...]              |  |
+|  +------------------------------------------------------------+  |
+|                                                                   |
++------------------------------------------------------------------+
 ```
 
-1. **List View** (Enhanced) - Improved table with inline metrics and job context
-2. **Kanban View** - Status columns (Draft -> Active -> Paused -> Completed)
-3. **Pipeline View** - Candidate funnel visualization per campaign
+### New Components to Create
 
----
+#### 1. CampaignCard.tsx
+Rich card component displaying:
+- Campaign name + status badge with health indicator
+- Job context: specialty, facility, city/state, pay rate
+- Visual progress bars for metrics (sent, opened, replied)
+- Channel breakdown (Email, SMS, Calls) with icons
+- Quick action buttons (Pause/Resume, View Leads, Inbox, Duplicate)
 
-## Detailed Implementation
+#### 2. CampaignHealthIndicator.tsx
+Visual health status component:
+- Green dot: Healthy (Open Rate >= 30%)
+- Yellow dot: Needs Attention (Open Rate 15-30%)
+- Red dot: Low Engagement (Open Rate < 15%)
+- Tooltip with explanation
 
-### Phase 1: Enhanced Campaign Cards (List View)
+#### 3. CampaignStats.tsx
+Enhanced stats dashboard:
+- Active/Paused/Completed/Draft counts
+- Total leads across all campaigns
+- Average open rate and reply rate
+- "Hot" leads count (interested status)
 
-Replace the flat table with rich campaign cards that show:
+#### 4. CampaignKanbanBoard.tsx
+Drag-and-drop Kanban view:
+- Columns: Draft, Active, Paused, Completed
+- Compact cards showing campaign name, job, lead count
+- Drag to change status
+- Visual health indicators
 
-**Header Section**
-- Campaign name + Status badge (with health indicator dot)
-- Job: Specialty | Facility | Location | Pay Rate
-- Created date + Owner
+#### 5. CampaignPipeline.tsx
+Funnel visualization:
+- Stages: Total Leads -> Contacted -> Opened -> Replied -> Interested -> Placed
+- Visual funnel with percentages
+- Click to filter by stage
 
-**Metrics Row (Visual Progress Bars)**
-```text
-+----------------------------------------------------------+
-|  SENT    OPENED    CLICKED    REPLIED    INTERESTED      |
-|  [====]  [===]     [==]       [=]        [*]             |
-|   156    42 (27%)  18 (12%)   8 (5%)     4 (3%)          |
-+----------------------------------------------------------+
-```
+#### 6. CandidateQuickView.tsx
+Slide-out panel for campaign leads:
+- List of candidates in the campaign
+- Status badges (contacted, opened, replied, interested)
+- Quick action buttons (Call, SMS, Email)
+- Filter chips (All, Hot, Replied, Interested)
+- Search within candidates
 
-**Channel Breakdown (3-column)**
-```text
-| EMAIL          | SMS           | CALLS          |
-| 120 sent       | 36 sent       | 24 attempted   |
-| 35% open       | 89% delivered | 8 connected    |
-| 4 replied      | 2 replied     | 2 interested   |
-```
+#### 7. CampaignFilters.tsx
+Enhanced filter bar:
+- Status tabs: All, Active, Paused, Completed, Draft
+- Job dropdown filter
+- Channel filter (Email, SMS, Multi-channel)
+- Health filter (Healthy, Needs Attention, Critical)
 
-**Quick Actions Bar**
-- Play/Pause toggle
-- View Candidates (slide-out panel)
-- Jump to Communications (filtered by job)
-- Duplicate / Archive
+### Enhanced Data Fetching
 
----
-
-### Phase 2: New Components
-
-#### 1. CampaignCard Component
+Current query:
 ```typescript
-// src/components/campaigns/CampaignCard.tsx
-// Rich card with job context, visual metrics, channel breakdown
-// Includes mini candidate avatars showing top 5 leads
+const { data } = await supabase
+  .from("campaigns")
+  .select(`*, jobs (job_name)`)
 ```
 
-#### 2. CampaignKanbanBoard Component
+New query:
 ```typescript
-// src/components/campaigns/CampaignKanbanBoard.tsx
-// Drag-and-drop columns: Draft -> Active -> Paused -> Completed
-// Cards show campaign name, job, lead count, health indicator
+const { data } = await supabase
+  .from("campaigns")
+  .select(`
+    *,
+    jobs (
+      job_name,
+      specialty,
+      facility_name,
+      city,
+      state,
+      pay_rate
+    )
+  `)
+  .order("updated_at", { ascending: false });
 ```
 
-#### 3. CampaignPipeline Component
+### Interface Updates
+
 ```typescript
-// src/components/campaigns/CampaignPipeline.tsx
-// Funnel visualization showing candidate flow:
-// Total Leads -> Contacted -> Opened -> Replied -> Interested -> Placed
+interface CampaignWithJob {
+  id: string;
+  name: string | null;
+  job_id: string | null;
+  channel: string | null;
+  status: string | null;
+  leads_count: number | null;
+  created_at: string | null;
+  updated_at: string | null;
+  // Email metrics
+  emails_sent: number | null;
+  emails_opened: number | null;
+  emails_clicked: number | null;
+  emails_replied: number | null;
+  emails_bounced: number | null;
+  // SMS metrics
+  sms_sent: number | null;
+  sms_delivered: number | null;
+  sms_replied: number | null;
+  // Call metrics
+  calls_attempted: number | null;
+  calls_connected: number | null;
+  // Job context
+  jobs: {
+    job_name: string | null;
+    specialty: string | null;
+    facility_name: string | null;
+    city: string | null;
+    state: string | null;
+    pay_rate: number | null;
+  } | null;
+}
 ```
 
-#### 4. CandidateQuickView Component
+### View Modes Implementation
+
 ```typescript
-// src/components/campaigns/CandidateQuickView.tsx
-// Slide-out panel showing all candidates in a campaign
-// Inline call/SMS/email buttons per candidate
-// Status filter chips (All, Opened, Replied, Interested)
+type ViewMode = "list" | "kanban" | "pipeline";
+const [viewMode, setViewMode] = useState<ViewMode>("list");
 ```
 
-#### 5. CampaignHealthIndicator Component
-```typescript
-// src/components/campaigns/CampaignHealthIndicator.tsx
-// Green/Yellow/Red dot with tooltip explaining health
-// Based on: Open Rate, Reply Rate, Bounce Rate thresholds
-```
-
----
-
-### Phase 3: Enhanced Data Model
-
-**Extended Campaign Query**
-```sql
-SELECT 
-  c.*,
-  j.job_name, j.specialty, j.facility_name, j.city, j.state, j.pay_rate,
-  (SELECT COUNT(*) FROM campaign_leads_v2 WHERE campaign_id = c.id) as actual_leads_count,
-  (SELECT COUNT(*) FROM campaign_leads_v2 WHERE campaign_id = c.id AND status = 'interested') as interested_count,
-  (SELECT COUNT(*) FROM campaign_leads_v2 WHERE campaign_id = c.id AND status = 'placed') as placed_count
-FROM campaigns c
-LEFT JOIN jobs j ON c.job_id = j.id
-ORDER BY c.updated_at DESC
-```
-
----
-
-### Phase 4: UI/UX Improvements
-
-#### Stats Dashboard (Top of Page)
-Replace 4 simple stat cards with a more comprehensive dashboard:
+### File Structure
 
 ```text
-+-------------+-------------+-------------+-------------+-------------+
-| CAMPAIGNS   | LEADS       | OPEN RATE   | REPLY RATE  | INTERESTED  |
-| Active: 5   | Total: 234  | Avg: 32%    | Avg: 4.2%   | Total: 18   |
-| Draft: 2    | Hot: 23     | Best: 58%   | Best: 12%   | This Week: 6|
-+-------------+-------------+-------------+-------------+-------------+
-```
+src/components/campaigns/
+├── CampaignCard.tsx           # NEW - Rich campaign card
+├── CampaignHealthIndicator.tsx # NEW - Health status dot
+├── CampaignStats.tsx          # NEW - Dashboard stats
+├── CampaignKanbanBoard.tsx    # NEW - Kanban view
+├── CampaignPipeline.tsx       # NEW - Funnel view
+├── CandidateQuickView.tsx     # NEW - Slide-out panel
+├── CampaignFilters.tsx        # NEW - Enhanced filters
+├── CampaignMetrics.tsx        # EXISTING - Enhance
+└── index.ts                   # NEW - Barrel export
 
-#### Filter Enhancements
-- Add "Hot" filter (campaigns with recent replies or interested signals)
-- Add Job filter dropdown (filter by associated job)
-- Add Channel filter (Email-only, SMS-only, Multi-channel)
-- Add Health filter (Healthy, Needs Attention, Critical)
-
-#### Bulk Actions
-- Select multiple campaigns
-- Bulk Pause/Resume
-- Bulk Duplicate
-- Bulk Export to CSV
-
----
-
-### Phase 5: Campaign Detail Page Enhancements
-
-When clicking a campaign, show:
-
-**Left Panel (70%)**
-- Candidates table with sortable columns
-- Inline engagement indicators (opened/clicked/replied badges)
-- Quick action buttons per candidate
-- Bulk select + bulk actions
-
-**Right Panel (30%)**
-- Campaign summary card
-- Job details card
-- Sequence timeline (existing but enhanced)
-- Activity feed (real-time)
-
----
-
-## File Structure
-
-```text
-src/
-  pages/
-    Campaigns.tsx           # Redesigned main page
-  components/
-    campaigns/
-      CampaignCard.tsx          # NEW - Rich campaign card
-      CampaignKanbanBoard.tsx   # NEW - Kanban view
-      CampaignPipeline.tsx      # NEW - Funnel visualization
-      CandidateQuickView.tsx    # NEW - Slide-out candidate list
-      CampaignHealthIndicator.tsx # NEW - Health dot
-      CampaignFilters.tsx       # NEW - Enhanced filter bar
-      CampaignStats.tsx         # NEW - Top dashboard stats
-      CampaignMetrics.tsx       # EXISTING - Enhanced
+src/pages/
+└── Campaigns.tsx              # REWRITE - Complete overhaul
 ```
 
 ---
 
-## Technical Details
+## Part 2: Inbox "Unknown" Caller Fix
 
-### Key Features to Implement
+### Root Causes Identified
+1. Phone number normalization inconsistency
+2. Call logs with empty `phone_number` fields
+3. Incomplete candidate matching in voice-incoming webhook
+4. Display logic not falling back to formatted phone
 
-1. **Real-time Updates**
-   - Subscribe to `campaigns` and `campaign_leads_v2` changes
-   - Auto-refresh metrics when new activity comes in
+### Fixes Required
 
-2. **Performance Optimization**
-   - Virtualized list for 100+ campaigns
-   - Lazy load candidate counts
-   - Cache job details
+#### 1. Enhanced Phone Matching in useTwilioDevice.ts
+```typescript
+const normalizePhone = (phone: string): string => {
+  const digits = phone.replace(/\D/g, "");
+  return digits.slice(-10); // Last 10 digits
+};
 
-3. **Responsive Design**
-   - Cards stack on mobile
-   - Kanban scrolls horizontally
-   - Filters collapse to dropdown
-
-4. **Accessibility**
-   - Keyboard navigation in Kanban
-   - Screen reader announcements for status changes
-   - Focus management in slide-out panels
-
----
-
-## Visual Design (Xbox Corporate Theme)
-
-### Color Usage
-- Active campaigns: Electric Blue border glow
-- Paused: Warning yellow subtle border
-- Completed: Muted border
-- Health indicators: Green/Yellow/Red dots
-
-### Card Design
-```text
-+----------------------------------------------------------+
-| [Status Dot] Campaign Name                    [Active ▼] |
-| IR - Interventional Radiology                            |
-| 📍 Chippewa Valley, WI | $500/hr                        |
-+----------------------------------------------------------+
-|  METRICS PROGRESS BARS                                   |
-|  ████████░░░░  Sent: 156                                |
-|  █████░░░░░░░  Opened: 42 (27%)                         |
-|  ██░░░░░░░░░░  Replied: 8 (5%)                          |
-+----------------------------------------------------------+
-| [📧 Email]  [💬 SMS]  [📞 Calls]                        |
-|  120 sent   36 sent   8 connected                        |
-+----------------------------------------------------------+
-| [⏸ Pause] [👥 View Leads] [💬 Go to Inbox] [⋮ More]     |
-+----------------------------------------------------------+
+// Query with multiple field matching
+const { data: candidate } = await supabase
+  .from("candidates")
+  .select("id, first_name, last_name, specialty, state")
+  .or(`
+    phone.ilike.%${last10},
+    personal_mobile.ilike.%${last10},
+    phone_enriched.ilike.%${last10}
+  `)
+  .limit(1)
+  .maybeSingle();
 ```
 
----
+#### 2. voice-incoming Edge Function Updates
+- Normalize phone numbers on both inbound and outbound
+- Match against all phone fields (phone, personal_mobile, phone_enriched)
+- Set candidate_name immediately when match found
+- Update ai_call_logs with proper candidate context
 
-## Success Metrics
+#### 3. Communications.tsx Display Logic
+```typescript
+// For call logs
+const displayName = call.candidate_name && call.candidate_name !== ""
+  ? call.candidate_name
+  : formatPhoneNumber(call.phone_number) || "Unknown";
 
-After implementation, users should be able to:
-1. See campaign health at a glance (5 seconds)
-2. Filter to "hot" campaigns with one click
-3. Call/SMS a candidate without leaving the page
-4. Understand which campaigns need attention immediately
-5. Track candidate progress through the funnel visually
+// Filter out invalid entries
+.filter((call) => call.phone_number && call.phone_number !== "")
+```
+
+#### 4. ConversationDetail.tsx Header Fix
+```typescript
+const displayPhone = callData?.phone_number || conversation.candidatePhone;
+const displayName = callData?.candidate_name && callData.candidate_name !== ""
+  ? callData.candidate_name
+  : conversation.candidateName && conversation.candidateName !== "Unknown"
+    ? conversation.candidateName
+    : formatPhoneNumber(displayPhone) || "Unknown";
+```
 
 ---
 
 ## Implementation Order
 
-1. Create new component files (empty shells)
-2. Implement CampaignCard with enhanced layout
-3. Implement CampaignStats dashboard
-4. Implement CampaignFilters with new options
-5. Integrate into redesigned Campaigns.tsx
-6. Add CandidateQuickView slide-out panel
-7. Implement CampaignKanbanBoard view mode
-8. Add real-time subscriptions
-9. Polish animations and transitions
+### Phase 1: Inbox Fix (Quick Win)
+1. Update useTwilioDevice.ts phone matching
+2. Update voice-incoming edge function
+3. Fix Communications.tsx display logic
+4. Fix ConversationDetail.tsx header
+
+### Phase 2: Campaign Components
+1. Create CampaignHealthIndicator.tsx
+2. Create CampaignCard.tsx with full layout
+3. Create CampaignStats.tsx dashboard
+4. Create CampaignFilters.tsx
+
+### Phase 3: Views and Panels
+1. Create CandidateQuickView.tsx slide-out
+2. Create CampaignKanbanBoard.tsx
+3. Create CampaignPipeline.tsx
+
+### Phase 4: Main Page Integration
+1. Rewrite Campaigns.tsx with new components
+2. Add view mode toggle
+3. Add real-time subscriptions
+4. Remove emoji from header
+
+---
+
+## Technical Specifications
+
+### Real-time Subscriptions
+```typescript
+useEffect(() => {
+  const channel = supabase
+    .channel("campaigns-realtime")
+    .on("postgres_changes", {
+      event: "*",
+      schema: "public",
+      table: "campaigns",
+    }, () => refetch())
+    .subscribe();
+  return () => supabase.removeChannel(channel);
+}, []);
+```
+
+### Health Calculation Logic
+```typescript
+const calculateHealth = (campaign: CampaignWithJob): "healthy" | "warning" | "critical" => {
+  const sent = campaign.emails_sent || 0;
+  if (sent === 0) return "warning";
+  
+  const openRate = (campaign.emails_opened || 0) / sent * 100;
+  if (openRate >= 30) return "healthy";
+  if (openRate >= 15) return "warning";
+  return "critical";
+};
+```
+
+### Xbox Corporate Theme Styling
+- Card backgrounds: `bg-card` (#16191D)
+- Active glow: `shadow-glow` with Electric Blue
+- Status colors: Success (green), Warning (yellow), Destructive (red)
+- Progress bars with gradient fills
+- No emojis anywhere in the UI
+
+---
+
+## Files to Create
+1. `src/components/campaigns/CampaignCard.tsx`
+2. `src/components/campaigns/CampaignHealthIndicator.tsx`
+3. `src/components/campaigns/CampaignStats.tsx`
+4. `src/components/campaigns/CampaignFilters.tsx`
+5. `src/components/campaigns/CandidateQuickView.tsx`
+6. `src/components/campaigns/CampaignKanbanBoard.tsx`
+7. `src/components/campaigns/CampaignPipeline.tsx`
+8. `src/components/campaigns/index.ts`
+
+## Files to Modify
+1. `src/pages/Campaigns.tsx` - Complete rewrite
+2. `src/pages/Communications.tsx` - Display logic fixes
+3. `src/components/inbox/ConversationDetail.tsx` - Header fix
+4. `src/hooks/useTwilioDevice.ts` - Phone matching improvement
+5. `supabase/functions/voice-incoming/index.ts` - Candidate lookup fix
+
+---
+
+## Success Criteria
+1. No "Unknown" entries in inbox when phone number exists
+2. Campaign cards show job context (specialty, facility, location, pay rate)
+3. Visual health indicators on all campaigns
+4. View mode toggle works (List/Kanban/Pipeline)
+5. Candidate quick-view panel opens from campaign
+6. Real-time updates when campaign data changes
+7. No emojis in the UI
+8. Xbox Corporate theme applied consistently
