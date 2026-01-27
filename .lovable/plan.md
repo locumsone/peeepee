@@ -1,377 +1,207 @@
 
-# Auto-Save Progress & Local Candidates Count Improvements
+# Campaign Review Final Step Fixes
 
-## Overview
+## Issues Identified
 
-This plan addresses two key issues:
-1. **Auto-Save Visibility**: Display a persistent "Saved just now" indicator in the Campaign Builder header so users know their progress is being saved
-2. **Accurate Local Candidate Counts**: Show the real number of local candidates available in the database (e.g., 162 for Indiana) instead of just the loaded batch (8), with an option to load more local candidates in batches of 25-50
+After extensive investigation, I found multiple issues affecting the campaign review workflow:
 
----
+### Issue 1: "Campaign Not Found" Error
+- **Root Cause**: The `launch-campaign` Edge Function does **not exist** in the codebase
+- The `LaunchStatusBar.tsx` attempts to invoke `supabase.functions.invoke("launch-campaign")` on line 160
+- When this fails, there's a fallback that inserts directly into the `campaigns` table
+- However, if the fallback also fails or the returned campaign ID is malformed, the redirect to `/campaigns/{id}` fails, showing "Campaign not found"
 
-## Current State Analysis
+### Issue 2: Personalized Data Not Saving
+- **Root Cause**: The `icebreaker`, `talking_points`, `email_subject`, `email_body`, and `sms_message` fields on candidates are only stored in **session/local storage** via `useCampaignDraft.ts`
+- These are passed to the launch function but never persisted to the database:
+  - The fallback insert (line 198-205) only saves `candidate_name`, `candidate_email`, `candidate_phone`, `status`
+  - Missing: `icebreaker`, `talking_points`, personalized messages
+- The `campaign_leads_v2` table has limited fields and doesn't store personalization
 
-### Auto-Save System
-- The `useCampaignDraft` hook exists and provides:
-  - `lastSaved: Date | null` - timestamp of last save
-  - `isDirty: boolean` - whether there are unsaved changes
-  - Auto-saves every 30 seconds to `localStorage` and `sessionStorage`
-- The `AutoSaveIndicator` component exists but is **only used in CampaignReview**, not across the entire Campaign Builder flow
+### Issue 3: Manual Entry for PDL Failures - Missing Feature
+- Currently, when PDL enrichment fails (marked as "not_found"), there's no way to manually enter email/phone
+- The results table shows a red X with "Not Found" but no edit button
 
-### Local Candidate Counts
-- Database query shows **162 IR candidates in Indiana** but the page only loads 50 at a time
-- `filterCounts.local` shows only **8** because it counts from the loaded `candidates` array, not from the database
-- The AI matcher function uses a `campaign_candidate_search` database function that returns up to 500 candidates
+### Issue 4: Already-Enriched Check - Partially Implemented
+- The `handleEnrichAll` function in `StepPrepareCandidates.tsx` (lines 70-117) already checks the database for cached enrichment
+- However, it only checks `personal_email` and `personal_mobile`, not `contact_enrichment_source`
+- The visual feedback for cached vs. new enrichment could be clearer
+
+### Issue 5: Campaign Send/Tracking Verification
+The launch flow has gaps:
+- **Email**: Relies on `launch-campaign` Edge Function (which doesn't exist) to create Instantly campaigns
+- **SMS**: The `sms-campaign-send` Edge Function exists and properly creates `sms_conversations` and `sms_messages`, which are tracked in Communications
+- **AI Calls**: Would be queued via `ai_call_queue` but again depends on the missing `launch-campaign` function
 
 ---
 
 ## Implementation Plan
 
-### Part 1: Global Auto-Save Indicator
+### Part 1: Create Launch Campaign Edge Function
+Create `supabase/functions/launch-campaign/index.ts`:
 
-#### 1.1 Update Layout Component to Accept Auto-Save Props
+```text
+Responsibilities:
+1. Create campaign record in 'campaigns' table with status='active'
+2. Create campaign_leads_v2 records with personalization data
+3. Queue SMS messages via sms-campaign-send for Day 1
+4. Create Instantly email campaign (if email channel enabled)
+5. Queue AI calls in ai_call_queue (if voice channel enabled)
+6. Return campaign_id for redirect
+```
 
-**File: `src/components/layout/Layout.tsx`**
+### Part 2: Fix Personalization Data Persistence
+Update `LaunchStatusBar.tsx` fallback insert (lines 198-205):
 
-Add optional props for auto-save state and display the indicator in the header next to "Campaign Builder":
+```text
+Add these fields to campaign_leads_v2 insert:
+- match_score (from unified_score)
+- tier
+- notes (concatenated icebreaker + talking_points)
+- And ensure the launch-campaign function saves full personalization
+```
 
-```typescript
-interface LayoutProps {
-  children: ReactNode;
-  currentStep?: number;
-  showSteps?: boolean;
-  // New auto-save props
-  lastSaved?: Date | null;
-  isDirty?: boolean;
-  isSaving?: boolean;
+### Part 3: Add Manual Entry for Failed Enrichments
+Update `StepPrepareCandidates.tsx`:
+
+1. Add "Edit" button in the results table for failed/not_found candidates
+2. Create inline editing dialog with:
+   - Email input field
+   - Phone input field (with format validation)
+   - Save button that updates the candidate record
+3. Update the `EnrichmentResult` interface to support manual entries
+
+Visual mockup:
+```text
+| Status   | Name               | Email           | Phone          | Actions    |
+|----------|--------------------|-----------------|----------------|------------|
+| [X]      | Dr. John Smith     | --              | --             | [Edit] btn |
+```
+
+Clicking Edit opens a dialog:
+```text
++------------------------------------------+
+| Manual Contact Entry                     |
+| Dr. John Smith                           |
+|                                          |
+| Email: [________________________]        |
+| Phone: [________________________]        |
+|                                          |
+| [Cancel]                    [Save]       |
++------------------------------------------+
+```
+
+### Part 4: Improve Already-Enriched Detection
+Update enrichment check in `StepPrepareCandidates.tsx`:
+
+```text
+Current check (line 82):
+  dbRecord?.personal_email || dbRecord?.personal_mobile
+
+Enhanced check:
+  dbRecord?.personal_email || 
+  dbRecord?.personal_mobile ||
+  dbRecord?.contact_enrichment_source // If previously enriched via PDL/Whitepages
+```
+
+Also add a "source" column to the results table showing:
+- "PDL (cached)" - already had PDL data
+- "PDL" - newly enriched via PDL
+- "Whitepages" - newly enriched via Whitepages
+- "Manual" - manually entered
+
+### Part 5: Communications Tracking Verification
+Ensure the launch creates proper tracking records:
+
+1. **SMS Tracking**: The `sms-campaign-send` function already creates:
+   - `sms_conversations` record linked to `campaign_id` and `candidate_id`
+   - `sms_messages` record with delivery status
+   - Real-time updates via Supabase subscription in `Communications.tsx`
+
+2. **Email Tracking**: Via Instantly webhooks (`instantly-webhook/index.ts`):
+   - `campaign_events` table tracks opens, clicks, replies
+   - `campaigns` table stats are updated (emails_sent, emails_opened, etc.)
+
+3. **Call Tracking**: Via `ai_call_logs` table:
+   - Updated by `voice-incoming` webhook
+   - Displayed in Communications Hub "Calls" tab
+
+---
+
+## Files to Create/Modify
+
+### New Files:
+1. `supabase/functions/launch-campaign/index.ts` - Main launch orchestration
+2. `src/components/campaign-review/ManualEntryDialog.tsx` - Manual contact entry modal
+
+### Modified Files:
+1. `src/components/campaign-review/StepPrepareCandidates.tsx`:
+   - Add manual entry button in results table
+   - Improve cached enrichment detection
+   - Add source column to results table
+
+2. `src/components/campaign-review/LaunchStatusBar.tsx`:
+   - Update fallback insert to include personalization fields
+   - Add pre-flight check for edge function availability
+
+3. `supabase/config.toml`:
+   - Add `[functions.launch-campaign]` configuration
+
+---
+
+## Technical Details
+
+### launch-campaign Edge Function Structure:
+
+```text
+Input:
+{
+  job_id: string,
+  campaign_name: string,
+  sender_email: string,
+  channels: ChannelConfig,
+  candidates: [{
+    id, first_name, last_name, email, phone,
+    icebreaker, talking_points, email_subject, 
+    email_body, sms_message, tier
+  }]
+}
+
+Flow:
+1. Create campaign record -> get campaign_id
+2. Insert campaign_leads_v2 with personalization
+3. For each candidate with phone:
+   - Queue Day 1 SMS via sms-campaign-send
+   - Create sms_conversation record
+4. For each candidate with email:
+   - Create Instantly lead (if INSTANTLY_API_KEY exists)
+5. For AI calls (if enabled):
+   - Insert into ai_call_queue with scheduled_at
+6. Return { success: true, campaign_id }
+
+Output:
+{
+  success: boolean,
+  campaign_id: string,
+  message: string,
+  stats: { emails_queued, sms_queued, calls_queued }
 }
 ```
 
-In the header, add the AutoSaveIndicator after the "Campaign Builder" label:
+### Manual Entry Dialog Props:
 
-```typescript
-<header className="sticky top-0 z-50 h-14 flex items-center justify-between ...">
-  <div className="flex items-center gap-4">
-    <SidebarTrigger ... />
-    <div className="h-4 w-px bg-border" />
-    <span className="text-sm font-medium text-muted-foreground">Campaign Builder</span>
-    {/* Auto-save indicator */}
-    {lastSaved !== undefined && (
-      <>
-        <div className="h-4 w-px bg-border" />
-        <AutoSaveIndicator 
-          lastSaved={lastSaved} 
-          isDirty={isDirty ?? false}
-          isSaving={isSaving}
-        />
-      </>
-    )}
-  </div>
-  <UserMenu />
-</header>
-```
-
-#### 1.2 Integrate useCampaignDraft in Key Campaign Builder Pages
-
-**Files to update:**
-- `src/pages/CampaignBuilder.tsx` (Step 1: Job Selection)
-- `src/pages/CandidateMatching.tsx` (Step 2: Match Candidates)
-- `src/pages/CampaignReview.tsx` (already has it)
-
-Each page will:
-1. Import and use the `useCampaignDraft` hook
-2. Pass `lastSaved`, `isDirty` to the Layout component
-3. Call the appropriate update functions when state changes
-
-**Example for CandidateMatching.tsx:**
-
-```typescript
-import { useCampaignDraft } from "@/hooks/useCampaignDraft";
-
-const CandidateMatching = () => {
-  const { lastSaved, isDirty, updateCandidates } = useCampaignDraft();
-  
-  // ... existing state ...
-
-  // Sync added candidates to draft when they change
-  useEffect(() => {
-    if (addedToJobIds.size > 0) {
-      const addedCandidates = candidates.filter(c => addedToJobIds.has(c.id));
-      updateCandidates(addedCandidates as SelectedCandidate[]);
-    }
-  }, [addedToJobIds, candidates]);
-
-  return (
-    <Layout currentStep={2} lastSaved={lastSaved} isDirty={isDirty}>
-      {/* ... */}
-    </Layout>
-  );
-};
-```
-
-#### 1.3 Clear Draft on Campaign Launch
-
-**File: `src/pages/CampaignReview.tsx`**
-
-After successful campaign launch, call `clearDraft()`:
-
-```typescript
-const handleLaunch = async () => {
-  // ... launch logic ...
-  if (success) {
-    clearDraft(); // Clear all saved progress
-    navigate(`/campaigns/${campaignId}`);
-  }
-};
-```
-
----
-
-### Part 2: Accurate Local Candidate Counts & "Load More Local" Feature
-
-#### 2.1 Fetch Total Local Count from Database
-
-**File: `src/pages/CandidateMatching.tsx`**
-
-Add a new state and API call to get the total count of local candidates matching the specialty:
-
-```typescript
-// New state for actual database totals
-const [dbTotals, setDbTotals] = useState<{
-  localTotal: number;
-  otherTotal: number;
-} | null>(null);
-
-// Fetch total counts on mount
-useEffect(() => {
-  const fetchTotalCounts = async () => {
-    if (!job?.specialty || !jobState) return;
-    
-    const { data, error } = await supabase
-      .rpc('get_candidate_counts_by_state', {
-        p_specialty: job.specialty,
-        p_job_state: jobState
-      });
-    
-    if (!error && data) {
-      setDbTotals({
-        localTotal: data.local_count,
-        otherTotal: data.other_count
-      });
-    }
+```text
+interface ManualEntryDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  candidate: {
+    id: string;
+    name: string;
+    currentEmail?: string;
+    currentPhone?: string;
   };
-  
-  fetchTotalCounts();
-}, [job?.specialty, jobState]);
+  onSave: (email: string | null, phone: string | null) => Promise<void>;
+}
 ```
 
-#### 2.2 Create Database Function for Counts
-
-**New Migration:**
-
-```sql
-CREATE OR REPLACE FUNCTION get_candidate_counts_by_state(
-  p_specialty TEXT,
-  p_job_state TEXT
-)
-RETURNS TABLE(local_count INTEGER, other_count INTEGER)
-LANGUAGE plpgsql
-AS $$
-BEGIN
-  RETURN QUERY
-  SELECT 
-    COUNT(*) FILTER (WHERE c.state = p_job_state)::INTEGER AS local_count,
-    COUNT(*) FILTER (WHERE c.state != p_job_state)::INTEGER AS other_count
-  FROM candidates c
-  WHERE c.specialty ILIKE '%' || p_specialty || '%';
-END;
-$$;
-```
-
-#### 2.3 Update LOCAL Section Header with Real Counts
-
-**File: `src/pages/CandidateMatching.tsx`**
-
-Update the LOCAL CANDIDATES section header to show:
-- Loaded count: `localPoolCandidates.length`
-- Database total: `dbTotals?.localTotal`
-
-```typescript
-{/* LOCAL CANDIDATES SECTION */}
-<div className="flex items-center justify-between px-4 py-3 rounded-xl bg-success/10 border border-success/30">
-  <div className="flex items-center gap-3">
-    <MapPin className="h-5 w-5 text-success" />
-    <div>
-      <h3 className="font-semibold text-success flex items-center gap-2">
-        LOCAL CANDIDATES
-        <Badge className="bg-success text-success-foreground">
-          {localPoolCandidates.length}
-          {dbTotals?.localTotal && dbTotals.localTotal > localPoolCandidates.length && (
-            <span className="ml-1 opacity-80">/ {dbTotals.localTotal} in database</span>
-          )}
-        </Badge>
-      </h3>
-      <p className="text-xs text-success/70">
-        Faster credentialing • No relocation • Immediate availability
-      </p>
-    </div>
-  </div>
-  <div className="flex items-center gap-2">
-    {/* Load More Local button - only show if more exist */}
-    {dbTotals?.localTotal && dbTotals.localTotal > candidates.filter(c => c.state === jobState).length && (
-      <Button
-        size="sm"
-        variant="outline"
-        onClick={handleLoadMoreLocal}
-        disabled={isLoadingMoreLocal}
-        className="border-success/30 text-success hover:bg-success/10"
-      >
-        {isLoadingMoreLocal ? (
-          <Loader2 className="h-4 w-4 animate-spin mr-1" />
-        ) : (
-          <Plus className="h-4 w-4 mr-1" />
-        )}
-        Load 25 More Local
-      </Button>
-    )}
-    <Button
-      size="sm"
-      onClick={handleAddAllLocal}
-      className="bg-success text-success-foreground hover:bg-success/90"
-    >
-      <Plus className="h-4 w-4 mr-1" />
-      Add All ({localPoolCandidates.length})
-    </Button>
-  </div>
-</div>
-```
-
-#### 2.4 Add "Load More Local" Handler
-
-**File: `src/pages/CandidateMatching.tsx`**
-
-Create a new handler that specifically fetches more local candidates:
-
-```typescript
-const [isLoadingMoreLocal, setIsLoadingMoreLocal] = useState(false);
-
-const handleLoadMoreLocal = async () => {
-  setIsLoadingMoreLocal(true);
-  
-  try {
-    // Get current local candidate IDs to exclude
-    const existingLocalIds = candidates
-      .filter(c => c.state === jobState)
-      .map(c => c.id);
-    
-    const { data, error } = await supabase
-      .from('candidates')
-      .select(`
-        id, first_name, last_name, specialty, state, city,
-        licenses, enrichment_tier, enrichment_source,
-        personal_mobile, personal_email, phone, email, npi
-      `)
-      .ilike('specialty', `%${job?.specialty}%`)
-      .eq('state', jobState)
-      .not('id', 'in', `(${existingLocalIds.join(',')})`)
-      .limit(25);
-    
-    if (error) throw error;
-    
-    if (data && data.length > 0) {
-      // Transform to match Candidate interface
-      const newCandidates = data.map(c => transformCandidate(c, jobState));
-      setCandidates(prev => [...prev, ...newCandidates]);
-      toast.success(`Loaded ${data.length} more local candidates`);
-    } else {
-      toast.info('No more local candidates available');
-    }
-  } catch (err) {
-    console.error('Error loading more local candidates:', err);
-    toast.error('Failed to load more candidates');
-  } finally {
-    setIsLoadingMoreLocal(false);
-  }
-};
-
-// Helper function to transform DB result to Candidate interface
-const transformCandidate = (c: any, jobState: string): Candidate => ({
-  id: c.id,
-  first_name: c.first_name || '',
-  last_name: c.last_name || '',
-  specialty: c.specialty || '',
-  state: c.state || '',
-  city: c.city || '',
-  licenses: c.licenses || [],
-  licenses_count: (c.licenses || []).length,
-  enrichment_tier: c.enrichment_tier || 'Unknown',
-  enrichment_source: c.enrichment_source,
-  unified_score: calculateUnifiedScore(c, jobState),
-  match_strength: calculateMatchStrength(c, jobState),
-  score_reason: `Loaded via "Load More Local"`,
-  icebreaker: '',
-  talking_points: [],
-  has_personal_contact: !!(c.personal_mobile || c.personal_email),
-  needs_enrichment: !(c.personal_mobile || c.personal_email),
-  is_enriched: !!(c.personal_mobile || c.personal_email),
-  personal_mobile: c.personal_mobile,
-  personal_email: c.personal_email,
-  work_email: c.email,
-  work_phone: c.phone,
-  npi: c.npi,
-  source: 'load_more_local',
-  is_local: c.state === jobState,
-});
-```
-
----
-
-## Files to Modify
-
-| File | Changes |
-|------|---------|
-| `src/components/layout/Layout.tsx` | Add auto-save props and display AutoSaveIndicator in header |
-| `src/pages/CandidateMatching.tsx` | Integrate useCampaignDraft, add dbTotals state, add handleLoadMoreLocal |
-| `src/pages/CampaignBuilder.tsx` | Integrate useCampaignDraft, pass auto-save props to Layout |
-| `src/pages/CampaignReview.tsx` | Call clearDraft() on successful launch |
-| `supabase/migrations/` | Add get_candidate_counts_by_state function |
-
----
-
-## Visual Summary
-
-### Header with Auto-Save Indicator
-```text
-┌──────────────────────────────────────────────────────────────────┐
-│ ☰  │  Campaign Builder  │  ☁ Saved just now        [UserMenu]  │
-└──────────────────────────────────────────────────────────────────┘
-```
-
-### LOCAL Section with Counts
-```text
-┌── LOCAL CANDIDATES ──────────────────────────────────────────────┐
-│ 📍 LOCAL CANDIDATES [8 / 162 in database]   [Load 25 More] [Add]│
-│ Faster credentialing • No relocation • Immediate availability   │
-├──────────────────────────────────────────────────────────────────┤
-│ Dr. Harris    LOCAL  A+ 99%  ...                                │
-│ Dr. Natarajan LOCAL  A+ 99%  ...                                │
-│ ...                                                              │
-└──────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## Expected Behavior
-
-1. **Auto-Save Visibility**:
-   - Header shows "Saved just now" or "Saved 2 min ago" after any state change
-   - Shows "Unsaved changes" (amber) if dirty and not yet saved
-   - Shows "Saving..." with spinner during save
-   - Cleared when campaign is launched
-
-2. **Local Candidate Counts**:
-   - Section header shows "8 / 162 in database" format
-   - "Load 25 More Local" button appears when more exist
-   - Each click loads 25 more local candidates from DB
-   - Stats update in real-time as more candidates are loaded
-   - Button disappears when all local candidates are loaded
+This plan addresses all the reported issues and ensures campaigns will properly send and track in the Communications area.
