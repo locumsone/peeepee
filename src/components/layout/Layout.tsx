@@ -3,11 +3,16 @@ import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "./AppSidebar";
 import StepIndicator from "./StepIndicator";
 import { UserMenu } from "./UserMenu";
+import { AutoSaveIndicator } from "@/components/campaign-review/AutoSaveIndicator";
 
 interface LayoutProps {
   children: ReactNode;
   currentStep?: number;
   showSteps?: boolean;
+  // Auto-save state props
+  lastSaved?: Date | null;
+  isDirty?: boolean;
+  isSaving?: boolean;
 }
 
 const steps = [
@@ -17,7 +22,7 @@ const steps = [
   { number: 4, label: "Launch" },
 ];
 
-const Layout = ({ children, currentStep = 1, showSteps = true }: LayoutProps) => {
+const Layout = ({ children, currentStep = 1, showSteps = true, lastSaved, isDirty, isSaving }: LayoutProps) => {
   return (
     <SidebarProvider>
       <div className="min-h-screen flex w-full bg-background">
@@ -30,6 +35,17 @@ const Layout = ({ children, currentStep = 1, showSteps = true }: LayoutProps) =>
               <SidebarTrigger className="text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors rounded-md" />
               <div className="h-4 w-px bg-border" />
               <span className="text-sm font-medium text-muted-foreground">Campaign Builder</span>
+              {/* Auto-save indicator in header */}
+              {lastSaved !== undefined && (
+                <>
+                  <div className="h-4 w-px bg-border" />
+                  <AutoSaveIndicator 
+                    lastSaved={lastSaved} 
+                    isDirty={isDirty ?? false}
+                    isSaving={isSaving}
+                  />
+                </>
+              )}
             </div>
             <UserMenu />
           </header>

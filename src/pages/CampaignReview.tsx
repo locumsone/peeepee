@@ -419,6 +419,7 @@ export default function CampaignReview() {
         lastSaved={lastSaved}
         isDirty={isDirty}
         onSaveDraft={saveDraft}
+        onLaunchSuccess={clearDraft}
       />
 
       {/* Draft Recovery Modal */}

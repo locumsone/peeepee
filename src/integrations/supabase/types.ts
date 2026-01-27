@@ -3874,6 +3874,13 @@ export type Database = {
         }[]
       }
       get_available_telnyx_number: { Args: never; Returns: string }
+      get_candidate_counts_by_state: {
+        Args: { p_job_state: string; p_specialty: string }
+        Returns: {
+          local_count: number
+          other_count: number
+        }[]
+      }
       get_complete_schema: { Args: never; Returns: Json }
       get_user_by_email: {
         Args: { user_email: string }

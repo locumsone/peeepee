@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { useCampaignDraft } from "@/hooks/useCampaignDraft";
 
 interface Job {
   id: string;
@@ -58,6 +59,9 @@ const CampaignBuilder = () => {
   const [searchParams] = useSearchParams();
   const preselectedJobId = searchParams.get("jobId");
   
+  // Auto-save integration
+  const { lastSaved, isDirty, updateJob } = useCampaignDraft();
+  
   // Job selection state
   const [activeTab, setActiveTab] = useState<"select" | "create">("select");
   const [searchQuery, setSearchQuery] = useState("");
@@ -73,6 +77,23 @@ const CampaignBuilder = () => {
   
   // Editable parsed job fields
   const [editableJob, setEditableJob] = useState<ParsedJob | null>(null);
+  
+  // Sync selected job to draft for auto-save
+  useEffect(() => {
+    if (selectedJob) {
+      updateJob({
+        id: selectedJob.id,
+        job_name: selectedJob.job_name || undefined,
+        facility_name: selectedJob.facility_name || undefined,
+        city: selectedJob.city || undefined,
+        state: selectedJob.state || undefined,
+        specialty: selectedJob.specialty || undefined,
+        bill_rate: selectedJob.bill_rate,
+        pay_rate: selectedJob.pay_rate,
+        start_date: selectedJob.start_date,
+      }, selectedJob.id);
+    }
+  }, [selectedJob, updateJob]);
 
   useEffect(() => {
     fetchJobs();
@@ -233,7 +254,7 @@ const CampaignBuilder = () => {
   };
 
   return (
-    <Layout showSteps={false}>
+    <Layout showSteps={false} lastSaved={lastSaved} isDirty={isDirty}>
       <div className="mx-auto max-w-5xl space-y-8 pb-8">
         {/* Step Indicator */}
         <div className="w-full py-6">

@@ -38,6 +38,7 @@ interface LaunchStatusBarProps {
   lastSaved?: Date | null;
   isDirty?: boolean;
   onSaveDraft?: () => void;
+  onLaunchSuccess?: () => void;
 }
 
 interface PreFlightCheck {
@@ -59,6 +60,7 @@ export function LaunchStatusBar({
   lastSaved,
   isDirty,
   onSaveDraft,
+  onLaunchSuccess,
 }: LaunchStatusBarProps) {
   const navigate = useNavigate();
   const [isLaunchModalOpen, setIsLaunchModalOpen] = useState(false);
@@ -209,6 +211,8 @@ export function LaunchStatusBar({
           description: `${campaignName} is now active with ${candidates.length} candidates`,
         });
 
+        // Clear draft and session storage
+        onLaunchSuccess?.();
         sessionStorage.clear();
         navigate(`/campaigns/${campaignData.id}`);
       } else {
@@ -217,6 +221,8 @@ export function LaunchStatusBar({
           description: data?.message || `${campaignName} is now active`,
         });
 
+        // Clear draft and session storage
+        onLaunchSuccess?.();
         sessionStorage.clear();
         navigate(data?.campaign_id ? `/campaigns/${data.campaign_id}` : "/campaigns");
       }
