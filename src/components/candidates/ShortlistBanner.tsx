@@ -64,7 +64,8 @@ const ShortlistBanner = ({
 
   return (
     <Collapsible open={isExpanded} onOpenChange={setIsExpanded}>
-      <div className="rounded-xl bg-gradient-to-r from-primary/10 via-success/5 to-primary/10 border-2 border-primary/30 overflow-hidden">
+      {/* P0: Enhanced visibility with animate-fade-in and stronger gradient */}
+      <div className="rounded-xl bg-gradient-to-r from-success/15 via-primary/10 to-success/15 border-2 border-success/40 overflow-hidden animate-fade-in shadow-lg shadow-success/10">
         {/* Header - Always visible */}
         <div className="px-5 py-3 flex items-center justify-between">
           <div className="flex items-center gap-4">
