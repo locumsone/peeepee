@@ -1690,6 +1690,8 @@ export type Database = {
           clinical_competencies: string[] | null
           compact_license: boolean | null
           company_name: string | null
+          contact_enriched_at: string | null
+          contact_enrichment_source: string | null
           contract_breaches: number | null
           covid_vaccination_status: string | null
           created_at: string | null
@@ -1801,6 +1803,8 @@ export type Database = {
           clinical_competencies?: string[] | null
           compact_license?: boolean | null
           company_name?: string | null
+          contact_enriched_at?: string | null
+          contact_enrichment_source?: string | null
           contract_breaches?: number | null
           covid_vaccination_status?: string | null
           created_at?: string | null
@@ -1912,6 +1916,8 @@ export type Database = {
           clinical_competencies?: string[] | null
           compact_license?: boolean | null
           company_name?: string | null
+          contact_enriched_at?: string | null
+          contact_enrichment_source?: string | null
           contract_breaches?: number | null
           covid_vaccination_status?: string | null
           created_at?: string | null
