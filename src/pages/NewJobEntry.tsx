@@ -222,7 +222,7 @@ const NewJobEntry = () => {
         description: "Navigating to candidate matching...",
       });
 
-      navigate(`/candidates?jobId=${data.id}`);
+      navigate(`/candidates/matching?jobId=${data.id}`);
     } catch (error) {
       console.error("Error saving job:", error);
       toast({

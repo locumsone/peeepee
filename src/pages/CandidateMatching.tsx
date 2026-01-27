@@ -271,7 +271,7 @@ const CandidateMatching = () => {
   // Auto-save integration
   const { lastSaved, isDirty, updateCandidates, updateJob } = useCampaignDraft();
 
-  const effectiveJobId = jobId || "befd5ba5-4e46-41d9-b144-d4077f750035";
+  const effectiveJobId = jobId;
 
   const jobState = job?.state || job?.location?.split(', ').pop() || 'TX';
 
