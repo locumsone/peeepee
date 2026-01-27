@@ -1,143 +1,115 @@
 
+# Deep Research Bug Fix
 
-# Backend Connection Fixes for ATS Features
+## Problem Summary
+
+The "Deep Research" feature appears to work but returns cached results instead of performing actual Perplexity web searches. Users see "Deep" badges and cached research summaries, but no fresh web research is executed.
 
 ## Root Cause Analysis
 
-I traced through the entire campaign flow and found **multiple critical issues** causing the "0 leads" problem:
+### Issue 1: Aggressive Cache Validation (Edge Function)
 
-### Issue 1: Candidates Not Being Saved to `campaign_leads_v2`
-**Evidence from edge function logs:**
-```
-[launch-campaign] Starting launch for job ... with 0 candidates
-[launch-campaign] Inserted 0 leads
-```
+In `personalization-research/index.ts` lines 703-722, the cache logic treats candidates as "deeply researched" based solely on icebreaker length (>60 chars), without verifying if actual Perplexity web research was performed.
 
-The edge function receives **0 candidates** in its payload even though users selected them.
-
-### Issue 2: Data Sync Gap Between Pages
-The campaign builder has a fragmented data flow:
 ```text
-CandidateMatching -> PersonalizationStudio -> SequenceStudio -> CampaignReview -> launch-campaign
-     |                      |                      |                   |
-     v                      v                      v                   v
-sessionStorage          sessionStorage         sessionStorage      useCampaignDraft
-(campaign_candidates)   (campaign_candidates)  (campaign_channels)     |
-                                                                       v
-                                                              Reads from draft OR legacy keys
+Current Logic:
+- icebreaker > 60 chars + talking_points exist → treat as deeply researched
+- Connection engine generates icebreakers > 60 chars
+- Result: All connection-based icebreakers pass the cache check
 ```
 
-**Problem:** The `useCampaignDraft` hook checks `localStorage` first for a unified draft. If an old/stale draft exists there with 0 candidates, it uses that instead of the fresh `sessionStorage` data.
+### Issue 2: Missing Deep Research Flag in Database
 
-### Issue 3: Draft Hook Priority Issue
-In `useCampaignDraft.ts` lines 190-207:
-```typescript
-const storedDraft = localStorage.getItem(DRAFT_KEY);
-if (storedDraft) {
-  // Uses localStorage draft even if sessionStorage has newer data!
-  setDraft(parsed);
-  return; // Exits early, never checks sessionStorage
-}
-```
+The `candidate_job_matches` table stores `icebreaker` and `talking_points`, but there's no dedicated `deep_researched` or `research_source` column to distinguish between:
+- Quick research (NPI verification only)
+- Connection-based personalization (no web search)
+- Deep research (actual Perplexity web search)
 
-### Issue 4: Missing `specialty` and `state` fields in Candidate Mapping
-In `LaunchStatusBar.tsx` line 180-191, the candidate mapping doesn't include all required fields:
+### Issue 3: Frontend Flag Propagation
+
+In `CandidateMatching.tsx` lines 829-858, the `deep_researched` flag is set incorrectly:
+
 ```typescript
-candidates: candidates.map(c => ({
-  id: c.id,
-  first_name: c.first_name,
-  last_name: c.last_name,
-  email: c.email || c.personal_email,
-  phone: c.phone || c.personal_mobile,
-  // Missing: specialty, state, tier, unified_score
-})),
+// Current (problematic):
+const actualDeepResearch = !result.from_cache || 
+  (result.icebreaker && result.icebreaker.length > 60) ||
+  result.deep_research_done;
+
+// Result: Cached results with long icebreakers get marked as "deep researched"
 ```
 
 ---
 
-## Fixes Required
+## Proposed Fixes
 
-### Fix 1: Update `useCampaignDraft` to Merge Data Sources
-Modify the draft loading logic to prefer sessionStorage over stale localStorage data, and merge data from both sources.
+### Fix 1: Add Research Source Tracking (Edge Function)
 
-**File:** `src/hooks/useCampaignDraft.ts`
+Update the `upsert_candidate_job_match` RPC call to store a `research_source` field that explicitly tracks how the data was generated:
 
-Changes:
-- Check sessionStorage first (current session data)
-- Compare timestamps between localStorage and sessionStorage
-- Use the most recent data
-- Clear localStorage if sessionStorage has fresher data
-
-### Fix 2: Fix Candidate Payload in Launch
-Add missing fields to the candidate mapping in `LaunchStatusBar.tsx`:
-
-```typescript
-candidates: candidates.map(c => ({
-  id: c.id,
-  first_name: c.first_name,
-  last_name: c.last_name,
-  email: c.email || c.personal_email,
-  phone: c.phone || c.personal_mobile,
-  specialty: c.specialty,           // ADD
-  state: c.state,                   // ADD
-  tier: c.tier,                     // ADD
-  unified_score: c.unified_score,   // ADD
-  icebreaker: c.icebreaker,
-  talking_points: c.talking_points,
-  email_subject: c.email_subject,
-  email_body: c.email_body,
-  sms_message: c.sms_message,
-})),
+```text
+research_source values:
+- 'perplexity_deep'  → Actual web research via Perplexity
+- 'connection_engine' → Generated from connection priority system
+- 'quick_research'    → NPI/cache only
+- 'cached'           → Loaded from database
 ```
 
-### Fix 3: Add Debug Logging to Track Data Flow
-Add console logs at each stage to trace where candidates disappear:
+### Fix 2: Stricter Cache Validation (Edge Function)
 
-**CampaignReview.tsx:** Log candidates count when loaded
-**LaunchStatusBar.tsx:** Log payload before sending
-**launch-campaign edge function:** Already has logging
+Modify the cache check to require explicit evidence of Perplexity research:
 
-### Fix 4: Ensure Jobs Page Kanban Links to Real Data
-Update `JobDetail.tsx` to query `campaign_leads_v2` correctly:
+```text
+Current: icebreakerIsSubstantial && hasQualityData
+New:     icebreakerIsSubstantial && hasResearchSummary && researchSummaryHasPerplexityFormat
+```
 
-The current query joins `campaigns` to `campaign_leads_v2` via `campaign_id`, which is correct. However, leads are not being inserted because of Issues 1-3 above.
+The check should look for Perplexity-style structured content (contains "EMPLOYER", "TRAINING", "CREDENTIALS" sections) rather than just length.
 
-### Fix 5: Add Fallback Direct Insert in LaunchStatusBar
-The fallback code in `LaunchStatusBar.tsx` (lines 196-229) already handles direct insert when edge function fails - but it also has the same missing fields issue.
+### Fix 3: Add "Force Refresh" Auto-Trigger (Frontend)
+
+When clicking "Deep Research" for the first time on a candidate without verified Perplexity data, automatically set `force_refresh: true` to bypass the cache.
 
 ---
 
-## Implementation Plan
+## Implementation Details
 
-### Phase 1: Fix Data Sync (Priority: Critical)
+### File 1: `supabase/functions/personalization-research/index.ts`
 
-**File: `src/hooks/useCampaignDraft.ts`**
-- Modify `loadDraft()` to check sessionStorage first
-- Add timestamp comparison logic
-- Clear stale localStorage data when sessionStorage is fresher
+**Changes:**
+1. Update cache validation (lines 703-722) to check for actual Perplexity content:
+   - Add helper function `hasPerplexityResearch(researchSummary)` that checks for structured sections
+   - Only cache as "deep researched" if research contains Perplexity-format data
 
-**File: `src/pages/CampaignReview.tsx`**
-- Add debug logging when loading candidates
-- Ensure `candidates` state is populated before allowing launch
+2. Add `deep_research_done` flag to response when actual Perplexity calls are made
 
-### Phase 2: Fix Candidate Payload (Priority: Critical)
+3. Update database upsert to include research source tracking
 
-**File: `src/components/campaign-review/LaunchStatusBar.tsx`**
-- Add missing fields (`specialty`, `state`, `tier`, `unified_score`) to candidate mapping
-- Add debug logging before edge function call
-- Fix fallback insert to include all fields
+```text
+Cache Validation Logic:
+┌──────────────────────────────────────────────────────────┐
+│ IS DEEP RESEARCH CACHED?                                 │
+├──────────────────────────────────────────────────────────┤
+│ 1. Check if icebreaker exists AND > 60 chars            │
+│ 2. Check if research_summary exists AND > 100 chars     │
+│ 3. Check if research_summary contains structured format │
+│    (has EMPLOYER/TRAINING/CREDENTIALS sections)         │
+│ 4. ALL THREE must be true to skip Perplexity call       │
+└──────────────────────────────────────────────────────────┘
+```
 
-### Phase 3: Verify Edge Function (Priority: High)
+### File 2: `src/pages/CandidateMatching.tsx`
 
-**File: `supabase/functions/launch-campaign/index.ts`**
-- Already has correct logic
-- Just needs to receive complete data from frontend
+**Changes:**
+1. Update `deepResearchCandidates` function (lines 762-885):
+   - When `from_cache: true` but no substantial `research_summary`, trigger re-research with `force_refresh: true`
+   - Add flag to detect first-time deep research attempts
 
-### Phase 4: Update JobDetail to Show Real Data (Priority: Medium)
+2. Update state management (lines 829-858):
+   - Only set `deep_researched: true` when response includes `deep_research_done: true` OR verified Perplexity content
+   - Add UI indicator for "research source" (e.g., "🔮 Perplexity" vs "⚡ Connection Engine")
 
-**File: `src/pages/JobDetail.tsx`**
-- The component is already wired correctly
-- Will automatically show data once leads are being saved
+3. Fix the `handleDeepResearchCandidate` function (lines 887-895):
+   - When candidate has no verified deep research, automatically set `forceRefresh: true`
 
 ---
 
@@ -145,34 +117,26 @@ The fallback code in `LaunchStatusBar.tsx` (lines 196-229) already handles direc
 
 | File | Changes |
 |------|---------|
-| `src/hooks/useCampaignDraft.ts` | Fix draft loading priority to prefer sessionStorage |
-| `src/components/campaign-review/LaunchStatusBar.tsx` | Add missing candidate fields to payload |
-| `src/pages/CampaignReview.tsx` | Add debug logging, ensure candidates loaded |
-| `src/pages/SequenceStudio.tsx` | Ensure candidates are saved with all fields |
+| `supabase/functions/personalization-research/index.ts` | Stricter cache validation, add `deep_research_done` flag, research source tracking |
+| `src/pages/CandidateMatching.tsx` | Fix deep research flag propagation, auto-force-refresh for first deep research |
 
 ---
 
 ## Testing Plan
 
-After fixes:
-1. Create a new job
-2. Go through Candidate Matching → select candidates → Continue
-3. Go through PersonalizationStudio → Continue  
-4. Go through SequenceStudio → Continue to Review
-5. On CampaignReview, verify candidate count shows correctly
-6. Click Launch Campaign
-7. Verify edge function logs show correct candidate count
-8. Check `campaign_leads_v2` table has records
-9. Go to JobDetail → Candidates tab should show pipeline
+1. Clear candidate_job_matches for a test candidate
+2. Run "Quick Research" (NPI only) - verify no "Deep" badge
+3. Run "Deep Research" - verify Perplexity is called (check edge function logs)
+4. Verify `research_summary` contains structured EMPLOYER/TRAINING format
+5. Refresh page - verify cached deep research shows correctly
+6. Click "Deep Research" again - verify it shows "Refresh" option (not re-research)
 
 ---
 
 ## Success Criteria
 
-After implementation:
-1. Launching a campaign inserts leads into `campaign_leads_v2`
-2. Job Detail page shows candidates in pipeline/kanban
-3. Campaigns page shows correct leads_count
-4. Activity feed shows SMS/call events
-5. No data loss during page transitions
-
+1. "Deep Research" button triggers actual Perplexity API calls (not cache hits on first run)
+2. Edge function logs show "Deep researching: [Name]" messages
+3. UI clearly distinguishes between cached and fresh research
+4. Refresh button works to re-fetch from Perplexity
+5. Research summaries contain structured professional data (fellowship, employer, certifications)
