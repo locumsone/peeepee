@@ -276,9 +276,15 @@ const CandidateMatching = () => {
   const jobState = job?.state || job?.location?.split(', ').pop() || 'TX';
 
   // Helper functions
-  // Check if candidate has verified enriched personal contact (from Whitepages/PDL/etc)
-  const isEnrichedPersonal = (c: Candidate) => 
-    c.is_enriched || (c.enrichment_source && ENRICHED_SOURCES.includes(c.enrichment_source));
+  // Check if candidate has verified enriched personal contact info
+  // This means they have a personal mobile or personal email (not just work contact)
+  const isEnrichedPersonal = (c: Candidate) => {
+    // Has personal mobile or personal email
+    if (c.personal_mobile || c.personal_email) return true;
+    // Also check is_enriched flag set by transformation
+    if (c.is_enriched && (c.has_personal_contact)) return true;
+    return false;
+  };
   
   // Check if candidate has any contact info (personal or work)
   const isContactReady = (c: Candidate) => 
@@ -463,8 +469,8 @@ const CandidateMatching = () => {
           icebreaker: '',
           talking_points: [],
           has_personal_contact: !!(c.personal_mobile || c.personal_email),
-          needs_enrichment: !(c.personal_mobile || c.personal_email),
-          is_enriched: !!(c.personal_mobile || c.personal_email),
+          needs_enrichment: !(c.personal_mobile || c.personal_email) && !c.enrichment_source,
+          is_enriched: !!(c.personal_mobile || c.personal_email) || !!c.enrichment_source || c.enrichment_tier?.toLowerCase() === 'platinum',
           personal_mobile: c.personal_mobile,
           personal_email: c.personal_email,
           work_email: c.email,
