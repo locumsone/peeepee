@@ -885,6 +885,15 @@ const CandidateMatching = () => {
     }
   }, [poolCandidates, sortBy, jobState]);
 
+  // Split pool into LOCAL vs OTHER sections
+  const localPoolCandidates = useMemo(() => 
+    sortedCandidates.filter(c => c.state === jobState),
+  [sortedCandidates, jobState]);
+
+  const otherPoolCandidates = useMemo(() => 
+    sortedCandidates.filter(c => c.state !== jobState),
+  [sortedCandidates, jobState]);
+
   // Selection helpers
   const selectedNeedingEnrichment = useMemo(() => 
     candidates.filter(c => selectedIds.has(c.id) && needsEnrichment(c)).length
@@ -941,15 +950,16 @@ const CandidateMatching = () => {
 
   const handleAddAllVisible = () => {
     const visibleIds = sortedCandidates.map(c => c.id);
+    if (visibleIds.length === 0) return;
+    
+    const previousHideAdded = hideAdded;
     setAddedToJobIds(prev => {
       const next = new Set(prev);
       visibleIds.forEach(id => next.add(id));
       return next;
     });
-    // P0: Auto-enable hide toggle after bulk add
     setHideAdded(true);
     toast.success(`Added ${visibleIds.length} candidates to shortlist`, {
-      description: "Added candidates are now hidden from pool",
       action: {
         label: "Undo",
         onClick: () => {
@@ -958,7 +968,62 @@ const CandidateMatching = () => {
             visibleIds.forEach(id => next.delete(id));
             return next;
           });
-          setHideAdded(false);
+          setHideAdded(previousHideAdded);
+        }
+      }
+    });
+  };
+
+  // Section-level bulk add handlers with undo
+  const handleAddAllLocal = () => {
+    const localIds = localPoolCandidates.map(c => c.id);
+    if (localIds.length === 0) return;
+    
+    const previousHideAdded = hideAdded;
+    setAddedToJobIds(prev => {
+      const next = new Set(prev);
+      localIds.forEach(id => next.add(id));
+      return next;
+    });
+    setHideAdded(true);
+    
+    toast.success(`Added ${localIds.length} local candidates to shortlist`, {
+      action: {
+        label: "Undo",
+        onClick: () => {
+          setAddedToJobIds(prev => {
+            const next = new Set(prev);
+            localIds.forEach(id => next.delete(id));
+            return next;
+          });
+          setHideAdded(previousHideAdded);
+        }
+      }
+    });
+  };
+
+  const handleAddAllOther = () => {
+    const otherIds = otherPoolCandidates.map(c => c.id);
+    if (otherIds.length === 0) return;
+    
+    const previousHideAdded = hideAdded;
+    setAddedToJobIds(prev => {
+      const next = new Set(prev);
+      otherIds.forEach(id => next.add(id));
+      return next;
+    });
+    setHideAdded(true);
+    
+    toast.success(`Added ${otherIds.length} candidates to shortlist`, {
+      action: {
+        label: "Undo",
+        onClick: () => {
+          setAddedToJobIds(prev => {
+            const next = new Set(prev);
+            otherIds.forEach(id => next.delete(id));
+            return next;
+          });
+          setHideAdded(previousHideAdded);
         }
       }
     });
@@ -1233,29 +1298,28 @@ const CandidateMatching = () => {
                   AI Scored
                 </div>
               )}
-              {/* Priority breakdown - most important metrics for recruiters */}
-              {summary?.priority_breakdown?.top_priority ? (
-                <div className="text-center">
-                  <p className="text-2xl font-bold text-yellow-400">🏆 {summary.priority_breakdown.top_priority}</p>
-                  <p className="text-xs text-muted-foreground">Top Priority</p>
-                </div>
-              ) : null}
-              {/* P1: Research progress stat */}
+              {/* Added to shortlist count */}
+              <div className="text-center">
+                <p className="text-2xl font-bold text-success">{addedToJobIds.size}</p>
+                <p className="text-xs text-muted-foreground">Added</p>
+              </div>
+              {/* Local count */}
+              <div className="text-center">
+                <p className="text-2xl font-bold text-emerald-400">{filterCounts.local}</p>
+                <p className="text-xs text-muted-foreground">Local ({jobState})</p>
+              </div>
+              {/* Research progress stat */}
               <div className="text-center">
                 <p className="text-2xl font-bold text-cyan-400">{researchedCount}/{candidates.length}</p>
                 <p className="text-xs text-muted-foreground">Researched</p>
               </div>
               <div className="text-center">
-                <p className="text-2xl font-bold text-success">{filterCounts.contact_ready}</p>
+                <p className="text-2xl font-bold text-blue-400">{filterCounts.contact_ready}</p>
                 <p className="text-xs text-muted-foreground">Contact Ready</p>
               </div>
               <div className="text-center">
                 <p className="text-2xl font-bold text-purple-400">{filterCounts["10_plus_licenses"]}</p>
                 <p className="text-xs text-muted-foreground">10+ Licenses</p>
-              </div>
-              <div className="text-center">
-                <p className="text-2xl font-bold text-blue-400">{filterCounts.local}</p>
-                <p className="text-xs text-muted-foreground">Local ({jobState})</p>
               </div>
             </div>
           </div>
@@ -1534,66 +1598,115 @@ const CandidateMatching = () => {
           )}
         </div>
 
-        {/* Candidates Table */}
-        <div className="rounded-2xl bg-card shadow-card overflow-hidden border border-border">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-border bg-secondary/50">
-                  <th className="px-4 py-3 text-left w-12">
-                    <Checkbox
-                      checked={selectedIds.size === sortedCandidates.length && sortedCandidates.length > 0}
-                      onCheckedChange={(checked) => {
-                        if (checked) setSelectedIds(new Set(sortedCandidates.map(c => c.id)));
-                        else setSelectedIds(new Set());
-                      }}
-                    />
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Candidate</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Score</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Match</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Key Info</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Add to Job</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Research</th>
-                  <th className="px-4 py-3 w-12"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedCandidates.map((candidate, index) => {
-                  const scoreBadge = getScoreBadgeConfig(candidate.unified_score);
-                  const enrichmentBadge = getEnrichmentBadgeConfig(candidate.enrichment_tier);
-                  const indicators = getKeyIndicators(candidate);
-                  const contactReady = isContactReady(candidate);
-                  const isAddedToJob = addedToJobIds.has(candidate.id);
-                  
-                  return (
-                    <>
-                      <tr
-                        key={candidate.id}
-                        className={cn(
-                          "border-b border-border/50 transition-all duration-200 cursor-pointer",
-                          isAddedToJob && "bg-success/5 border-l-2 border-l-success animate-fade-in",
-                          selectedIds.has(candidate.id) && !isAddedToJob && "bg-primary/5",
-                          contactReady && !isAddedToJob ? "hover:bg-success/5" : "hover:bg-secondary/30"
-                        )}
-                        onClick={() => toggleExpand(candidate.id)}
-                      >
-                        <td className="px-4 py-4" onClick={(e) => e.stopPropagation()}>
-                          <Checkbox
-                            checked={selectedIds.has(candidate.id)}
-                            onCheckedChange={() => toggleSelect(candidate.id)}
-                          />
-                        </td>
-                        <td className="px-4 py-4">
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium text-foreground">
-                                {candidate.first_name} {candidate.last_name}
-                              </span>
-                              {contactReady && (
-                                <CheckCircle2 className="h-4 w-4 text-success" />
-                              )}
+        {/* LOCAL CANDIDATES SECTION */}
+        {localPoolCandidates.length > 0 ? (
+          <div className="space-y-3">
+            {/* Section Header */}
+            <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-success/10 border border-success/30">
+              <div className="flex items-center gap-3">
+                <MapPin className="h-5 w-5 text-success" />
+                <div>
+                  <h3 className="font-semibold text-success flex items-center gap-2">
+                    LOCAL CANDIDATES
+                    <Badge className="bg-success text-success-foreground">
+                      {localPoolCandidates.length}
+                    </Badge>
+                  </h3>
+                  <p className="text-xs text-success/70">
+                    Faster credentialing • No relocation • Immediate availability
+                  </p>
+                </div>
+              </div>
+              <Button
+                size="sm"
+                onClick={handleAddAllLocal}
+                className="bg-success text-success-foreground hover:bg-success/90"
+              >
+                <Plus className="h-4 w-4 mr-1" />
+                Add All Local ({localPoolCandidates.length})
+              </Button>
+            </div>
+            
+            {/* Local Candidates Table */}
+            <div className="rounded-2xl bg-card shadow-card overflow-hidden border border-success/30">
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-border bg-success/5">
+                      <th className="px-4 py-3 text-left w-12">
+                        <Checkbox
+                          checked={selectedIds.size > 0 && localPoolCandidates.every(c => selectedIds.has(c.id))}
+                          onCheckedChange={(checked) => {
+                            if (checked) {
+                              setSelectedIds(prev => {
+                                const next = new Set(prev);
+                                localPoolCandidates.forEach(c => next.add(c.id));
+                                return next;
+                              });
+                            } else {
+                              setSelectedIds(prev => {
+                                const next = new Set(prev);
+                                localPoolCandidates.forEach(c => next.delete(c.id));
+                                return next;
+                              });
+                            }
+                          }}
+                        />
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Candidate</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Score</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Match</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Key Info</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Add to Job</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Research</th>
+                      <th className="px-4 py-3 w-12"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {localPoolCandidates.map((candidate) => {
+                      const scoreBadge = getScoreBadgeConfig(candidate.unified_score);
+                      const enrichmentBadge = getEnrichmentBadgeConfig(candidate.enrichment_tier);
+                      const indicators = getKeyIndicators(candidate);
+                      const contactReady = isContactReady(candidate);
+                      const isAddedToJob = addedToJobIds.has(candidate.id);
+                      const isCandidateLocal = candidate.state === jobState;
+                      
+                      return (
+                        <>
+                          <tr
+                            key={candidate.id}
+                            className={cn(
+                              "border-b border-border/50 transition-all duration-200 cursor-pointer",
+                              isAddedToJob && "bg-success/5 border-l-2 border-l-success animate-fade-in",
+                              selectedIds.has(candidate.id) && !isAddedToJob && "bg-primary/5",
+                              contactReady && !isAddedToJob ? "hover:bg-success/5" : "hover:bg-secondary/30"
+                            )}
+                            onClick={() => toggleExpand(candidate.id)}
+                          >
+                            <td className="px-4 py-4" onClick={(e) => e.stopPropagation()}>
+                              <Checkbox
+                                checked={selectedIds.has(candidate.id)}
+                                onCheckedChange={() => toggleSelect(candidate.id)}
+                              />
+                            </td>
+                            <td className="px-4 py-4">
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="font-medium text-foreground">
+                                    {candidate.first_name} {candidate.last_name}
+                                  </span>
+                                  {/* LOCAL badge for in-state candidates */}
+                                  {isCandidateLocal && (
+                                    <Badge 
+                                      className="bg-success/20 text-success border border-success/30 text-[10px] font-bold"
+                                    >
+                                      LOCAL
+                                    </Badge>
+                                  )}
+                                  {contactReady && (
+                                    <CheckCircle2 className="h-4 w-4 text-success" />
+                                  )}
                               {/* Research & NPI verification badges */}
                               {candidate.researched && (
                                 <Badge 
@@ -2162,7 +2275,292 @@ const CandidateMatching = () => {
               </tbody>
             </table>
           </div>
-        </div>
+          </div>
+        ) : hideAdded && filterCounts.local > 0 ? (
+          /* Empty state when all local candidates are added */
+          <div className="rounded-xl border border-success/30 bg-success/5 p-6 text-center">
+            <CheckCircle2 className="h-8 w-8 text-success mx-auto mb-2" />
+            <p className="text-success font-medium">All local candidates added to shortlist</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Toggle "Hide added" to review your selections
+            </p>
+          </div>
+        ) : null}
+
+        {/* OTHER CANDIDATES SECTION */}
+        {otherPoolCandidates.length > 0 ? (
+          <div className="space-y-3">
+            {/* Section Header */}
+            <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-muted/50 border border-border">
+              <div className="flex items-center gap-3">
+                <Globe className="h-5 w-5 text-muted-foreground" />
+                <div>
+                  <h3 className="font-semibold text-foreground flex items-center gap-2">
+                    OTHER CANDIDATES
+                    <Badge variant="secondary">
+                      {otherPoolCandidates.length}
+                    </Badge>
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    Out-of-state candidates with matching qualifications
+                  </p>
+                </div>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleAddAllOther}
+              >
+                <Plus className="h-4 w-4 mr-1" />
+                Add All Other ({otherPoolCandidates.length})
+              </Button>
+            </div>
+            
+            {/* Other Candidates Table */}
+            <div className="rounded-2xl bg-card shadow-card overflow-hidden border border-border">
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-border bg-secondary/50">
+                      <th className="px-4 py-3 text-left w-12">
+                        <Checkbox
+                          checked={selectedIds.size > 0 && otherPoolCandidates.every(c => selectedIds.has(c.id))}
+                          onCheckedChange={(checked) => {
+                            if (checked) {
+                              setSelectedIds(prev => {
+                                const next = new Set(prev);
+                                otherPoolCandidates.forEach(c => next.add(c.id));
+                                return next;
+                              });
+                            } else {
+                              setSelectedIds(prev => {
+                                const next = new Set(prev);
+                                otherPoolCandidates.forEach(c => next.delete(c.id));
+                                return next;
+                              });
+                            }
+                          }}
+                        />
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Candidate</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Score</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Match</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Key Info</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Add to Job</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Research</th>
+                      <th className="px-4 py-3 w-12"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {otherPoolCandidates.map((candidate) => {
+                      const scoreBadge = getScoreBadgeConfig(candidate.unified_score);
+                      const enrichmentBadge = getEnrichmentBadgeConfig(candidate.enrichment_tier);
+                      const indicators = getKeyIndicators(candidate);
+                      const contactReady = isContactReady(candidate);
+                      const isAddedToJob = addedToJobIds.has(candidate.id);
+                      
+                      return (
+                        <>
+                          <tr
+                            key={candidate.id}
+                            className={cn(
+                              "border-b border-border/50 transition-all duration-200 cursor-pointer",
+                              isAddedToJob && "bg-success/5 border-l-2 border-l-success animate-fade-in",
+                              selectedIds.has(candidate.id) && !isAddedToJob && "bg-primary/5",
+                              contactReady && !isAddedToJob ? "hover:bg-success/5" : "hover:bg-secondary/30"
+                            )}
+                            onClick={() => toggleExpand(candidate.id)}
+                          >
+                            <td className="px-4 py-4" onClick={(e) => e.stopPropagation()}>
+                              <Checkbox
+                                checked={selectedIds.has(candidate.id)}
+                                onCheckedChange={() => toggleSelect(candidate.id)}
+                              />
+                            </td>
+                            <td className="px-4 py-4">
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="font-medium text-foreground">
+                                    {candidate.first_name} {candidate.last_name}
+                                  </span>
+                                  {contactReady && (
+                                    <CheckCircle2 className="h-4 w-4 text-success" />
+                                  )}
+                                  {candidate.researched && (
+                                    <Badge 
+                                      variant="outline" 
+                                      className={cn(
+                                        "text-[10px] gap-1",
+                                        candidate.from_cache 
+                                          ? "bg-blue-500/10 text-blue-500 border-blue-500/30"
+                                          : "bg-cyan-500/10 text-cyan-500 border-cyan-500/30"
+                                      )}
+                                    >
+                                      {candidate.from_cache ? '📦 Saved' : '🔬 Researched'}
+                                    </Badge>
+                                  )}
+                                  {candidate.deep_researched && (
+                                    <Badge 
+                                      variant="outline" 
+                                      className="text-[10px] bg-purple-500/10 text-purple-500 border-purple-500/30 gap-1"
+                                    >
+                                      🔮 Deep
+                                    </Badge>
+                                  )}
+                                  {candidate.verified_npi && (
+                                    <Badge 
+                                      variant="outline" 
+                                      className="text-[10px] bg-emerald-500/10 text-emerald-500 border-emerald-500/30 gap-1"
+                                    >
+                                      <Shield className="h-3 w-3" /> NPI ✓
+                                    </Badge>
+                                  )}
+                                </div>
+                                <p className="text-xs text-muted-foreground">{candidate.specialty}</p>
+                                <div className="flex items-center gap-2">
+                                  <p className="text-xs text-muted-foreground">{candidate.city}, {candidate.state}</p>
+                                  {candidate.npi && (
+                                    <span className="text-[10px] text-muted-foreground/70">NPI: {candidate.npi}</span>
+                                  )}
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-4 py-4">
+                              <Badge className={cn("font-bold text-xs", scoreBadge.className)}>
+                                {candidate.unified_score}
+                              </Badge>
+                            </td>
+                            <td className="px-4 py-4">
+                              <div className="flex items-center gap-2 min-w-[100px]">
+                                <Progress value={candidate.match_strength} className="h-2 flex-1" />
+                                <span className="text-xs font-medium text-muted-foreground w-8">
+                                  {candidate.match_strength}%
+                                </span>
+                              </div>
+                            </td>
+                            <td className="px-4 py-4">
+                              <Badge className={cn("text-xs flex items-center w-fit", enrichmentBadge.className)}>
+                                {enrichmentBadge.icon}
+                                {enrichmentBadge.label}
+                              </Badge>
+                            </td>
+                            <td className="px-4 py-4">
+                              <div className="flex flex-wrap gap-1 max-w-[220px]">
+                                {indicators.slice(0, 3).map((ind, i) => (
+                                  <Badge key={i} variant="outline" className={cn("text-[10px] border", ind.className)}>
+                                    {ind.label}
+                                  </Badge>
+                                ))}
+                                {indicators.length > 3 && (
+                                  <Badge variant="outline" className="text-[10px]">+{indicators.length - 3}</Badge>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-4 py-4" onClick={(e) => e.stopPropagation()}>
+                              {isAddedToJob ? (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="bg-success/20 border-success/40 text-success hover:bg-destructive/10 hover:text-destructive hover:border-destructive/40"
+                                  onClick={() => handleRemoveFromJob(candidate.id)}
+                                >
+                                  <Check className="h-4 w-4 mr-1" />
+                                  Added
+                                </Button>
+                              ) : (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="border-primary/40 text-primary hover:bg-primary/10"
+                                  onClick={() => handleAddToJob(candidate.id)}
+                                >
+                                  <Plus className="h-4 w-4 mr-1" />
+                                  Add
+                                </Button>
+                              )}
+                            </td>
+                            <td className="px-4 py-4" onClick={(e) => e.stopPropagation()}>
+                              <div className="flex gap-1">
+                                {candidate.researched ? (
+                                  <Badge 
+                                    variant="outline" 
+                                    className="text-xs bg-success/10 text-success border-success/30"
+                                    title={candidate.from_cache ? "Loaded from cache" : "Researched"}
+                                  >
+                                    ✓ Researched
+                                  </Badge>
+                                ) : (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="text-cyan-600 border-cyan-500/30 hover:bg-cyan-500/10"
+                                    disabled={researchingIds.has(candidate.id)}
+                                    onClick={() => handleResearchCandidate(candidate)}
+                                    title="Research via NPI + AI"
+                                  >
+                                    {researchingIds.has(candidate.id) ? (
+                                      <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                      <>🔬</>
+                                    )}
+                                  </Button>
+                                )}
+                                {needsEnrichment(candidate) && !contactReady && (
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="text-orange-600 border-orange-500/30 hover:bg-orange-500/10"
+                                    disabled={enrichingIds.has(candidate.id)}
+                                    onClick={() => handleEnrichCandidate(candidate)}
+                                  >
+                                    {enrichingIds.has(candidate.id) ? (
+                                      <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                      <>🔍</>
+                                    )}
+                                  </Button>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-4 py-4">
+                              <button
+                                onClick={(e) => { e.stopPropagation(); toggleExpand(candidate.id); }}
+                                className="text-primary hover:text-primary/80"
+                              >
+                                {expandedIds.has(candidate.id) ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
+                              </button>
+                            </td>
+                          </tr>
+                          {expandedIds.has(candidate.id) && (
+                            <tr className="bg-secondary/20">
+                              <td colSpan={9} className="px-6 py-4">
+                                <div className="space-y-4 animate-fade-in">
+                                  <p className="text-sm text-muted-foreground">
+                                    Expand for detailed research and contact information...
+                                  </p>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        ) : hideAdded && (candidates.length - filterCounts.local) > 0 ? (
+          /* Empty state when all other candidates are added */
+          <div className="rounded-xl border border-border bg-muted/30 p-6 text-center">
+            <CheckCircle2 className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+            <p className="text-muted-foreground font-medium">All candidates added to shortlist</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Toggle "Hide added" to review your selections
+            </p>
+          </div>
+        ) : null}
 
         {/* Load More */}
         <div className="flex flex-col items-center justify-center gap-2 py-4">
