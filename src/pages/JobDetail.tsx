@@ -172,7 +172,7 @@ const JobDetail = () => {
                 <Button 
                   variant="default"
                   className="bg-success hover:bg-success/90 text-success-foreground"
-                  onClick={() => navigate(`/campaign/tiers?jobId=${id}`)}
+                  onClick={() => navigate(`/campaigns/new?jobId=${id}`)}
                 >
                   <Rocket className="h-4 w-4 mr-2" />
                   Create Campaign
