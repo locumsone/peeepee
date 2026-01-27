@@ -946,8 +946,54 @@ const CandidateMatching = () => {
       visibleIds.forEach(id => next.add(id));
       return next;
     });
-    toast.success(`Added ${visibleIds.length} candidates to shortlist`);
+    // P0: Auto-enable hide toggle after bulk add
+    setHideAdded(true);
+    toast.success(`Added ${visibleIds.length} candidates to shortlist`, {
+      description: "Added candidates are now hidden from pool",
+      action: {
+        label: "Undo",
+        onClick: () => {
+          setAddedToJobIds(prev => {
+            const next = new Set(prev);
+            visibleIds.forEach(id => next.delete(id));
+            return next;
+          });
+          setHideAdded(false);
+        }
+      }
+    });
   };
+
+  // P1: Add selected candidates to job shortlist
+  const handleAddSelectedToJob = () => {
+    const newIds = Array.from(selectedIds);
+    setAddedToJobIds(prev => {
+      const next = new Set(prev);
+      newIds.forEach(id => next.add(id));
+      return next;
+    });
+    setSelectedIds(new Set());
+    toast.success(`Added ${newIds.length} candidates to shortlist`);
+  };
+
+  // P1: Research all unresearched candidates
+  const handleResearchAll = () => {
+    const unresearchedIds = candidates.filter(c => !c.researched).map(c => c.id);
+    if (unresearchedIds.length === 0) {
+      toast.info("All candidates are already researched");
+      return;
+    }
+    researchCandidates(unresearchedIds, false, false);
+  };
+
+  // P1: Counts for stats bar
+  const researchedCount = useMemo(() => 
+    candidates.filter(c => c.researched).length
+  , [candidates]);
+  
+  const unresearchedCount = useMemo(() => 
+    candidates.filter(c => !c.researched).length
+  , [candidates]);
 
   const handleContinue = () => {
     // Use addedToJobIds instead of selectedIds for the campaign flow
@@ -1194,6 +1240,11 @@ const CandidateMatching = () => {
                   <p className="text-xs text-muted-foreground">Top Priority</p>
                 </div>
               ) : null}
+              {/* P1: Research progress stat */}
+              <div className="text-center">
+                <p className="text-2xl font-bold text-cyan-400">{researchedCount}/{candidates.length}</p>
+                <p className="text-xs text-muted-foreground">Researched</p>
+              </div>
               <div className="text-center">
                 <p className="text-2xl font-bold text-success">{filterCounts.contact_ready}</p>
                 <p className="text-xs text-muted-foreground">Contact Ready</p>
@@ -1365,6 +1416,19 @@ const CandidateMatching = () => {
                 Clear ({selectedIds.size})
               </Button>
             )}
+            {/* P1: Research All button */}
+            {unresearchedCount > 0 && (
+              <Button 
+                variant="outline" 
+                size="sm" 
+                onClick={handleResearchAll}
+                disabled={bulkResearching || researchingIds.size > 0}
+                className="bg-cyan-500/10 text-cyan-600 border-cyan-500/30 hover:bg-cyan-500/20"
+              >
+                <Target className="h-4 w-4 mr-1" />
+                Research All ({unresearchedCount})
+              </Button>
+            )}
           </div>
           
           {selectedNeedingResearch > 0 && (
@@ -1408,15 +1472,24 @@ const CandidateMatching = () => {
           )}
           
           <div className="ml-auto flex items-center gap-3">
-            {/* Hide Added Toggle */}
-            <div className="flex items-center gap-2">
+            {/* P0: Enhanced "Hide Added" toggle with better styling */}
+            <div className={cn(
+              "flex items-center gap-2 px-3 py-1.5 rounded-lg transition-all",
+              addedToJobIds.size > 0 && "bg-success/10 border border-success/30"
+            )}>
               <Checkbox
                 id="hideAdded"
                 checked={hideAdded}
                 onCheckedChange={(checked) => setHideAdded(!!checked)}
               />
-              <label htmlFor="hideAdded" className="text-sm text-muted-foreground cursor-pointer">
-                Hide added ({addedToJobIds.size})
+              <label 
+                htmlFor="hideAdded" 
+                className={cn(
+                  "text-sm cursor-pointer transition-colors",
+                  addedToJobIds.size > 0 ? "text-success font-medium" : "text-muted-foreground"
+                )}
+              >
+                {addedToJobIds.size > 0 ? `Hide ${addedToJobIds.size} added` : "Hide added (0)"}
               </label>
             </div>
             
@@ -1496,11 +1569,11 @@ const CandidateMatching = () => {
                   
                   return (
                     <>
-                      <tr 
+                      <tr
                         key={candidate.id}
                         className={cn(
-                          "border-b border-border/50 transition-colors cursor-pointer",
-                          isAddedToJob && "bg-success/5 border-l-2 border-l-success",
+                          "border-b border-border/50 transition-all duration-200 cursor-pointer",
+                          isAddedToJob && "bg-success/5 border-l-2 border-l-success animate-fade-in",
                           selectedIds.has(candidate.id) && !isAddedToJob && "bg-primary/5",
                           contactReady && !isAddedToJob ? "hover:bg-success/5" : "hover:bg-secondary/30"
                         )}
@@ -2143,6 +2216,62 @@ const CandidateMatching = () => {
             </Button>
           </div>
         </div>
+
+        {/* P1: Floating Bulk Action Bar */}
+        {selectedIds.size > 0 && (
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-fade-in">
+            <div className="flex items-center gap-3 px-6 py-3 bg-card border border-border rounded-2xl shadow-2xl shadow-black/50">
+              <span className="text-sm font-medium text-foreground">
+                {selectedIds.size} selected
+              </span>
+              <div className="h-6 w-px bg-border" />
+              
+              {selectedNeedingResearch > 0 && (
+                <Button 
+                  size="sm" 
+                  variant="outline"
+                  onClick={handleBulkResearch}
+                  disabled={bulkResearching}
+                  className="bg-cyan-500/10 text-cyan-600 border-cyan-500/30 hover:bg-cyan-500/20"
+                >
+                  <Target className="h-4 w-4 mr-1" />
+                  Research ({selectedNeedingResearch})
+                </Button>
+              )}
+              
+              {selectedForDeepResearch > 0 && (
+                <Button 
+                  size="sm" 
+                  variant="outline"
+                  onClick={() => handleBulkDeepResearch(false)}
+                  disabled={bulkDeepResearching}
+                  className="bg-purple-500/10 text-purple-600 border-purple-500/30 hover:bg-purple-500/20"
+                >
+                  <span className="mr-1">🔮</span>
+                  Deep ({selectedForDeepResearch})
+                </Button>
+              )}
+              
+              <Button 
+                size="sm" 
+                onClick={handleAddSelectedToJob}
+                className="bg-success text-success-foreground hover:bg-success/90"
+              >
+                <Plus className="h-4 w-4 mr-1" />
+                Add to Job
+              </Button>
+              
+              <Button 
+                size="sm" 
+                variant="ghost"
+                onClick={() => setSelectedIds(new Set())}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Add More Candidates Panel */}
