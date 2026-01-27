@@ -692,12 +692,36 @@ serve(async (req) => {
       }
     }
 
+    // Helper function to detect if research summary contains actual Perplexity web research
+    // Perplexity returns structured format with EMPLOYER/TRAINING/CREDENTIALS sections
+    const hasPerplexityResearch = (researchSummary: string | null | undefined): boolean => {
+      if (!researchSummary || researchSummary.length < 100) return false;
+      
+      // Check for Perplexity-style structured content markers
+      const perplexityMarkers = [
+        /\*\*EMPLOYER\*\*/i,
+        /\*\*TRAINING\*\*/i,
+        /\*\*CREDENTIALS\*\*/i,
+        /\*\*NOTABLE\*\*/i,
+        /fellowship/i,
+        /residency at/i,
+        /board certified in/i,
+        /practices at/i,
+        /affiliated with/i,
+      ];
+      
+      // Require at least 2 markers to confirm it's from web research
+      const matchCount = perplexityMarkers.filter(marker => marker.test(researchSummary)).length;
+      return matchCount >= 2;
+    };
+
     const alreadyResearchedMap = new Map<string, { 
       icebreaker: string; 
       talking_points: string[];
       match_reasons?: string[];
       research?: any;
       has_deep_research?: boolean;
+      has_perplexity_data?: boolean;
     }>();
     
     if (!force_refresh && existingMatches) {
@@ -705,8 +729,19 @@ serve(async (req) => {
         const icebreakerIsSubstantial = match.icebreaker && match.icebreaker.length > 60;
         const hasQualityData = match.talking_points && match.talking_points.length > 0;
         
+        // Get the research record to check for Perplexity-style content
+        const researchRecord = researchMap.get(match.candidate_id);
+        let researchSummary = '';
+        if (researchRecord?.professional_highlights && researchRecord.professional_highlights.length > 0) {
+          researchSummary = researchRecord.professional_highlights.join(' ');
+        }
+        
+        // For deep research requests, ONLY cache if we have verified Perplexity data
+        // This prevents connection-engine-only results from being treated as "deep researched"
+        const hasActualPerplexityData = hasPerplexityResearch(researchSummary);
+        
         const shouldCache = deep_research 
-          ? (icebreakerIsSubstantial && hasQualityData)
+          ? (icebreakerIsSubstantial && hasQualityData && hasActualPerplexityData) // STRICTER: require Perplexity markers
           : (match.icebreaker && hasQualityData);
           
         if (shouldCache) {
@@ -714,8 +749,9 @@ serve(async (req) => {
             icebreaker: match.icebreaker,
             talking_points: match.talking_points,
             match_reasons: match.match_reasons,
-            research: researchMap.get(match.candidate_id),
-            has_deep_research: icebreakerIsSubstantial
+            research: researchRecord,
+            has_deep_research: icebreakerIsSubstantial,
+            has_perplexity_data: hasActualPerplexityData
           });
         }
       }
