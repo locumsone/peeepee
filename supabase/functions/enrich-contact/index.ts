@@ -158,7 +158,10 @@ Deno.serve(async (req) => {
       );
     }
 
-    const supabase = createClient(supabaseUrl, supabaseKey);
+    const supabase = createClient(supabaseUrl, supabaseKey, {
+      auth: { persistSession: false },
+      db: { schema: 'public' }
+    });
     const body: EnrichmentRequest = await req.json();
     
     const { candidate_id, first_name, last_name, city, state, specialty, job_id } = body;
@@ -230,7 +233,7 @@ Deno.serve(async (req) => {
     // Step 3: Update candidate record if we found something
     if (result.success && (result.personal_email || result.personal_mobile)) {
       const updateData: Record<string, any> = {
-        enrichment_source: result.source,
+        enrichment_source: result.source, // Should be "PDL" or "Whitepages"
         last_enrichment_date: new Date().toISOString(),
         enriched_at: new Date().toISOString(),
         enrichment_tier: "Platinum",
@@ -240,15 +243,21 @@ Deno.serve(async (req) => {
       if (result.personal_email) updateData.personal_email = result.personal_email;
       if (result.personal_mobile) updateData.personal_mobile = result.personal_mobile;
 
-      const { error: updateError } = await supabase
-        .from("candidates")
-        .update(updateData)
-        .eq("id", candidate_id);
+      console.log(`Updating candidate ${candidate_id} with source: ${result.source}`);
+
+      // Use RPC function to ensure all fields are updated properly
+      const { error: updateError } = await supabase.rpc('update_candidate_enrichment', {
+        p_candidate_id: candidate_id,
+        p_personal_email: result.personal_email,
+        p_personal_mobile: result.personal_mobile,
+        p_enrichment_source: result.source,
+        p_enrichment_tier: 'Platinum'
+      });
 
       if (updateError) {
         console.error("Failed to update candidate:", updateError);
       } else {
-        console.log("Candidate updated successfully");
+        console.log("Candidate updated successfully via RPC");
       }
 
       // Log enrichment for cost tracking
