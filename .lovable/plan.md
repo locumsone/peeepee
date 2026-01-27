@@ -1,279 +1,309 @@
 
-# Enhanced Candidate Selection - "Add More Candidates" Feature
+# Enhanced ATS-Style Candidate Selection Workflow
 
-## Overview
+## Research Findings: Best Practices from Modern ATS Systems
 
-This feature enhances the Candidate Matching page (`/candidates/matching`) to allow recruiters to:
-1. **Preserve** their current selection of candidates (e.g., 50 selected)
-2. **Search** for additional candidates from the database with specific filters (Local, 10+ Licenses, etc.)
-3. **Add** newly found candidates to the existing queue without losing current selections
+Based on research from leading ATS platforms (Bullhorn, Lever, Recruitee, iCIMS), here are the key UX patterns that make candidate selection effective:
+
+### Key UX Patterns from ATS Industry Leaders
+
+1. **Two-Panel "Pool vs Shortlist" Model**: Candidates exist in a search pool, and users explicitly "add to job" to move them to a shortlist. Once added, they're visually differentiated or removed from the pool view.
+
+2. **Persistent Selection State**: Selected candidates remain selected even when filters change. The "shortlist" is independent of the current view filter.
+
+3. **Quick Actions**: Add-to-job should be a single click, not a multi-step process. Remove should be equally easy.
+
+4. **Filter + Add Workflow**: Users filter (e.g., "Local"), review results, then add all or select specific candidates to the job pipeline.
+
+5. **Visual Separation**: Clear distinction between "Candidates in Pool" vs "Candidates Added to This Job" using badges, sections, or color coding.
+
+6. **Summary Bar**: Always-visible summary showing "X added to job | Y in pool | Z total matched"
 
 ---
 
 ## Current State Analysis
 
-### How It Works Now
-- Candidates are loaded in batches of 50 from the `ai-candidate-matcher` edge function
-- Selection is stored in a `selectedIds` state (Set of IDs)
-- Quick filters exist (Local, 10+ Licenses, Contact Ready) but they only **filter the current view** - they don't search for MORE candidates
-- "Load More" fetches the next batch from the same query
-- Alpha Sophia search exists but only searches external sources
+### What Works Now
+- AI matching loads candidates into a list
+- Checkbox selection allows multi-select
+- Filters (Local, 10+ Licenses, Contact Ready) filter the view
+- "Continue with X Candidates" saves to session and navigates
 
-### The Gap
-There's no way to:
-- Search the database for specific candidate types (e.g., "find me more local candidates")
-- Add those candidates to the current list without replacing it
-- Keep the current 50 selected while adding more
+### What's Missing (User's Request)
+1. No "Add to Job" action - candidates are just selected, not explicitly added
+2. Unchecking a candidate doesn't "remove" them - they stay in the list
+3. Filters only hide/show - they don't help you "find more local ones" and add them
+4. No visual separation between "Added to Job" vs "Available in Pool"
+5. No way to remove candidates from the search area after adding them
 
 ---
 
-## New Feature: "Add More Candidates" Panel
+## Proposed Solution: Dual-State Candidate Management
 
-### UI Design
+### Concept: "Pool" vs "Added" States
 
 ```text
 +------------------------------------------------------------------+
-|  [Current Selection Bar]                                          |
-|  50 candidates selected    [Continue] [+ Add More Candidates]     |
-+------------------------------------------------------------------+
-
-When clicked, opens a Sheet panel:
-
-+------------------------------------------------------------------+
-|  ADD MORE CANDIDATES                                    [X Close] |
-+------------------------------------------------------------------+
-|  Your 50 selected candidates are preserved.                       |
-|  Search for additional candidates to add to your campaign.        |
-+------------------------------------------------------------------+
-|  QUICK SEARCH                                                     |
-|  +--------------------+ +--------------------+                    |
-|  | [x] Local (WI)     | | [x] 10+ Licenses   |                    |
-|  | Candidates in      | | Multi-state        |                    |
-|  | job state          | | travelers          |                    |
-|  +--------------------+ +--------------------+                    |
-|  +--------------------+ +--------------------+                    |
-|  | [ ] Contact Ready  | | [ ] Needs Enrichmt |                    |
-|  | Has personal       | | Missing personal   |                    |
-|  | contact info       | | contact info       |                    |
-|  +--------------------+ +--------------------+                    |
-+------------------------------------------------------------------+
-|  [Search by Name/NPI]  ___________________________  [Search]      |
-+------------------------------------------------------------------+
-|  EXCLUDE ALREADY SELECTED: [x] Yes                                |
+|  JOB: Interventional Radiology - Wisconsin Medical Center        |
 +------------------------------------------------------------------+
 |                                                                   |
-|  RESULTS (23 found)                                               |
-|  +--------------------------------------------------------------+ |
-|  | [ ] Dr. John Smith - IR, WI - 12 licenses - 94% match        | |
-|  | [ ] Dr. Jane Doe - IR, MN - 8 licenses - Local - 89% match   | |
-|  | ...                                                          | |
-|  +--------------------------------------------------------------+ |
+|  CAMPAIGN SHORTLIST (12 candidates added)          [View All →]  |
+|  +----------------------------------------------------------+    |
+|  | Dr. Smith (95%) | Dr. Jones (92%) | Dr. Lee (90%) | +9   |    |
+|  +----------------------------------------------------------+    |
 |                                                                   |
-|  [Select All (23)] [Add Selected to Campaign]                     |
++------------------------------------------------------------------+
+|  CANDIDATE POOL                              [Filters: Local ▼]  |
+|  +----------------------------------------------------------+    |
+|  | [ ] Dr. Johnson - IR, WI - Local - 94% match  [+ Add]    |    |
+|  | [✓] Dr. Wilson - IR, MN - 12 licenses - 89%   [Added ✓]  |    |
+|  | [ ] Dr. Brown - IR, TX - 8 licenses - 85%     [+ Add]    |    |
+|  +----------------------------------------------------------+    |
+|                                                                   |
+|  [+ Add All Visible (8)] [Continue with 12 Candidates →]        |
 +------------------------------------------------------------------+
 ```
+
+### Key Changes
+
+**1. New State: `addedToJobIds` (Set)**
+- Separate from checkbox selection
+- Represents candidates explicitly added to this job/campaign
+- Persists when filters change
+- These are the candidates that move to the next step
+
+**2. "Add to Job" Action**
+- Each candidate row gets an "Add" button
+- Clicking adds the candidate to `addedToJobIds`
+- The row shows "Added ✓" badge and can be optionally hidden from pool
+
+**3. "Remove from Job" Action**  
+- Candidates with "Added ✓" status can be removed
+- They return to the pool as unselected
+
+**4. Filter + Add Workflow**
+- Click "Local" filter → Shows only local candidates
+- Click "Add All Visible" → Adds all visible to job
+- Clear filter → See full pool, but added candidates show "Added ✓"
+
+**5. Shortlist Summary Banner**
+- Collapsible section at top showing all added candidates
+- Quick overview with match scores and key tags
+- Click to expand and see full list with ability to remove
+
+**6. Hide Added Toggle**
+- Checkbox: "Hide added candidates from pool" (default: off)
+- When on, added candidates disappear from the search list
+- Keeps focus on finding more candidates to add
 
 ---
 
 ## Implementation Plan
 
-### Phase 1: New Component - AddCandidatesPanel
+### Phase 1: Core State Management
 
-Create `src/components/candidates/AddCandidatesPanel.tsx`:
+**File: `src/pages/CandidateMatching.tsx`**
 
-**Features:**
-- Sheet panel that slides in from the right (500px width)
-- Filter checkboxes: Local, 10+ Licenses, 5+ Licenses, Contact Ready, Needs Enrichment
-- Text search input for name/NPI
-- Toggle to exclude already-selected candidates
-- Results list with checkboxes
-- "Add Selected" button that merges with existing selection
-
-**Props:**
+Add new state:
 ```typescript
-interface AddCandidatesPanelProps {
-  isOpen: boolean;
-  onClose: () => void;
-  jobId: string;
-  jobState: string;
-  specialty: string;
-  existingCandidateIds: Set<string>;
-  onAddCandidates: (candidates: Candidate[]) => void;
-}
+// Candidates explicitly added to this job (the "shortlist")
+const [addedToJobIds, setAddedToJobIds] = useState<Set<string>>(new Set());
+// Toggle to hide added candidates from pool view
+const [hideAdded, setHideAdded] = useState(false);
 ```
 
-### Phase 2: Database Search Function
-
-The panel will query Supabase directly for candidates matching the filters:
-
+Add handlers:
 ```typescript
-// Build dynamic query based on filters
-let query = supabase
-  .from("candidates")
-  .select(`
-    id, first_name, last_name, specialty, state, city,
-    licenses, enrichment_tier, personal_mobile, personal_email,
-    phone, email
-  `)
-  .ilike("specialty", `%${specialty}%`)
-  .limit(100);
+const handleAddToJob = (candidateId: string) => {
+  setAddedToJobIds(prev => new Set(prev).add(candidateId));
+  toast.success("Added to campaign shortlist");
+};
 
-// Apply filters
-if (filters.local) {
-  query = query.eq("state", jobState);
-}
-if (filters.tenPlusLicenses) {
-  query = query.gte("array_length(licenses, 1)", 10);
-}
-if (filters.contactReady) {
-  query = query.or("personal_mobile.neq.null,personal_email.neq.null");
-}
-if (filters.excludeSelected && existingIds.length > 0) {
-  query = query.not("id", "in", `(${existingIds.join(",")})`);
-}
-if (nameSearch) {
-  query = query.or(`first_name.ilike.%${nameSearch}%,last_name.ilike.%${nameSearch}%`);
-}
-```
-
-### Phase 3: Integration with CandidateMatching.tsx
-
-**Changes to main page:**
-
-1. Add state for panel visibility:
-```typescript
-const [addPanelOpen, setAddPanelOpen] = useState(false);
-```
-
-2. Add handler to merge new candidates:
-```typescript
-const handleAddCandidates = (newCandidates: Candidate[]) => {
-  // Merge new candidates with existing list (avoid duplicates)
-  const existingIds = new Set(candidates.map(c => c.id));
-  const uniqueNew = newCandidates.filter(c => !existingIds.has(c.id));
-  
-  setCandidates(prev => [...prev, ...uniqueNew]);
-  
-  // Auto-select the newly added candidates
-  setSelectedIds(prev => {
+const handleRemoveFromJob = (candidateId: string) => {
+  setAddedToJobIds(prev => {
     const next = new Set(prev);
-    uniqueNew.forEach(c => next.add(c.id));
+    next.delete(candidateId);
     return next;
   });
-  
-  toast.success(`Added ${uniqueNew.length} candidates to your selection`);
-  setAddPanelOpen(false);
+  toast.info("Removed from campaign shortlist");
+};
+
+const handleAddAllVisible = () => {
+  const visibleIds = sortedCandidates.map(c => c.id);
+  setAddedToJobIds(prev => {
+    const next = new Set(prev);
+    visibleIds.forEach(id => next.add(id));
+    return next;
+  });
+  toast.success(`Added ${visibleIds.length} candidates to shortlist`);
 };
 ```
 
-3. Add button in selection bar:
+### Phase 2: Shortlist Summary Banner
+
+**New Component: `src/components/candidates/ShortlistBanner.tsx`**
+
+A collapsible banner at the top of the page showing:
+- Count of added candidates
+- Horizontal scrollable list of candidate chips with match scores
+- Quick remove (X) button on each chip
+- "View Details" expands to full list
+- Key stats: "8 Contact Ready | 5 Local | 3 with 10+ Licenses"
+
+```text
++------------------------------------------------------------------+
+| 📋 SHORTLIST (12 candidates)                    [Collapse ▲]     |
++------------------------------------------------------------------+
+| [Dr. Smith 95% ×] [Dr. Jones 92% ×] [Dr. Lee 90% ×] +9 more     |
+| Stats: 8 Contact Ready • 5 Local • 3 with 10+ Licenses           |
++------------------------------------------------------------------+
+```
+
+### Phase 3: Updated Candidate Row UI
+
+Each candidate card gets:
+- **Add Button**: Shows "Add to Campaign" if not added
+- **Added Badge**: Shows "✓ Added" with green styling if added
+- **Remove Option**: Click the "✓ Added" badge to remove
+
 ```typescript
-{selectedIds.size > 0 && (
-  <Button 
-    variant="outline" 
-    onClick={() => setAddPanelOpen(true)}
-    className="bg-blue-500/10 border-blue-500/30 text-blue-400"
+// In the candidate row
+{addedToJobIds.has(candidate.id) ? (
+  <Button
+    variant="outline"
+    size="sm"
+    className="bg-success/20 border-success/40 text-success"
+    onClick={() => handleRemoveFromJob(candidate.id)}
   >
-    <Plus className="h-4 w-4 mr-2" />
-    Add More Candidates
+    <Check className="h-4 w-4 mr-1" />
+    Added
+  </Button>
+) : (
+  <Button
+    variant="outline"
+    size="sm"
+    onClick={() => handleAddToJob(candidate.id)}
+  >
+    <Plus className="h-4 w-4 mr-1" />
+    Add
   </Button>
 )}
 ```
 
-4. Render the panel:
+### Phase 4: Pool Filtering Logic
+
+Update the filter logic to optionally hide added candidates:
 ```typescript
-<AddCandidatesPanel
-  isOpen={addPanelOpen}
-  onClose={() => setAddPanelOpen(false)}
-  jobId={effectiveJobId}
-  jobState={jobState}
-  specialty={job?.specialty || ""}
-  existingCandidateIds={new Set(candidates.map(c => c.id))}
-  onAddCandidates={handleAddCandidates}
-/>
+const poolCandidates = useMemo(() => {
+  let pool = sortedCandidates;
+  if (hideAdded) {
+    pool = pool.filter(c => !addedToJobIds.has(c.id));
+  }
+  return pool;
+}, [sortedCandidates, hideAdded, addedToJobIds]);
 ```
 
-### Phase 4: Selection Persistence Banner
-
-Add a visual indicator that selections are preserved:
-
+Add toggle in the filter bar:
 ```typescript
-{selectedIds.size > 0 && addPanelOpen && (
-  <div className="bg-success/10 border border-success/30 rounded-lg p-3 flex items-center gap-2">
-    <CheckCircle2 className="h-5 w-5 text-success" />
-    <span className="text-sm text-success">
-      Your {selectedIds.size} selected candidates are preserved. 
-      Adding more will merge with your current selection.
-    </span>
-  </div>
-)}
+<div className="flex items-center gap-2">
+  <Checkbox
+    id="hideAdded"
+    checked={hideAdded}
+    onCheckedChange={(checked) => setHideAdded(!!checked)}
+  />
+  <label htmlFor="hideAdded" className="text-sm text-muted-foreground">
+    Hide added candidates
+  </label>
+</div>
 ```
+
+### Phase 5: Updated Continue Flow
+
+Change the "Continue" button to use `addedToJobIds` instead of `selectedIds`:
+```typescript
+const handleContinue = () => {
+  const addedCandidates = candidates.filter(c => addedToJobIds.has(c.id));
+  
+  sessionStorage.setItem("selectedCandidates", JSON.stringify(addedCandidates));
+  sessionStorage.setItem("campaign_candidates", JSON.stringify(addedCandidates));
+  sessionStorage.setItem("campaign_candidate_ids", JSON.stringify(Array.from(addedToJobIds)));
+  
+  // ... rest of job data saving
+  navigate("/campaigns/new/personalize");
+};
+```
+
+### Phase 6: Remove Legacy Checkbox Selection
+
+Since "Add to Job" replaces the old checkbox selection:
+- Remove the checkbox from each row
+- Remove `selectedIds` state (or repurpose for bulk actions)
+- The shortlist IS the selection
+
+**Alternative**: Keep checkboxes for bulk operations (bulk add, bulk research) but use `addedToJobIds` for final campaign selection.
 
 ---
 
-## File Structure
+## Updated User Flow
 
-```text
-src/
-  components/
-    candidates/
-      AddCandidatesPanel.tsx      # NEW - Slide-out search panel
-      CandidateDetailPanel.tsx    # EXISTING
-      ResearchInsights.tsx        # EXISTING
-  pages/
-    CandidateMatching.tsx         # MODIFY - Add button and panel integration
-```
+1. User arrives at Candidate Matching with job context
+2. AI loads matched candidates into the **Pool**
+3. User clicks "Add" on individual high-match candidates → They appear in **Shortlist Banner**
+4. User clicks "Local" filter → Pool shows only local candidates
+5. User clicks "Add All Visible" → All local candidates added to Shortlist
+6. User toggles "Hide Added" → Pool now shows only un-added candidates
+7. User can click "10+ Licenses" filter → Find more to add
+8. Shortlist shows running total: "18 candidates added"
+9. User reviews Shortlist Banner, removes any unwanted
+10. User clicks "Continue with 18 Candidates" → Moves to Personalization
 
 ---
 
 ## Technical Details
 
-### Candidate Scoring for Added Candidates
+### File Changes
 
-When candidates are added via the panel, they need match scores calculated. Options:
+| File | Change |
+|------|--------|
+| `src/pages/CandidateMatching.tsx` | Add `addedToJobIds` state, add/remove handlers, update UI, update continue flow |
+| `src/components/candidates/ShortlistBanner.tsx` | **NEW** - Collapsible banner showing added candidates |
+| `src/components/candidates/AddCandidatesPanel.tsx` | Update to use "Add to Job" instead of checkbox selection |
 
-**Option A (Recommended):** Use the existing `calculateMatchStrength` function client-side for quick scoring, then optionally trigger deep research for the new candidates.
+### State Flow
 
-**Option B:** Call the `ai-candidate-matcher` edge function with just the new candidate IDs for full AI scoring (slower but more accurate).
+```text
+Candidate Pool (from AI matcher)
+       ↓
+   [Add to Job]
+       ↓
+Shortlist (addedToJobIds Set)
+       ↓
+   [Continue]
+       ↓
+Session Storage → PersonalizationStudio
+```
 
-The implementation will use Option A for immediate results with an optional "Research Added Candidates" button.
+### Key Props for ShortlistBanner
 
-### Duplicate Prevention
-
-- The panel will have a toggle "Exclude already selected" (default: on)
-- The merge function double-checks for duplicates before adding
-- UI shows "(X already in list)" badge on search results if there's overlap
-
-### Filter Chip States
-
-Each filter chip will show:
-- Estimated count from database (can be expensive - consider caching or using approximate counts)
-- Active/inactive state
-- "AND" logic (all selected filters must match)
-
----
-
-## User Flow
-
-1. User is on Candidate Matching page with 50 candidates selected
-2. User clicks "Add More Candidates" button
-3. Panel slides in from right
-4. Banner shows "Your 50 selected candidates are preserved"
-5. User selects filters (e.g., Local + Contact Ready)
-6. User clicks "Search" or results auto-load
-7. Results show candidates NOT in current selection
-8. User selects some or all results
-9. User clicks "Add Selected to Campaign"
-10. Panel closes, candidates are merged, toast confirms "Added 12 candidates"
-11. User now has 62 selected candidates
-12. User clicks "Continue with 62 Candidates"
+```typescript
+interface ShortlistBannerProps {
+  candidates: Candidate[];
+  addedIds: Set<string>;
+  onRemove: (id: string) => void;
+  onClear: () => void;
+  jobState: string; // For showing "Local" badges
+}
+```
 
 ---
 
 ## Success Criteria
 
-1. User can search for specific candidate types without losing current selection
-2. New candidates are merged and auto-selected
-3. No duplicates in final list
-4. Clear visual feedback that existing selection is preserved
-5. Works with Local, 10+ Licenses, Contact Ready, and name search filters
+1. Users can "Add to Job" individual candidates with one click
+2. Added candidates are visually distinct in the pool (or hidden)
+3. Shortlist banner shows real-time count and summary
+4. Filters help find specific candidates to add (e.g., "show me locals")
+5. "Add All Visible" quickly adds filtered results
+6. Users can remove candidates from shortlist before continuing
+7. Only shortlisted candidates proceed to Personalization Studio
+8. Next page (Personalization) shows all added candidates with scores/tags/status
