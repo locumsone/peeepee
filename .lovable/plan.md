@@ -1,268 +1,341 @@
 
-# Campaign Builder Bug Review & Dashboard Redesign
 
-## Executive Summary
+# Jobs ATS Transformation - Full Redesign
 
-This plan addresses two main objectives:
-1. **Bug Review**: Comprehensive audit of the campaign builder flow from job entry to launch
-2. **Dashboard Redesign**: Transform the home page from static stats to a data-driven command center with real insights
+## Overview
 
----
-
-## Part 1: Campaign Builder Bug Review
-
-### A. Critical Bugs Found
-
-#### BUG-001: Navigation Path Inconsistency (CRITICAL)
-**Location**: `CandidateMatching.tsx` line 1228
-**Issue**: The "Continue" button navigates to `/campaigns/new/personalize`, but this route requires candidates in `sessionStorage`. If the shortlist (`addedToJobIds`) is empty but `selectedIds` has values, users see an empty state.
-**Fix**: Add validation before navigation and consolidate the selection model
-
-#### BUG-002: Jobs Page "Start Campaign" Button Uses Wrong ID Pattern
-**Location**: `Jobs.tsx` line 203
-**Issue**: Button navigates to `/campaigns/new?jobId=${job.id}` but `CandidateMatching.tsx` falls back to a hardcoded job ID when no `jobId` query param is processed correctly. The `effectiveJobId` fallback (line 274) masks the real issue.
-**Fix**: Remove the hardcoded fallback; show proper error when no job is selected
-
-#### BUG-003: Session Storage Race Condition
-**Location**: `CandidateMatching.tsx` lines 1207-1227
-**Issue**: Multiple `sessionStorage.setItem` calls happen sequentially without awaiting, and `CampaignReview.tsx` reads from both the new unified draft system AND legacy keys, creating potential data conflicts.
-**Fix**: Use the `useCampaignDraft` hook consistently across all pages
-
-#### BUG-004: NewJobEntry.tsx Navigates to Wrong Route
-**Location**: `NewJobEntry.tsx` line 225
-**Issue**: After saving, navigates to `/candidates?jobId=${data.id}` but this route doesn't exist (should be `/candidates/matching?jobId=${data.id}`)
-**Fix**: Correct the navigation path
-
-#### BUG-005: Enrichment Results Not Persisting Across Page Refreshes
-**Location**: `StepPrepareCandidates.tsx`
-**Issue**: Enrichment results are stored in component state (`enrichmentResults`) but not synced to the draft system. If user refreshes, they lose visibility of which candidates were enriched.
-**Fix**: Persist enrichment status to the `useCampaignDraft` hook
-
-#### BUG-006: Launch Pre-Flight Check Always Fails for Integrations
-**Location**: `LaunchStatusBar.tsx` lines 135-136
-**Issue**: The integration check (`integrationsConnected`) is always false initially because `StepConnectChannels` hasn't run its API check yet when `LaunchStatusBar` renders.
-**Fix**: Make integration check async or lazy-load the status
-
-### B. Warning-Level Issues
-
-#### WARN-001: Duplicate Job Entries
-**Database Query Result**: Multiple identical jobs exist (e.g., 5 "IR - Humble, TX" entries)
-**Recommendation**: Add upsert logic or duplicate detection in `JobEntry.tsx`
-
-#### WARN-002: Research Counter Shows 0/50 Despite Cached Data
-**Root Cause**: Already fixed in previous session by adding batching to `ai-candidate-matcher`, but may still occur if batch size changes
-**Recommendation**: Add retry logic and better error handling in research status display
-
-#### WARN-003: Tier Stats Calculation Uses Inconsistent Score Parsing
-**Location**: `CampaignReview.tsx` line 207
-**Issue**: Tier calculation uses `unified_score?.startsWith("A")` but unified_score can be numeric or letter grade
-**Fix**: Normalize score format before comparison
-
-### C. UX Friction Points
-
-1. **No Clear Progress Indicator**: Users don't know they're on step 3 of 5
-2. **"Hot Leads" Counter on Dashboard**: Currently queries `action_type = 'reply'` but no replies exist yet
-3. **Callbacks Section**: Queries `ai_call_queue` for scheduled callbacks but most have `scheduled_at = now()` making them immediately due
+Transform the current basic Jobs page into a comprehensive Applicant Tracking System (ATS) experience inspired by industry leaders like Greenhouse, Lever, and iCIMS. This will include candidate pipeline visualization, activity tracking, outreach metrics, and reply management - all within the job context.
 
 ---
 
-## Part 2: Dashboard Redesign
+## Current State Analysis
 
-### Current State Analysis
+**What Exists Today:**
+- Jobs list with basic details (facility, location, pay rate, status)
+- Job detail page showing static information and pay breakdown
+- Campaigns are separate from jobs with limited linkage
+- No candidate pipeline visibility per job
+- No reply/activity tracking within job context
 
-**Data Available**:
-- 98 total jobs (22 active, 7 open)
-- 138,490 candidates (64 enriched with personal contact)
-- 2 campaigns (1 active)
-- 4 SMS messages (1 inbound reply)
-- 2 AI calls logged
+**Database Assets Available:**
+- `jobs` table with 98 jobs (22 active, 7 open)
+- `campaigns` table linked to jobs via `job_id`
+- `campaign_leads_v2` with full pipeline tracking (status, emails_sent/replied, sms_sent/replied, calls)
+- `sms_messages` for SMS conversation history
+- `ai_call_logs` for call tracking
+- `candidates` with 138K+ records (64 enriched with contact info)
 
-**Current Dashboard Problems**:
-1. Stats are mostly zeros or placeholders
-2. Activity feed shows "No recent activity" because `activity_log` is empty
-3. Callbacks section queries wrong table
-4. No connection to real campaign performance
-5. Static greeting without personalized insights
+---
 
-### Redesigned Dashboard Structure
+## Proposed ATS Features
+
+### 1. Enhanced Job Detail Page with Pipeline View
 
 ```text
-+-----------------------------------------------+
-|  Good morning, [Name]                         |
-|  3 active jobs need candidates                |
-|  [Quick Campaign]  [Add Job]                  |
-+-----------------------------------------------+
-
-+----------+----------+----------+----------+
-| ACTIVE   | CANDIDATES| SMS     | CALLS    |
-| JOBS     | ENRICHED  | SENT    | THIS WEEK|
-|   22     |    64     |   4     |    2     |
-+----------+----------+----------+----------+
-
-+------------------------+----------------------+
-| YOUR JOBS              | RECENT ACTIVITY      |
-| [Kanban cards with     | [Unified feed from   |
-|  real job data,        |  sms_messages,       |
-|  candidate counts,     |  ai_call_logs,       |
-|  next actions]         |  campaign_events]    |
-|                        |                      |
-| [+ New Job]            |                      |
-+------------------------+----------------------+
-
-+------------------------+----------------------+
-| PIPELINE SUMMARY       | TOP CANDIDATES       |
-| [Visual showing        | [High-match candidates|
-|  candidates by stage]  |  awaiting outreach]  |
-+------------------------+----------------------+
++----------------------------------------------------------+
+| [Back] IR - Middletown, NY                    [ACTIVE]   |
+|         Garnet Health • $150/hr                          |
++----------------------------------------------------------+
+|                                                          |
+| [Candidates] [Activity] [Outreach] [Settings]            |
+|                                                          |
++----------------------------------------------------------+
+| CANDIDATE PIPELINE                                       |
++----------+----------+----------+----------+--------------+
+| Sourced  | Contacted| Interested| Placed  |              |
+|   24     |    18    |    5     |    1    |              |
++----------+----------+----------+----------+--------------+
+|                                                          |
+| [Kanban board showing candidates in each stage]          |
+|                                                          |
++----------------------------------------------------------+
 ```
 
-### Dashboard Data Sources (All Real)
+### 2. Pipeline Stages (Healthcare-Specific)
 
-| Widget | Data Source | Query |
-|--------|-------------|-------|
-| Active Jobs | `jobs` table | `WHERE status IN ('active', 'open')` |
-| Candidates Enriched | `candidates` | `WHERE personal_mobile IS NOT NULL OR personal_email IS NOT NULL` |
-| SMS Activity | `sms_messages` | `WHERE created_at >= NOW() - INTERVAL '7 days'` |
-| Calls This Week | `ai_call_logs` | `WHERE created_at >= NOW() - INTERVAL '7 days'` |
-| Recent Activity | Combined query | Union of SMS, calls, campaign events |
-| Your Jobs | `jobs` | Last 6 jobs with candidate counts |
-| Pipeline | `campaign_leads_v2` | Grouped by status |
-| Top Candidates | `candidate_job_matches` | Ordered by match_score DESC |
+| Stage | Description | Color |
+|-------|-------------|-------|
+| **Sourced** | Matched but not yet contacted | Gray |
+| **Contacted** | Initial outreach sent | Blue |
+| **Engaged** | Opened/Clicked/Replied | Yellow |
+| **Interested** | Expressed interest via any channel | Green |
+| **Submitted** | CV submitted to client | Purple |
+| **Placed** | Successfully placed | Emerald |
+| **Not Interested** | Declined or unresponsive after X touches | Red |
+
+### 3. Job Detail Tabs Structure
+
+**Tab 1: Candidates** (Default)
+- Pipeline summary bar (visual)
+- Kanban or list view toggle
+- Candidate cards with:
+  - Name, specialty, location
+  - Current stage badge
+  - Last contact date
+  - Engagement metrics (opens, replies)
+  - Quick actions (call, SMS, email)
+
+**Tab 2: Activity**
+- Unified activity feed from all sources:
+  - SMS messages (sent/received)
+  - Emails (sent/opened/replied)
+  - AI Calls (completed/callbacks)
+  - Manual notes
+- Filterable by candidate or activity type
+
+**Tab 3: Outreach Metrics**
+- Aggregate stats for all campaigns linked to this job:
+  - Total candidates reached
+  - Response rates by channel
+  - Best performing touchpoints
+  - Time-to-response analytics
+
+**Tab 4: Job Settings**
+- Edit job details
+- Requirements checklist
+- Pay breakdown
+- Client contact info
+
+### 4. Enhanced Jobs List Page
+
+Add pipeline summary to each job card:
+
+```text
++------------------------------------------+
+| IR - Middletown, NY              [ACTIVE] |
+| Garnet Health                             |
+| NY • $150/hr                              |
++------------------------------------------+
+| Pipeline: ████░░░░░░ 18 contacted         |
+| 5 interested • 2 replies today            |
++------------------------------------------+
+| [View Pipeline]  [Create Campaign]        |
++------------------------------------------+
+```
+
+### 5. Quick Filters on Jobs Page
+
+- **By Activity**: Jobs with replies in last 24h
+- **By Stage**: Jobs with candidates in "Interested" stage
+- **By Coverage**: Jobs without campaigns (need attention)
+- **By Urgency**: Marked as urgent or with upcoming start dates
 
 ---
 
-## Implementation Plan
+## New Components to Create
 
-### Phase 1: Critical Bug Fixes
+### 1. `JobPipeline.tsx`
+Visual pipeline bar showing candidate distribution across stages
 
-| Task | File | Priority |
-|------|------|----------|
-| Fix NewJobEntry navigation to `/candidates/matching` | `NewJobEntry.tsx` | P0 |
-| Remove hardcoded `effectiveJobId` fallback | `CandidateMatching.tsx` | P0 |
-| Add validation before "Continue" navigation | `CandidateMatching.tsx` | P0 |
-| Fix session storage sync in `handleContinue` | `CandidateMatching.tsx` | P1 |
-| Make integration check async in pre-flight | `LaunchStatusBar.tsx` | P1 |
-| Persist enrichment results to draft | `StepPrepareCandidates.tsx` | P2 |
+### 2. `JobCandidateKanban.tsx`
+Draggable kanban board for candidates within a job context
 
-### Phase 2: Dashboard Redesign
+### 3. `JobCandidateCard.tsx`
+Compact candidate card with engagement metrics and quick actions
 
-1. **Create new dashboard components**:
-   - `DashboardJobCard.tsx` - Mini job cards with real stats
-   - `DashboardActivityFeed.tsx` - Unified activity from SMS, calls, events
-   - `DashboardPipeline.tsx` - Visual candidate pipeline
-   - `DashboardStats.tsx` - Real-time stat widgets
+### 4. `JobActivityFeed.tsx`
+Unified activity feed aggregating SMS, email, and call events for a job
 
-2. **Update Dashboard.tsx**:
-   - Replace static stats with real queries
-   - Add job list section
-   - Create unified activity feed
-   - Add pipeline visualization
-   - Show top candidates needing action
+### 5. `JobOutreachStats.tsx`
+Metrics dashboard showing channel performance for the job
 
-3. **Database queries to add**:
-   - Recent communications (SMS + calls + emails)
-   - Candidate pipeline by status
-   - Jobs with candidate counts
-   - Hot leads (replies in last 24h)
+### 6. `JobReplyBadge.tsx`
+Badge indicator showing reply count (appears on job cards)
 
 ---
 
-## Technical Details
+## Data Flow Architecture
 
-### Bug Fix: NewJobEntry Navigation
-```typescript
-// Line 225: Change from
-navigate(`/candidates?jobId=${data.id}`);
-// To
-navigate(`/candidates/matching?jobId=${data.id}`);
+```text
+Job Detail Page
+       |
+       v
++------------------+
+| Fetch Job Data   |
++------------------+
+       |
+       +---------> Fetch Campaigns (WHERE job_id = X)
+       |                    |
+       |                    v
+       |           Fetch campaign_leads_v2 (WHERE campaign_id IN (...))
+       |                    |
+       +---------> Aggregate by status --> Pipeline counts
+       |
+       +---------> Fetch SMS Messages (WHERE candidate_id IN (...))
+       |
+       +---------> Fetch AI Call Logs (WHERE job_id = X)
+       |
+       v
+Render Pipeline + Candidates + Activity
 ```
 
-### Bug Fix: Remove Hardcoded JobId
-```typescript
-// Line 274: Change from
-const effectiveJobId = jobId || "befd5ba5-4e46-41d9-b144-d4077f750035";
-// To
-const effectiveJobId = jobId;
-// Add early return if no jobId
-if (!jobId) {
-  return <NoJobSelectedState />;
-}
-```
+---
 
-### Dashboard: Unified Activity Query
+## Database Queries Required
+
+### Query 1: Pipeline Counts per Job
 ```sql
 SELECT 
-  'sms' as source,
-  id,
-  created_at,
-  CASE WHEN direction = 'inbound' THEN 'sms_reply' ELSE 'sms_sent' END as action_type,
-  to_number as related_phone,
-  body as preview
-FROM sms_messages
-WHERE created_at >= NOW() - INTERVAL '7 days'
-
-UNION ALL
-
-SELECT 
-  'call' as source,
-  id::text,
-  created_at,
-  CASE WHEN call_result = 'interested' THEN 'call_interested' ELSE 'call_completed' END,
-  phone_number,
-  call_summary
-FROM ai_call_logs
-WHERE created_at >= NOW() - INTERVAL '7 days'
-
-ORDER BY created_at DESC
-LIMIT 20
+  cl.status,
+  COUNT(*) as count
+FROM campaign_leads_v2 cl
+JOIN campaigns c ON c.id = cl.campaign_id
+WHERE c.job_id = $JOB_ID
+GROUP BY cl.status
 ```
 
-### Dashboard: Jobs with Candidate Counts
+### Query 2: Candidates with Engagement for Job
 ```sql
 SELECT 
-  j.id,
-  j.job_name,
-  j.specialty,
-  j.state,
-  j.facility_name,
-  j.status,
-  j.pay_rate,
-  COUNT(DISTINCT c.id) as matched_candidates,
-  COUNT(DISTINCT cl.id) as campaign_leads
-FROM jobs j
-LEFT JOIN candidates c ON c.specialty ILIKE '%' || j.specialty || '%' AND c.state = j.state
-LEFT JOIN campaign_leads_v2 cl ON cl.candidate_state = j.state
-WHERE j.status IN ('active', 'open')
-GROUP BY j.id
-ORDER BY j.created_at DESC
-LIMIT 6
+  cl.*,
+  ca.first_name,
+  ca.last_name,
+  ca.personal_mobile,
+  ca.personal_email
+FROM campaign_leads_v2 cl
+JOIN campaigns c ON c.id = cl.campaign_id
+LEFT JOIN candidates ca ON ca.id = cl.candidate_id
+WHERE c.job_id = $JOB_ID
+ORDER BY cl.updated_at DESC
 ```
+
+### Query 3: Recent Activity for Job
+```sql
+-- SMS Activity
+SELECT 
+  'sms' as type,
+  sm.created_at,
+  sm.body as content,
+  sm.direction,
+  sm.to_number as phone,
+  cl.candidate_name
+FROM sms_messages sm
+JOIN sms_conversations sc ON sc.id = sm.conversation_id
+JOIN campaign_leads_v2 cl ON cl.id = sc.campaign_lead_id
+JOIN campaigns c ON c.id = cl.campaign_id
+WHERE c.job_id = $JOB_ID
+ORDER BY sm.created_at DESC
+LIMIT 50
+```
+
+### Query 4: Reply Count for Job Cards
+```sql
+SELECT 
+  c.job_id,
+  SUM(cl.emails_replied) + SUM(cl.sms_replied) as total_replies,
+  COUNT(DISTINCT CASE WHEN cl.status IN ('interested', 'engaged') THEN cl.id END) as hot_leads
+FROM campaign_leads_v2 cl
+JOIN campaigns c ON c.id = cl.campaign_id
+WHERE c.job_id IS NOT NULL
+GROUP BY c.job_id
+```
+
+---
+
+## Files to Create
+
+| File | Purpose |
+|------|---------|
+| `src/components/jobs/JobPipeline.tsx` | Visual pipeline summary bar |
+| `src/components/jobs/JobCandidateKanban.tsx` | Kanban board for job candidates |
+| `src/components/jobs/JobCandidateCard.tsx` | Individual candidate card |
+| `src/components/jobs/JobActivityFeed.tsx` | Activity feed for job |
+| `src/components/jobs/JobOutreachStats.tsx` | Metrics dashboard |
+| `src/components/jobs/JobReplyBadge.tsx` | Reply indicator badge |
+| `src/components/jobs/index.ts` | Component exports |
 
 ---
 
 ## Files to Modify
 
-### Phase 1 (Bug Fixes):
-- `src/pages/NewJobEntry.tsx` - Fix navigation path
-- `src/pages/CandidateMatching.tsx` - Remove fallback, add validation
-- `src/components/campaign-review/LaunchStatusBar.tsx` - Async integration check
-- `src/components/campaign-review/StepPrepareCandidates.tsx` - Persist enrichment
+| File | Changes |
+|------|---------|
+| `src/pages/JobDetail.tsx` | Complete redesign with tabs, pipeline, and activity |
+| `src/pages/Jobs.tsx` | Add pipeline summaries, reply badges, and filters |
+| `src/components/dashboard/DashboardJobCard.tsx` | Add pipeline mini-view |
 
-### Phase 2 (Dashboard):
-- `src/pages/Dashboard.tsx` - Complete redesign
-- `src/components/dashboard/DashboardJobCard.tsx` - New component
-- `src/components/dashboard/DashboardActivityFeed.tsx` - New component
-- `src/components/dashboard/DashboardPipeline.tsx` - New component
-- `src/components/dashboard/DashboardStats.tsx` - New component
+---
+
+## Implementation Phases
+
+### Phase 1: Job Detail Page Transformation
+1. Add tabbed interface (Candidates, Activity, Outreach, Settings)
+2. Create JobPipeline component with stage counts
+3. Create JobCandidateKanban for visual candidate management
+4. Implement stage drag-and-drop to update candidate status
+
+### Phase 2: Activity & Metrics Integration
+1. Create unified JobActivityFeed component
+2. Aggregate SMS, email events, and call logs
+3. Create JobOutreachStats dashboard
+4. Add reply/engagement badges
+
+### Phase 3: Jobs List Enhancement
+1. Add pipeline summary bars to job cards
+2. Add "Hot Leads" indicator showing recent replies
+3. Implement quick filters (by activity, by stage)
+4. Add "Needs Attention" section for jobs without outreach
+
+### Phase 4: Candidate Stage Management
+1. Enable drag-and-drop stage changes in Kanban
+2. Add bulk actions (move multiple candidates)
+3. Implement status change logging
+4. Add quick action buttons on candidate cards
+
+---
+
+## UI/UX Improvements
+
+### Color Coding
+- **Sourced**: `bg-muted` (gray)
+- **Contacted**: `bg-blue-500/20` (blue)
+- **Engaged**: `bg-warning/20` (yellow/amber)
+- **Interested**: `bg-success/20` (green)
+- **Submitted**: `bg-purple-500/20` (purple)
+- **Placed**: `bg-emerald-500/20` (emerald)
+- **Not Interested**: `bg-destructive/20` (red)
+
+### Engagement Indicators
+- 🔥 Hot Lead: Replied within 24 hours
+- ⚡ Active: Opened/clicked in last 7 days
+- 💤 Cold: No engagement in 14+ days
+- ❌ Bounced: Email or SMS delivery failed
+
+### Pipeline Progress Bar
+Visual representation using stacked horizontal bars:
+```text
+Sourced  Contacted   Interested   Placed
+[█████████][███████][████][██]
+    40%       30%      20%    10%
+```
 
 ---
 
 ## Success Metrics
 
 After implementation:
-1. Zero "Campaign not found" errors after launch
-2. Dashboard shows real data from all 98 jobs
-3. Activity feed shows SMS and call activity
-4. Jobs section shows actual candidate matches
-5. Users can see enrichment progress clearly
-6. Pre-flight checks complete without false failures
+1. Every job shows real-time pipeline counts
+2. Recruiters can see all activity for a job in one place
+3. Candidate stages can be updated via drag-and-drop
+4. Reply notifications are visible on job cards
+5. Time-to-hire visibility via pipeline progression
+6. Channel performance comparison (email vs SMS vs call)
+
+---
+
+## Technical Considerations
+
+### Performance
+- Use React Query for data caching
+- Implement virtual scrolling for large candidate lists
+- Lazy load activity feed with pagination
+
+### Real-time Updates
+- Subscribe to `campaign_leads_v2` changes for live stage updates
+- Subscribe to `sms_messages` for incoming reply notifications
+
+### Mobile Responsiveness
+- Pipeline collapses to horizontal scroll on mobile
+- Kanban switches to list view on small screens
+- Activity feed remains full-width
+
