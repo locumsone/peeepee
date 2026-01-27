@@ -1,14 +1,11 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Loader2, Calendar, ArrowRight, Building2, MapPin, Stethoscope, Clock, Flame, Users, TrendingUp } from "lucide-react";
-import { format } from "date-fns";
-import { JobPipeline, JobReplyBadge } from "@/components/jobs";
-import { cn } from "@/lib/utils";
+import { Plus, Loader2, Flame, Users, TrendingUp, Calendar, Target } from "lucide-react";
+import { ExpandableJobRow } from "@/components/jobs";
 
 interface Job {
   id: string;
@@ -28,17 +25,12 @@ interface Job {
 interface JobStats {
   jobId: string;
   totalCandidates: number;
+  matchedCandidates: number;
   pipelineCounts: Record<string, number>;
   totalReplies: number;
   hotLeads: number;
+  draftCandidates: number;
 }
-
-const statusColors: Record<string, string> = {
-  active: "bg-success/20 text-success border-success/30",
-  on_hold: "bg-warning/20 text-warning border-warning/30",
-  filled: "bg-accent/20 text-accent border-accent/30",
-  closed: "bg-muted text-muted-foreground border-border",
-};
 
 export default function Jobs() {
   const navigate = useNavigate();
@@ -68,23 +60,63 @@ export default function Jobs() {
 
       setJobs(jobsData || []);
 
+      // Fetch candidate_job_matches counts per job
+      const { data: matchCounts } = await supabase
+        .from("candidate_job_matches")
+        .select("job_id");
+
+      const matchCountByJob: Record<string, number> = {};
+      if (matchCounts) {
+        matchCounts.forEach(m => {
+          if (m.job_id) {
+            matchCountByJob[m.job_id] = (matchCountByJob[m.job_id] || 0) + 1;
+          }
+        });
+      }
+
       // Fetch campaigns and leads for all jobs
       const { data: campaigns } = await supabase
         .from("campaigns")
-        .select("id, job_id");
+        .select("id, job_id, status");
 
       if (!campaigns || campaigns.length === 0) {
+        // Still set match counts even without campaigns
+        const stats: Record<string, JobStats> = {};
+        (jobsData || []).forEach(job => {
+          if (matchCountByJob[job.id]) {
+            stats[job.id] = {
+              jobId: job.id,
+              totalCandidates: 0,
+              matchedCandidates: matchCountByJob[job.id] || 0,
+              pipelineCounts: {},
+              totalReplies: 0,
+              hotLeads: 0,
+              draftCandidates: 0,
+            };
+          }
+        });
+        setJobStats(stats);
         setIsLoading(false);
         return;
       }
 
       const campaignIdsByJob: Record<string, string[]> = {};
+      const draftCampaignIdsByJob: Record<string, string[]> = {};
+      
       campaigns.forEach(c => {
         if (c.job_id) {
           if (!campaignIdsByJob[c.job_id]) {
             campaignIdsByJob[c.job_id] = [];
           }
           campaignIdsByJob[c.job_id].push(c.id);
+          
+          // Track draft campaigns separately
+          if (c.status === "draft") {
+            if (!draftCampaignIdsByJob[c.job_id]) {
+              draftCampaignIdsByJob[c.job_id] = [];
+            }
+            draftCampaignIdsByJob[c.job_id].push(c.id);
+          }
         }
       });
 
@@ -104,12 +136,17 @@ export default function Jobs() {
 
         Object.entries(campaignIdsByJob).forEach(([jobId, cIds]) => {
           const jobLeads = leads.filter(l => cIds.includes(l.campaign_id || ""));
+          const draftCIds = draftCampaignIdsByJob[jobId] || [];
+          const draftLeads = leads.filter(l => draftCIds.includes(l.campaign_id || "") && l.status === "draft");
           
           const pipelineCounts: Record<string, number> = {};
           let totalReplies = 0;
           let hotLeads = 0;
 
           jobLeads.forEach(lead => {
+            // Don't count draft leads in pipeline
+            if (lead.status === "draft") return;
+            
             const status = lead.status || "sourced";
             pipelineCounts[status] = (pipelineCounts[status] || 0) + 1;
             
@@ -127,11 +164,28 @@ export default function Jobs() {
 
           stats[jobId] = {
             jobId,
-            totalCandidates: jobLeads.length,
+            totalCandidates: jobLeads.filter(l => l.status !== "draft").length,
+            matchedCandidates: matchCountByJob[jobId] || 0,
             pipelineCounts,
             totalReplies,
             hotLeads,
+            draftCandidates: draftLeads.length,
           };
+        });
+
+        // Add jobs that only have matches (no campaigns yet)
+        (jobsData || []).forEach(job => {
+          if (!stats[job.id] && matchCountByJob[job.id]) {
+            stats[job.id] = {
+              jobId: job.id,
+              totalCandidates: 0,
+              matchedCandidates: matchCountByJob[job.id] || 0,
+              pipelineCounts: {},
+              totalReplies: 0,
+              hotLeads: 0,
+              draftCandidates: 0,
+            };
+          }
         });
 
         setJobStats(stats);
@@ -153,24 +207,18 @@ export default function Jobs() {
       const stats = jobStats[job.id];
       return !stats || stats.totalCandidates === 0;
     }
+    if (filter === "draft") {
+      const stats = jobStats[job.id];
+      return stats && stats.draftCandidates > 0;
+    }
     return job.status === filter;
   });
-
-  const formatDate = (date: string | null) => {
-    if (!date) return "—";
-    return format(new Date(date), "MMM d, yyyy");
-  };
-
-  const calculateMargin = (billRate: number | null, payRate: number | null) => {
-    if (!billRate || !payRate) return null;
-    const malpractice = payRate * 0.10;
-    return billRate - payRate - malpractice;
-  };
 
   // Summary stats
   const activeJobs = jobs.filter(j => j.status === "active").length;
   const totalHotLeads = Object.values(jobStats).reduce((sum, s) => sum + s.hotLeads, 0);
   const totalCandidates = Object.values(jobStats).reduce((sum, s) => sum + s.totalCandidates, 0);
+  const totalMatched = Object.values(jobStats).reduce((sum, s) => sum + s.matchedCandidates, 0);
 
   return (
     <div className="min-h-screen bg-background">
@@ -191,7 +239,7 @@ export default function Jobs() {
         </div>
 
         {/* Stats Row */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
           <Card className="bg-card border-border">
             <CardContent className="pt-4">
               <div className="flex items-center gap-3">
@@ -210,11 +258,25 @@ export default function Jobs() {
             <CardContent className="pt-4">
               <div className="flex items-center gap-3">
                 <div className="h-10 w-10 rounded-lg bg-primary/20 flex items-center justify-center">
-                  <Users className="h-5 w-5 text-primary" />
+                  <Target className="h-5 w-5 text-primary" />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold text-foreground">{totalMatched}</p>
+                  <p className="text-xs text-muted-foreground">Matched</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-card border-border">
+            <CardContent className="pt-4">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-lg bg-blue-500/20 flex items-center justify-center">
+                  <Users className="h-5 w-5 text-blue-400" />
                 </div>
                 <div>
                   <p className="text-2xl font-bold text-foreground">{totalCandidates}</p>
-                  <p className="text-xs text-muted-foreground">Total Candidates</p>
+                  <p className="text-xs text-muted-foreground">In Pipeline</p>
                 </div>
               </div>
             </CardContent>
@@ -258,6 +320,7 @@ export default function Jobs() {
               <Flame className="h-3 w-3" />
               Hot Leads
             </TabsTrigger>
+            <TabsTrigger value="draft">Has Drafts</TabsTrigger>
             <TabsTrigger value="no_outreach">Needs Outreach</TabsTrigger>
             <TabsTrigger value="on_hold">On Hold</TabsTrigger>
           </TabsList>
@@ -277,125 +340,16 @@ export default function Jobs() {
           </div>
         )}
 
-        {/* Jobs Grid */}
+        {/* Jobs Grid - Using ExpandableJobRow */}
         {!isLoading && filteredJobs.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {filteredJobs.map((job) => {
-              const margin = calculateMargin(job.bill_rate, job.pay_rate);
-              const stats = jobStats[job.id];
-              
-              return (
-                <Card 
-                  key={job.id} 
-                  className="bg-card border-border hover:border-primary/50 transition-colors cursor-pointer"
-                  onClick={() => navigate(`/jobs/${job.id}`)}
-                >
-                  <CardHeader className="pb-3">
-                    {/* Header Row */}
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <h3 className="text-lg font-semibold text-foreground line-clamp-1">
-                            {job.job_name || "Untitled Job"}
-                          </h3>
-                          {stats && stats.hotLeads > 0 && (
-                            <Flame className="h-4 w-4 text-orange-400 flex-shrink-0" />
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        <Badge 
-                          variant="outline" 
-                          className={statusColors[job.status || "closed"]}
-                        >
-                          {job.status?.replace("_", " ") || "unknown"}
-                        </Badge>
-                      </div>
-                    </div>
-                  </CardHeader>
-                  
-                  <CardContent className="space-y-4">
-                    {/* Info Grid 2x2 */}
-                    <div className="grid grid-cols-2 gap-3 text-sm">
-                      <div className="flex items-center gap-2 text-muted-foreground">
-                        <Building2 className="h-4 w-4 flex-shrink-0" />
-                        <span className="truncate">{job.facility_name || "—"}</span>
-                      </div>
-                      <div className="flex items-center gap-2 text-muted-foreground">
-                        <MapPin className="h-4 w-4 flex-shrink-0" />
-                        <span className="truncate">
-                          {job.city && job.state 
-                            ? `${job.city}, ${job.state}` 
-                            : job.state || job.city || "—"}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2 text-muted-foreground">
-                        <Stethoscope className="h-4 w-4 flex-shrink-0" />
-                        <span className="truncate">{job.specialty || "—"}</span>
-                      </div>
-                      <div className="flex items-center gap-2 text-muted-foreground">
-                        <Clock className="h-4 w-4 flex-shrink-0" />
-                        <span className="truncate">{job.schedule || "—"}</span>
-                      </div>
-                    </div>
-
-                    {/* Pipeline Progress */}
-                    {stats && stats.totalCandidates > 0 && (
-                      <JobPipeline counts={stats.pipelineCounts} compact />
-                    )}
-
-                    {/* Reply Badges */}
-                    {stats && (
-                      <JobReplyBadge 
-                        totalReplies={stats.totalReplies}
-                        hotLeads={stats.hotLeads}
-                      />
-                    )}
-
-                    {/* Pay Section */}
-                    <div className="bg-muted/30 rounded-lg p-3 space-y-1">
-                      <div className="flex items-baseline justify-between">
-                        <span className="text-sm text-muted-foreground">Bill Rate:</span>
-                        <span className="text-sm text-muted-foreground">
-                          {job.bill_rate ? `$${job.bill_rate}/hr` : "—"}
-                        </span>
-                      </div>
-                      <div className="flex items-baseline justify-between">
-                        <span className="text-sm font-medium text-foreground">Pay Rate:</span>
-                        <span className="text-2xl font-bold text-success">
-                          {job.pay_rate ? `$${job.pay_rate}/hr` : "—"}
-                        </span>
-                      </div>
-                      {margin !== null && (
-                        <div className="text-xs text-muted-foreground text-right">
-                          ~${margin.toFixed(0)}/hr margin
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Footer */}
-                    <div className="flex items-center justify-between pt-2">
-                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                        <Calendar className="h-4 w-4" />
-                        <span>{job.start_date ? formatDate(job.start_date) : "No start date"}</span>
-                      </div>
-                      <Button 
-                        variant="default"
-                        size="sm"
-                        className="bg-primary hover:bg-primary/90"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          navigate(`/campaigns/new?jobId=${job.id}`);
-                        }}
-                      >
-                        Start Campaign
-                        <ArrowRight className="h-4 w-4 ml-1" />
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
+            {filteredJobs.map((job) => (
+              <ExpandableJobRow 
+                key={job.id} 
+                job={job} 
+                stats={jobStats[job.id]} 
+              />
+            ))}
           </div>
         )}
       </div>

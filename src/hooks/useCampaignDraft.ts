@@ -2,10 +2,12 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import type { Job, ChannelConfig, SelectedCandidate } from "@/components/campaign-review/types";
+import { useDraftPersistence } from "./useDraftPersistence";
 
 // Unified storage key - replaces all legacy keys
 const DRAFT_KEY = "campaign_draft_v1";
 const AUTO_SAVE_INTERVAL = 30000; // 30 seconds
+const DB_SYNC_INTERVAL = 60000; // 60 seconds for database sync
 
 export interface CampaignDraft {
   // Core data
@@ -14,6 +16,9 @@ export interface CampaignDraft {
   candidates: SelectedCandidate[];
   channels: ChannelConfig;
   campaignName: string;
+  
+  // Database tracking
+  databaseCampaignId: string | null;
   
   // Playbook/personalization data
   playbookData?: Record<string, unknown>;
@@ -31,6 +36,7 @@ const EMPTY_DRAFT: CampaignDraft = {
   candidates: [],
   channels: {},
   campaignName: "",
+  databaseCampaignId: null,
   playbookData: undefined,
   generatedMessages: undefined,
   lastSavedAt: new Date().toISOString(),
@@ -64,6 +70,7 @@ function migrateLegacyData(): CampaignDraft | null {
       candidates: legacyCandidates ? JSON.parse(legacyCandidates) : [],
       channels: legacyChannels ? normalizeChannelConfig(JSON.parse(legacyChannels)) : {},
       campaignName: "",
+      databaseCampaignId: null,
       playbookData: legacyPlaybook ? JSON.parse(legacyPlaybook) : undefined,
       lastSavedAt: new Date().toISOString(),
       currentStep: determineStep(legacyJobId, legacyCandidates, legacyChannels),
@@ -154,6 +161,10 @@ export function useCampaignDraft() {
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [showRecoveryPrompt, setShowRecoveryPrompt] = useState(false);
   const autoSaveTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const dbSyncTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  
+  // Database persistence hook
+  const { debouncedPersist } = useDraftPersistence();
 
   // Load draft on mount
   useEffect(() => {
@@ -328,13 +339,29 @@ export function useCampaignDraft() {
   }, []);
 
   const updateCandidates = useCallback((candidates: SelectedCandidate[]) => {
-    setDraft(prev => ({
-      ...prev,
-      candidates,
-      currentStep: Math.max(prev.currentStep, 2),
-    }));
+    setDraft(prev => {
+      const updated = {
+        ...prev,
+        candidates,
+        currentStep: Math.max(prev.currentStep, 2),
+      };
+      // Trigger database sync when candidates change
+      if (updated.jobId && candidates.length > 0) {
+        debouncedPersist({
+          jobId: updated.jobId,
+          candidates,
+          campaignName: updated.campaignName,
+          databaseCampaignId: updated.databaseCampaignId,
+        }, (campaignId) => {
+          if (campaignId && !updated.databaseCampaignId) {
+            setDraft(d => ({ ...d, databaseCampaignId: campaignId }));
+          }
+        });
+      }
+      return updated;
+    });
     setIsDirty(true);
-  }, []);
+  }, [debouncedPersist]);
 
   const updateChannels = useCallback((channels: ChannelConfig) => {
     setDraft(prev => ({
