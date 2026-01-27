@@ -187,42 +187,80 @@ export function useCampaignDraft() {
   const loadDraft = useCallback(() => {
     setIsLoading(true);
     try {
-      // First check for existing unified draft in localStorage (for persistence across tabs/refreshes)
+      // *** FIX: Check sessionStorage FIRST (current session has priority) ***
+      const sessionDraft = sessionStorage.getItem(DRAFT_KEY);
       const storedDraft = localStorage.getItem(DRAFT_KEY);
       
-      if (storedDraft) {
-        const parsed = JSON.parse(storedDraft) as CampaignDraft;
-        const savedTime = new Date(parsed.lastSavedAt);
-        const hoursSinceSave = (Date.now() - savedTime.getTime()) / (1000 * 60 * 60);
-        
-        // If draft is less than 24 hours old and has meaningful data
-        if (hoursSinceSave < 24 && (parsed.jobId || parsed.candidates.length > 0)) {
-          setDraft(parsed);
-          setLastSaved(savedTime);
-          
-          // Also sync to sessionStorage for backward compat
-          syncToLegacyKeys(parsed);
-          setIsLoading(false);
-          return;
+      let sessionData: CampaignDraft | null = null;
+      let localData: CampaignDraft | null = null;
+      
+      if (sessionDraft) {
+        try {
+          sessionData = JSON.parse(sessionDraft) as CampaignDraft;
+        } catch (e) {
+          console.error("Failed to parse session draft:", e);
         }
       }
-
-      // Check sessionStorage for current session data
-      const sessionDraft = sessionStorage.getItem(DRAFT_KEY);
-      if (sessionDraft) {
-        const parsed = JSON.parse(sessionDraft) as CampaignDraft;
-        setDraft(parsed);
-        setLastSaved(new Date(parsed.lastSavedAt));
+      
+      if (storedDraft) {
+        try {
+          localData = JSON.parse(storedDraft) as CampaignDraft;
+        } catch (e) {
+          console.error("Failed to parse local draft:", e);
+        }
+      }
+      
+      // Determine which draft to use based on timestamp and data freshness
+      let selectedDraft: CampaignDraft | null = null;
+      
+      if (sessionData && localData) {
+        const sessionTime = new Date(sessionData.lastSavedAt).getTime();
+        const localTime = new Date(localData.lastSavedAt).getTime();
+        
+        // Use whichever is more recent
+        if (sessionTime >= localTime) {
+          selectedDraft = sessionData;
+          console.log("[useCampaignDraft] Using sessionStorage (newer):", sessionData.candidates.length, "candidates");
+        } else {
+          // Check if localStorage is stale (older than 1 hour compared to session)
+          const hoursDiff = (localTime - sessionTime) / (1000 * 60 * 60);
+          if (hoursDiff < 1 && sessionData.candidates.length > 0) {
+            // Session has candidates but local doesn't - prefer session
+            selectedDraft = sessionData;
+            console.log("[useCampaignDraft] Using sessionStorage (has candidates):", sessionData.candidates.length);
+          } else {
+            selectedDraft = localData;
+            console.log("[useCampaignDraft] Using localStorage:", localData.candidates.length, "candidates");
+          }
+        }
+      } else if (sessionData) {
+        selectedDraft = sessionData;
+        console.log("[useCampaignDraft] Using sessionStorage only:", sessionData.candidates.length, "candidates");
+      } else if (localData) {
+        const savedTime = new Date(localData.lastSavedAt);
+        const hoursSinceSave = (Date.now() - savedTime.getTime()) / (1000 * 60 * 60);
+        
+        // Only use localStorage if less than 24 hours old
+        if (hoursSinceSave < 24 && (localData.jobId || localData.candidates.length > 0)) {
+          selectedDraft = localData;
+          console.log("[useCampaignDraft] Using localStorage (within 24h):", localData.candidates.length, "candidates");
+        }
+      }
+      
+      if (selectedDraft && (selectedDraft.jobId || selectedDraft.candidates.length > 0)) {
+        setDraft(selectedDraft);
+        setLastSaved(new Date(selectedDraft.lastSavedAt));
+        syncToLegacyKeys(selectedDraft);
         setIsLoading(false);
         return;
       }
 
-      // Try to migrate legacy data
+      // Try to migrate legacy data as fallback
       const migrated = migrateLegacyData();
       if (migrated && (migrated.jobId || migrated.candidates.length > 0)) {
+        console.log("[useCampaignDraft] Migrated legacy data:", migrated.candidates.length, "candidates");
         setDraft(migrated);
         setShowRecoveryPrompt(true);
-        // Save migrated data
         saveDraftToStorage(migrated);
         clearLegacyKeys();
       }

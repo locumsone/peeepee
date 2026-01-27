@@ -170,25 +170,40 @@ export function LaunchStatusBar({
     if (!jobId || !canLaunch) return;
 
     setIsLaunching(true);
+    
+    // *** DEBUG: Log candidate count before launch ***
+    console.log("[LaunchStatusBar] Starting launch with", candidates.length, "candidates");
 
     try {
+      // Build complete candidate payload with all required fields
+      const candidatePayload = candidates.map(c => ({
+        id: c.id,
+        first_name: c.first_name,
+        last_name: c.last_name,
+        email: c.email || c.personal_email,
+        phone: c.phone || c.personal_mobile,
+        // *** FIX: Add missing fields for campaign_leads_v2 ***
+        specialty: c.specialty || null,
+        state: c.state || null,
+        city: c.city || null,
+        tier: c.tier || null,
+        unified_score: c.unified_score || null,
+        // Personalization data
+        icebreaker: c.icebreaker,
+        talking_points: c.talking_points,
+        email_subject: c.email_subject,
+        email_body: c.email_body,
+        sms_message: c.sms_message,
+      }));
+      
+      console.log("[LaunchStatusBar] Candidate payload:", candidatePayload.length, "candidates with data");
+      
       const { data, error } = await supabase.functions.invoke("launch-campaign", {
         body: {
           job_id: jobId,
           campaign_name: campaignName,
           sender_email: senderEmail,
-          candidates: candidates.map(c => ({
-            id: c.id,
-            first_name: c.first_name,
-            last_name: c.last_name,
-            email: c.email || c.personal_email,
-            phone: c.phone || c.personal_mobile,
-            icebreaker: c.icebreaker,
-            talking_points: c.talking_points,
-            email_subject: c.email_subject,
-            email_body: c.email_body,
-            sms_message: c.sms_message,
-          })),
+          candidates: candidatePayload,
           channels,
         },
       });

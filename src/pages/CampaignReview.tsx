@@ -166,6 +166,11 @@ export default function CampaignReview() {
   // Sync draft data to local state when draft loads
   useEffect(() => {
     if (!isDraftLoading && draft.jobId) {
+      console.log("[CampaignReview] Loading from draft:", {
+        jobId: draft.jobId,
+        candidatesCount: draft.candidates.length,
+        hasChannels: Object.keys(draft.channels).length > 0,
+      });
       setJobId(draft.jobId);
       setJob(draft.job);
       setCandidates(draft.candidates);
@@ -177,6 +182,7 @@ export default function CampaignReview() {
       setIsLoading(false);
     } else if (!isDraftLoading) {
       // Fall back to legacy loading
+      console.log("[CampaignReview] No draft found, falling back to legacy session loading");
       loadSessionData();
     }
   }, [isDraftLoading, draft]);
