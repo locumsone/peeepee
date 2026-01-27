@@ -66,8 +66,8 @@ const App = () => (
           
           <Route path="/campaigns/launch" element={<AuthGuard><LaunchConfirmation /></AuthGuard>} />
           <Route path="/campaigns" element={<AuthGuard><Campaigns /></AuthGuard>} />
-          <Route path="/campaigns/new" element={<AuthGuard><CampaignBuilder /></AuthGuard>} />
-          <Route path="/campaigns/new/candidates" element={<AuthGuard><CampaignCandidates /></AuthGuard>} />
+          <Route path="/campaigns/new" element={<AuthGuard><CandidateMatching /></AuthGuard>} />
+          <Route path="/campaigns/new/candidates" element={<AuthGuard><CandidateMatching /></AuthGuard>} />
           {/* New flow: Candidates → Personalize → Sequence → Review → Enrichment → Launch */}
           <Route path="/campaigns/new/personalize" element={<AuthGuard><PersonalizationStudio /></AuthGuard>} />
           <Route path="/campaigns/new/channels" element={<AuthGuard><SequenceStudio /></AuthGuard>} />
