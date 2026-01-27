@@ -27,6 +27,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { ResearchInsights } from "@/components/candidates/ResearchInsights";
 import AddCandidatesPanel from "@/components/candidates/AddCandidatesPanel";
 import ShortlistBanner from "@/components/candidates/ShortlistBanner";
+import ShortlistPanel from "@/components/candidates/ShortlistPanel";
+import PoolSection from "@/components/candidates/PoolSection";
 
 // Connection object from personalization engine
 interface ConnectionMatch {
@@ -995,6 +997,38 @@ const CandidateMatching = () => {
     candidates.filter(c => !c.researched).length
   , [candidates]);
 
+  // NEW: Split pool into Local vs Other candidates for split-view sections
+  const localPoolCandidates = useMemo(() => 
+    sortedCandidates.filter(c => c.state === jobState),
+  [sortedCandidates, jobState]);
+
+  const otherPoolCandidates = useMemo(() => 
+    sortedCandidates.filter(c => c.state !== jobState),
+  [sortedCandidates, jobState]);
+
+  // NEW: Section-level bulk add handlers
+  const handleAddAllLocal = () => {
+    const localIds = localPoolCandidates.map(c => c.id);
+    if (localIds.length === 0) {
+      toast.info("No local candidates to add");
+      return;
+    }
+    setAddedToJobIds(prev => new Set([...prev, ...localIds]));
+    setHideAdded(true);
+    toast.success(`Added ${localIds.length} local candidates to shortlist`);
+  };
+
+  const handleAddAllOther = () => {
+    const otherIds = otherPoolCandidates.map(c => c.id);
+    if (otherIds.length === 0) {
+      toast.info("No other candidates to add");
+      return;
+    }
+    setAddedToJobIds(prev => new Set([...prev, ...otherIds]));
+    setHideAdded(true);
+    toast.success(`Added ${otherIds.length} candidates to shortlist`);
+  };
+
   const handleContinue = () => {
     // Use addedToJobIds instead of selectedIds for the campaign flow
     const addedCandidates = candidates.filter(c => addedToJobIds.has(c.id));
@@ -1206,217 +1240,186 @@ const CandidateMatching = () => {
   }
 
   return (
-    <Layout currentStep={2}>
-      <div className="mx-auto max-w-7xl space-y-6">
-        {/* Shortlist Banner - Always visible when candidates are added */}
-        <ShortlistBanner
-          candidates={candidates}
-          addedIds={addedToJobIds}
-          onRemove={handleRemoveFromJob}
-          onClear={handleClearShortlist}
-          jobState={jobState}
-        />
-
-        {/* Job Summary Header with Priority Breakdown */}
-        <div className="rounded-xl bg-gradient-to-r from-primary/10 to-purple-500/10 border border-primary/20 px-6 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-xl font-bold text-foreground">
-                {job?.specialty || "IR"} at {job?.facility || "Facility"}
-              </h1>
-              <p className="text-muted-foreground">{job?.location || "Location"} • <span className="text-success font-semibold">${job?.payRate || 0}/hr</span></p>
-            </div>
-            <div className="flex items-center gap-4 text-sm">
-              {summary?.ai_scored && (
-                <div className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-500/20 text-purple-400 rounded-full text-xs font-medium">
-                  <Sparkles className="h-3.5 w-3.5" />
-                  AI Scored
-                </div>
-              )}
-              {/* Priority breakdown - most important metrics for recruiters */}
-              {summary?.priority_breakdown?.top_priority ? (
-                <div className="text-center">
-                  <p className="text-2xl font-bold text-yellow-400">🏆 {summary.priority_breakdown.top_priority}</p>
-                  <p className="text-xs text-muted-foreground">Top Priority</p>
-                </div>
-              ) : null}
-              {/* P1: Research progress stat */}
-              <div className="text-center">
-                <p className="text-2xl font-bold text-cyan-400">{researchedCount}/{candidates.length}</p>
-                <p className="text-xs text-muted-foreground">Researched</p>
-              </div>
-              <div className="text-center">
-                <p className="text-2xl font-bold text-success">{filterCounts.contact_ready}</p>
-                <p className="text-xs text-muted-foreground">Contact Ready</p>
-              </div>
-              <div className="text-center">
-                <p className="text-2xl font-bold text-purple-400">{filterCounts["10_plus_licenses"]}</p>
-                <p className="text-xs text-muted-foreground">10+ Licenses</p>
-              </div>
-              <div className="text-center">
-                <p className="text-2xl font-bold text-blue-400">{filterCounts.local}</p>
-                <p className="text-xs text-muted-foreground">Local ({jobState})</p>
-              </div>
-            </div>
+    <Layout currentStep={2} showSteps={false}>
+      {/* Sticky Job Summary Header */}
+      <div className="sticky top-14 z-40 -mx-6 px-6 py-3 bg-gradient-to-r from-primary/10 to-purple-500/10 border-b border-primary/20 backdrop-blur-sm">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-lg font-bold text-foreground">
+              {job?.specialty || "IR"} at {job?.facility || "Facility"}
+            </h1>
+            <p className="text-sm text-muted-foreground">{job?.location || "Location"} • <span className="text-success font-semibold">${job?.payRate || 0}/hr</span></p>
           </div>
-        </div>
-
-        {/* Quick Filters - Prominent */}
-        <div className="grid grid-cols-2 md:grid-cols-7 gap-3">
-          <QuickFilterButton 
-            active={quickFilter === "all"} 
-            onClick={() => setQuickFilter("all")}
-            icon={<Users className="h-4 w-4" />}
-            label="All"
-            count={filterCounts.all}
-          />
-          <QuickFilterButton 
-            active={quickFilter === "enriched_personal"} 
-            onClick={() => setQuickFilter("enriched_personal")}
-            icon={<Sparkles className="h-4 w-4" />}
-            label="Enriched Personal"
-            count={filterCounts.enriched_personal}
-            highlight="success"
-            description="Whitepages/PDL verified"
-          />
-          <QuickFilterButton 
-            active={quickFilter === "contact_ready"} 
-            onClick={() => setQuickFilter("contact_ready")}
-            icon={<Phone className="h-4 w-4" />}
-            label="Any Contact"
-            count={filterCounts.contact_ready}
-            highlight="blue"
-            description="Has any contact info"
-          />
-          <QuickFilterButton 
-            active={quickFilter === "10_plus_licenses"} 
-            onClick={() => setQuickFilter("10_plus_licenses")}
-            icon={<Award className="h-4 w-4" />}
-            label="10+ Licenses"
-            count={filterCounts["10_plus_licenses"]}
-            highlight="purple"
-            description="Top locum travelers"
-          />
-          <QuickFilterButton 
-            active={quickFilter === "5_plus_licenses"} 
-            onClick={() => setQuickFilter("5_plus_licenses")}
-            icon={<Shield className="h-4 w-4" />}
-            label="5+ Licenses"
-            count={filterCounts["5_plus_licenses"]}
-            description="Multi-state licensed"
-          />
-          <QuickFilterButton 
-            active={quickFilter === "local"} 
-            onClick={() => setQuickFilter("local")}
-            icon={<MapPin className="h-4 w-4" />}
-            label={`Local (${jobState})`}
-            count={filterCounts.local}
-            highlight="green"
-            description="In-state candidates"
-          />
-          <QuickFilterButton 
-            active={quickFilter === "needs_enrichment"} 
-            onClick={() => setQuickFilter("needs_enrichment")}
-            icon={<Search className="h-4 w-4" />}
-            label="Needs Enrichment"
-            count={filterCounts.needs_enrichment}
-            highlight="warning"
-            description="Missing personal contact"
-          />
-        </div>
-
-        {/* Active Operations Progress Bars */}
-        {(researchingIds.size > 0 || deepResearchingIds.size > 0 || bulkResearching || bulkDeepResearching || searchingAlphaSophia || bulkEnriching) && (
-          <div className="space-y-2">
-            <OperationProgress
-              isActive={researchingIds.size > 0 || bulkResearching}
-              label={`Researching ${researchingIds.size} candidate${researchingIds.size !== 1 ? 's' : ''} (NPI + AI scoring)`}
-              current={candidates.filter(c => c.researched).length}
-              total={candidates.filter(c => c.researched).length + researchingIds.size}
-            />
-            <OperationProgress
-              isActive={deepResearchingIds.size > 0 || bulkDeepResearching}
-              label={deepResearchProgress 
-                ? `🔮 Deep researching ${deepResearchProgress.currentName ? `"${deepResearchProgress.currentName}"` : ''} (${deepResearchProgress.current}/${deepResearchProgress.total})`
-                : `🔮 Deep researching ${deepResearchingIds.size} candidate${deepResearchingIds.size !== 1 ? 's' : ''}`
-              }
-              current={deepResearchProgress?.current}
-              total={deepResearchProgress?.total}
-            />
-            <OperationProgress
-              isActive={searchingAlphaSophia}
-              label="Searching Alpha Sophia for additional candidates..."
-            />
-            <OperationProgress
-              isActive={bulkEnriching}
-              label="Adding candidates to enrichment queue..."
-            />
-          </div>
-        )}
-
-        {/* Alpha Sophia Banner */}
-        <div className="rounded-xl bg-blue-500/10 border border-blue-500/20 px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Globe className="h-5 w-5 text-blue-400" />
-            <div>
-              <p className="text-sm font-medium text-foreground">
-                {alphaSophiaSearched 
-                  ? `Alpha Sophia: ${candidates.filter(c => c.source === 'alpha_sophia').length} external candidates`
-                  : "Search Alpha Sophia for more physicians"
-                }
-              </p>
-              {alphaSophiaLimit && (
-                <p className="text-xs text-muted-foreground">
-                  Usage: {alphaSophiaLimit.used_today}/{alphaSophiaLimit.daily_limit}
-                  {!alphaSophiaLimit.allowed && <span className="text-destructive ml-1">• Limit reached</span>}
-                </p>
-              )}
-            </div>
-          </div>
-          <Button
-            variant={alphaSophiaSearched ? "outline" : "default"}
-            size="sm"
-            onClick={searchAlphaSophia}
-            disabled={searchingAlphaSophia || (alphaSophiaLimit && !alphaSophiaLimit.allowed)}
-            className={alphaSophiaSearched ? "border-blue-500/30 text-blue-400" : "bg-blue-600 hover:bg-blue-700"}
-          >
-            {searchingAlphaSophia ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Globe className="h-4 w-4 mr-2" />}
-            {alphaSophiaSearched ? "Search Again" : "Search Alpha Sophia"}
-          </Button>
-        </div>
-
-        {/* Search & Actions Bar */}
-        <div className="flex flex-wrap gap-3 items-center">
-          <div className="relative flex-1 min-w-[200px] max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search by name, specialty, location..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9"
-            />
-          </div>
-          
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={selectAllContactReady}>
-              <Phone className="h-4 w-4 mr-1" />
-              Select Contact Ready
-            </Button>
-            <Button variant="outline" size="sm" onClick={selectAll10Plus}>
-              <Award className="h-4 w-4 mr-1" />
-              Select 10+ Licenses
-            </Button>
-            <Button variant="outline" size="sm" onClick={selectAllLocal}>
-              <MapPin className="h-4 w-4 mr-1" />
-              Select Local
-            </Button>
-            {selectedIds.size > 0 && (
-              <Button variant="ghost" size="sm" onClick={() => setSelectedIds(new Set())}>
-                <X className="h-4 w-4 mr-1" />
-                Clear ({selectedIds.size})
-              </Button>
+          <div className="flex items-center gap-4 text-sm">
+            {summary?.ai_scored && (
+              <div className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-500/20 text-purple-400 rounded-full text-xs font-medium">
+                <Sparkles className="h-3.5 w-3.5" />
+                AI Scored
+              </div>
             )}
-            {/* P1: Research All button */}
+            <div className="text-center">
+              <p className="text-xl font-bold text-cyan-400">{researchedCount}/{candidates.length}</p>
+              <p className="text-[10px] text-muted-foreground">Researched</p>
+            </div>
+            <div className="text-center">
+              <p className="text-xl font-bold text-success">{filterCounts.contact_ready}</p>
+              <p className="text-[10px] text-muted-foreground">Contact Ready</p>
+            </div>
+            <div className="text-center">
+              <p className="text-xl font-bold text-blue-400">{filterCounts.local}</p>
+              <p className="text-[10px] text-muted-foreground">Local ({jobState})</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Split View Container */}
+      <div className="flex flex-col lg:flex-row gap-6 min-h-[calc(100vh-10rem)] mt-4">
+        {/* Left: Shortlist Panel - Sticky on desktop */}
+        <div className="w-full lg:w-[380px] lg:shrink-0">
+          <div className="lg:sticky lg:top-32 lg:max-h-[calc(100vh-9rem)] lg:overflow-hidden">
+            <ShortlistPanel
+              candidates={candidates}
+              addedIds={addedToJobIds}
+              jobState={jobState}
+              onRemove={handleRemoveFromJob}
+              onClear={handleClearShortlist}
+              onContinue={handleContinue}
+              disabled={addedToJobIds.size === 0}
+            />
+          </div>
+        </div>
+        
+        {/* Right: Candidate Pool */}
+        <div className="flex-1 min-w-0 space-y-4">
+          {/* Active Operations Progress Bars */}
+          {(researchingIds.size > 0 || deepResearchingIds.size > 0 || bulkResearching || bulkDeepResearching || searchingAlphaSophia || bulkEnriching) && (
+            <div className="space-y-2">
+              <OperationProgress
+                isActive={researchingIds.size > 0 || bulkResearching}
+                label={`Researching ${researchingIds.size} candidate${researchingIds.size !== 1 ? 's' : ''} (NPI + AI scoring)`}
+                current={candidates.filter(c => c.researched).length}
+                total={candidates.filter(c => c.researched).length + researchingIds.size}
+              />
+              <OperationProgress
+                isActive={deepResearchingIds.size > 0 || bulkDeepResearching}
+                label={deepResearchProgress 
+                  ? `🔮 Deep researching ${deepResearchProgress.currentName ? `"${deepResearchProgress.currentName}"` : ''} (${deepResearchProgress.current}/${deepResearchProgress.total})`
+                  : `🔮 Deep researching ${deepResearchingIds.size} candidate${deepResearchingIds.size !== 1 ? 's' : ''}`
+                }
+                current={deepResearchProgress?.current}
+                total={deepResearchProgress?.total}
+              />
+              <OperationProgress
+                isActive={searchingAlphaSophia}
+                label="Searching Alpha Sophia for additional candidates..."
+              />
+              <OperationProgress
+                isActive={bulkEnriching}
+                label="Adding candidates to enrichment queue..."
+              />
+            </div>
+          )}
+
+          {/* Quick Filters */}
+          <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
+            <QuickFilterButton 
+              active={quickFilter === "all"} 
+              onClick={() => setQuickFilter("all")}
+              icon={<Users className="h-4 w-4" />}
+              label="All"
+              count={filterCounts.all}
+            />
+            <QuickFilterButton 
+              active={quickFilter === "local"} 
+              onClick={() => setQuickFilter("local")}
+              icon={<MapPin className="h-4 w-4" />}
+              label={`Local (${jobState})`}
+              count={filterCounts.local}
+              highlight="green"
+            />
+            <QuickFilterButton 
+              active={quickFilter === "contact_ready"} 
+              onClick={() => setQuickFilter("contact_ready")}
+              icon={<Phone className="h-4 w-4" />}
+              label="Contact Ready"
+              count={filterCounts.contact_ready}
+              highlight="success"
+            />
+            <QuickFilterButton 
+              active={quickFilter === "10_plus_licenses"} 
+              onClick={() => setQuickFilter("10_plus_licenses")}
+              icon={<Award className="h-4 w-4" />}
+              label="10+ Licenses"
+              count={filterCounts["10_plus_licenses"]}
+              highlight="purple"
+            />
+            <QuickFilterButton 
+              active={quickFilter === "enriched_personal"} 
+              onClick={() => setQuickFilter("enriched_personal")}
+              icon={<Sparkles className="h-4 w-4" />}
+              label="Enriched"
+              count={filterCounts.enriched_personal}
+              highlight="blue"
+            />
+            <QuickFilterButton 
+              active={quickFilter === "needs_enrichment"} 
+              onClick={() => setQuickFilter("needs_enrichment")}
+              icon={<Search className="h-4 w-4" />}
+              label="Needs Enrich"
+              count={filterCounts.needs_enrichment}
+              highlight="warning"
+            />
+          </div>
+
+          {/* Search & Sort Bar */}
+          <div className="flex flex-wrap gap-3 items-center">
+            <div className="relative flex-1 min-w-[200px] max-w-md">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search by name, specialty, location..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+            
+            <Select value={sortBy} onValueChange={(v) => setSortBy(v as SortOption)}>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="Sort by" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="enriched_first">✅ Enriched First</SelectItem>
+                <SelectItem value="contact_first">📞 Contact First</SelectItem>
+                <SelectItem value="best_match">🎯 Best Match</SelectItem>
+                <SelectItem value="most_licenses">🏆 Most Licenses</SelectItem>
+                <SelectItem value="local_first">📍 Local First</SelectItem>
+                <SelectItem value="score">⭐ Score</SelectItem>
+              </SelectContent>
+            </Select>
+
+            {/* Hide Added Toggle */}
+            <div className={cn(
+              "flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors",
+              addedToJobIds.size > 0 && "bg-success/10 border border-success/30"
+            )}>
+              <Checkbox
+                id="hideAdded"
+                checked={hideAdded}
+                onCheckedChange={(checked) => setHideAdded(!!checked)}
+              />
+              <label 
+                htmlFor="hideAdded" 
+                className={cn(
+                  "text-sm cursor-pointer",
+                  addedToJobIds.size > 0 ? "text-success font-medium" : "text-muted-foreground"
+                )}
+              >
+                {addedToJobIds.size > 0 ? `Hide ${addedToJobIds.size} added` : "Hide added (0)"}
+              </label>
+            </div>
+
+            {/* Research All Button */}
             {unresearchedCount > 0 && (
               <Button 
                 variant="outline" 
@@ -1430,780 +1433,107 @@ const CandidateMatching = () => {
               </Button>
             )}
           </div>
-          
-          {selectedNeedingResearch > 0 && (
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={handleBulkResearch}
-              disabled={bulkResearching || researchingIds.size > 0}
-              className="bg-cyan-500/10 text-cyan-600 border-cyan-500/30 hover:bg-cyan-500/20"
-            >
-              {bulkResearching ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Target className="h-4 w-4 mr-1" />}
-              Research {selectedNeedingResearch} Selected
-            </Button>
-          )}
-          
-          {selectedNeedingEnrichment > 0 && (
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={handleBulkEnrich}
-              disabled={bulkEnriching}
-              className="bg-orange-500/10 text-orange-600 border-orange-500/30 hover:bg-orange-500/20"
-            >
-              {bulkEnriching ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Zap className="h-4 w-4 mr-1" />}
-              Enrich {selectedNeedingEnrichment} Selected
-            </Button>
-          )}
 
-          {/* Deep Research button - for personalization hooks */}
-          {selectedForDeepResearch > 0 && (
-            <Button 
-              variant="outline" 
-              size="sm" 
-              onClick={() => handleBulkDeepResearch(false)}
-              disabled={bulkDeepResearching || deepResearchingIds.size > 0}
-              className="bg-purple-500/10 text-purple-600 border-purple-500/30 hover:bg-purple-500/20"
-            >
-              {bulkDeepResearching ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <>🔮</>}
-              Deep Research {selectedForDeepResearch}
-            </Button>
-          )}
-          
-          <div className="ml-auto flex items-center gap-3">
-            {/* P0: Enhanced "Hide Added" toggle with better styling */}
-            <div className={cn(
-              "flex items-center gap-2 px-3 py-1.5 rounded-lg transition-all",
-              addedToJobIds.size > 0 && "bg-success/10 border border-success/30"
-            )}>
-              <Checkbox
-                id="hideAdded"
-                checked={hideAdded}
-                onCheckedChange={(checked) => setHideAdded(!!checked)}
-              />
-              <label 
-                htmlFor="hideAdded" 
-                className={cn(
-                  "text-sm cursor-pointer transition-colors",
-                  addedToJobIds.size > 0 ? "text-success font-medium" : "text-muted-foreground"
-                )}
-              >
-                {addedToJobIds.size > 0 ? `Hide ${addedToJobIds.size} added` : "Hide added (0)"}
-              </label>
-            </div>
-            
-            <Select value={sortBy} onValueChange={(v) => setSortBy(v as SortOption)}>
-              <SelectTrigger className="w-[180px]">
-                <SelectValue placeholder="Sort by..." />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="enriched_first">✅ Enriched First</SelectItem>
-                <SelectItem value="contact_first">📞 Any Contact First</SelectItem>
-                <SelectItem value="best_match">🎯 Best Match</SelectItem>
-                <SelectItem value="most_licenses">🏆 Most Licenses</SelectItem>
-                <SelectItem value="local_first">📍 Local First</SelectItem>
-                <SelectItem value="score">⭐ Score</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-
-        {/* Add All Visible + Results Summary */}
-        <div className="flex items-center justify-between text-sm text-muted-foreground">
-          <div className="flex items-center gap-3">
+          {/* Results Summary */}
+          <div className="flex items-center justify-between text-sm text-muted-foreground">
             <span>
               Showing {sortedCandidates.length} of {candidates.length} loaded ({totalCount} total)
               {quickFilter !== "all" && ` • Filtered: ${quickFilter.replace(/_/g, ' ')}`}
               {hideAdded && addedToJobIds.size > 0 && ` • ${addedToJobIds.size} hidden`}
             </span>
-            {sortedCandidates.length > 0 && (
+            <div className="flex items-center gap-2">
               <Button
                 variant="outline"
                 size="sm"
-                onClick={handleAddAllVisible}
-                className="bg-primary/10 border-primary/30 text-primary hover:bg-primary/20"
+                onClick={() => setAddPanelOpen(true)}
+                className="border-muted-foreground/30"
               >
-                <Plus className="h-3.5 w-3.5 mr-1" />
-                Add All Visible ({sortedCandidates.length})
+                <Plus className="h-4 w-4 mr-1" />
+                Add More
               </Button>
-            )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={searchAlphaSophia}
+                disabled={searchingAlphaSophia || (alphaSophiaLimit && !alphaSophiaLimit.allowed)}
+                className={alphaSophiaSearched ? "border-blue-500/30 text-blue-400" : "bg-blue-600 hover:bg-blue-700 text-white border-0"}
+              >
+                {searchingAlphaSophia ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Globe className="h-4 w-4 mr-1" />}
+                {alphaSophiaSearched ? "Alpha Sophia" : "Search Alpha Sophia"}
+              </Button>
+            </div>
           </div>
-          {summary?.alpha_sophia_count && summary.alpha_sophia_count > 0 && (
-            <span className="text-purple-400">+{summary.alpha_sophia_count} from Alpha Sophia</span>
-          )}
-        </div>
 
-        {/* Candidates Table */}
-        <div className="rounded-2xl bg-card shadow-card overflow-hidden border border-border">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-border bg-secondary/50">
-                  <th className="px-4 py-3 text-left w-12">
-                    <Checkbox
-                      checked={selectedIds.size === sortedCandidates.length && sortedCandidates.length > 0}
-                      onCheckedChange={(checked) => {
-                        if (checked) setSelectedIds(new Set(sortedCandidates.map(c => c.id)));
-                        else setSelectedIds(new Set());
-                      }}
-                    />
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Candidate</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Score</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Match</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Key Info</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Add to Job</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Research</th>
-                  <th className="px-4 py-3 w-12"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedCandidates.map((candidate, index) => {
-                  const scoreBadge = getScoreBadgeConfig(candidate.unified_score);
-                  const enrichmentBadge = getEnrichmentBadgeConfig(candidate.enrichment_tier);
-                  const indicators = getKeyIndicators(candidate);
-                  const contactReady = isContactReady(candidate);
-                  const isAddedToJob = addedToJobIds.has(candidate.id);
-                  
-                  return (
-                    <>
-                      <tr
-                        key={candidate.id}
-                        className={cn(
-                          "border-b border-border/50 transition-all duration-200 cursor-pointer",
-                          isAddedToJob && "bg-success/5 border-l-2 border-l-success animate-fade-in",
-                          selectedIds.has(candidate.id) && !isAddedToJob && "bg-primary/5",
-                          contactReady && !isAddedToJob ? "hover:bg-success/5" : "hover:bg-secondary/30"
-                        )}
-                        onClick={() => toggleExpand(candidate.id)}
-                      >
-                        <td className="px-4 py-4" onClick={(e) => e.stopPropagation()}>
-                          <Checkbox
-                            checked={selectedIds.has(candidate.id)}
-                            onCheckedChange={() => toggleSelect(candidate.id)}
-                          />
-                        </td>
-                        <td className="px-4 py-4">
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium text-foreground">
-                                {candidate.first_name} {candidate.last_name}
-                              </span>
-                              {contactReady && (
-                                <CheckCircle2 className="h-4 w-4 text-success" />
-                              )}
-                              {/* Research & NPI verification badges */}
-                              {candidate.researched && (
-                                <Badge 
-                                  variant="outline" 
-                                  className={cn(
-                                    "text-[10px] gap-1",
-                                    candidate.from_cache 
-                                      ? "bg-blue-500/10 text-blue-500 border-blue-500/30"
-                                      : "bg-cyan-500/10 text-cyan-500 border-cyan-500/30"
-                                  )}
-                                >
-                                  {candidate.from_cache ? '📦 Saved' : '🔬 Researched'}
-                                </Badge>
-                              )}
-                              {candidate.deep_researched && (
-                                <Badge 
-                                  variant="outline" 
-                                  className="text-[10px] bg-purple-500/10 text-purple-500 border-purple-500/30 gap-1"
-                                >
-                                  🔮 Deep
-                                </Badge>
-                              )}
-                              {candidate.verified_npi && (
-                                <Badge 
-                                  variant="outline" 
-                                  className="text-[10px] bg-emerald-500/10 text-emerald-500 border-emerald-500/30 gap-1"
-                                >
-                                  <Shield className="h-3 w-3" /> NPI ✓
-                                </Badge>
-                              )}
-                            </div>
-                            <p className="text-xs text-muted-foreground">{candidate.specialty}</p>
-                            <div className="flex items-center gap-2">
-                              <p className="text-xs text-muted-foreground">{candidate.city}, {candidate.state}</p>
-                              {candidate.npi && (
-                                <span className="text-[10px] text-muted-foreground/70">NPI: {candidate.npi}</span>
-                              )}
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-4 py-4">
-                          <Badge className={cn("font-bold text-xs", scoreBadge.className)}>
-                            {candidate.unified_score}
-                          </Badge>
-                        </td>
-                        <td className="px-4 py-4">
-                          <div className="flex items-center gap-2 min-w-[100px]">
-                            <Progress value={candidate.match_strength} className="h-2 flex-1" />
-                            <span className="text-xs font-medium text-muted-foreground w-8">
-                              {candidate.match_strength}%
-                            </span>
-                          </div>
-                        </td>
-                        <td className="px-4 py-4">
-                          <Badge className={cn("text-xs flex items-center w-fit", enrichmentBadge.className)}>
-                            {enrichmentBadge.icon}
-                            {enrichmentBadge.label}
-                          </Badge>
-                        </td>
-                        <td className="px-4 py-4">
-                          <div className="flex flex-wrap gap-1 max-w-[220px]">
-                            {indicators.slice(0, 3).map((ind, i) => (
-                              <Badge key={i} variant="outline" className={cn("text-[10px] border", ind.className)}>
-                                {ind.label}
-                              </Badge>
-                            ))}
-                            {indicators.length > 3 && (
-                              <Badge variant="outline" className="text-[10px]">+{indicators.length - 3}</Badge>
-                            )}
-                          </div>
-                        </td>
-                        {/* Add to Job Column */}
-                        <td className="px-4 py-4" onClick={(e) => e.stopPropagation()}>
-                          {isAddedToJob ? (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="bg-success/20 border-success/40 text-success hover:bg-destructive/10 hover:text-destructive hover:border-destructive/40"
-                              onClick={() => handleRemoveFromJob(candidate.id)}
-                            >
-                              <Check className="h-4 w-4 mr-1" />
-                              Added
-                            </Button>
-                          ) : (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="border-primary/40 text-primary hover:bg-primary/10"
-                              onClick={() => handleAddToJob(candidate.id)}
-                            >
-                              <Plus className="h-4 w-4 mr-1" />
-                              Add
-                            </Button>
-                          )}
-                        </td>
-                        {/* Research Column */}
-                        <td className="px-4 py-4" onClick={(e) => e.stopPropagation()}>
-                          <div className="flex gap-1">
-                            {/* Researched indicator or Research button */}
-                            {candidate.researched ? (
-                              <Badge 
-                                variant="outline" 
-                                className="text-xs bg-success/10 text-success border-success/30"
-                                title={candidate.from_cache ? "Loaded from cache" : "Researched"}
-                              >
-                                ✓ Researched
-                              </Badge>
-                            ) : (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="text-cyan-600 border-cyan-500/30 hover:bg-cyan-500/10"
-                                disabled={researchingIds.has(candidate.id)}
-                                onClick={() => handleResearchCandidate(candidate)}
-                                title="Research via NPI + AI"
-                              >
-                                {researchingIds.has(candidate.id) ? (
-                                  <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : (
-                                  <>🔬</>
-                                )}
-                              </Button>
-                            )}
-                            {/* Enrich button */}
-                            {needsEnrichment(candidate) && !contactReady && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="text-orange-600 border-orange-500/30 hover:bg-orange-500/10"
-                                disabled={enrichingIds.has(candidate.id)}
-                                onClick={() => handleEnrichCandidate(candidate)}
-                              >
-                                {enrichingIds.has(candidate.id) ? (
-                                  <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : (
-                                  <>🔍</>
-                                )}
-                              </Button>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-4 py-4">
-                          <button
-                            onClick={(e) => { e.stopPropagation(); toggleExpand(candidate.id); }}
-                            className="text-primary hover:text-primary/80"
-                          >
-                            {expandedIds.has(candidate.id) ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
-                          </button>
-                        </td>
-                      </tr>
-                      {expandedIds.has(candidate.id) && (
-                        <tr key={`${candidate.id}-expanded`} className="bg-secondary/20">
-                          <td colSpan={9} className="px-6 py-4">
-                            <div className="space-y-4 animate-fade-in">
-                              {/* Research Status Banner */}
-                              {candidate.researched && (
-                                <div className={cn(
-                                  "rounded-lg p-4 flex items-center justify-between",
-                                  candidate.from_cache 
-                                    ? "bg-blue-500/10 border border-blue-500/20" 
-                                    : "bg-cyan-500/10 border border-cyan-500/20"
-                                )}>
-                                  <div className="flex items-center gap-3">
-                                    <div className={cn(
-                                      "h-10 w-10 rounded-full flex items-center justify-center",
-                                      candidate.from_cache ? "bg-blue-500/20" : "bg-cyan-500/20"
-                                    )}>
-                                      <Target className={cn("h-5 w-5", candidate.from_cache ? "text-blue-500" : "text-cyan-500")} />
-                                    </div>
-                                    <div>
-                                      <p className="text-sm font-medium text-foreground flex items-center gap-2">
-                                        {candidate.from_cache ? '📦 Research Loaded' : 'AI Research Complete'}
-                                        {candidate.verified_npi && (
-                                          <Badge className="bg-emerald-500/20 text-emerald-500 border-emerald-500/30 text-[10px]">
-                                            <Shield className="h-3 w-3 mr-1" /> NPI Verified
-                                          </Badge>
-                                        )}
-                                        {candidate.has_imlc && (
-                                          <Badge className="bg-indigo-500/20 text-indigo-500 border-indigo-500/30 text-[10px]">
-                                            🏛️ IMLC Eligible
-                                          </Badge>
-                                        )}
-                                        {candidate.from_cache && (
-                                          <Badge variant="outline" className="text-[10px] text-blue-500 border-blue-500/30">
-                                            Cached
-                                          </Badge>
-                                        )}
-                                      </p>
-                                      <p className="text-xs text-muted-foreground">
-                                        {candidate.from_cache 
-                                          ? 'Previously researched • Data saved to database'
-                                          : 'Credentials verified via NPI Registry • AI-scored match analysis'
-                                        }
-                                      </p>
-                                    </div>
-                                  </div>
-                                  <div className="flex items-center gap-3">
-                                    <div className="flex items-center gap-2">
-                                      <Badge className={cn("text-sm font-bold", getScoreBadgeConfig(candidate.unified_score).className)}>
-                                        {candidate.unified_score} Match
-                                      </Badge>
-                                      <span className="text-lg font-bold text-foreground">{candidate.match_strength}%</span>
-                                    </div>
-                                    {candidate.from_cache && (
-                                      <Button
-                                        size="sm"
-                                        variant="ghost"
-                                        className="text-blue-600 hover:bg-blue-500/10"
-                                        disabled={researchingIds.has(candidate.id)}
-                                        onClick={(e) => { 
-                                          e.stopPropagation(); 
-                                          researchCandidates([candidate.id], false, true); 
-                                        }}
-                                        title="Refresh research data"
-                                      >
-                                        {researchingIds.has(candidate.id) ? (
-                                          <Loader2 className="h-4 w-4 animate-spin" />
-                                        ) : (
-                                          <>🔄 Refresh</>
-                                        )}
-                                      </Button>
-                                    )}
-                                  </div>
-                                </div>
-                              )}
-                              
-                              {/* Not Researched Banner */}
-                              {!candidate.researched && (
-                                <div className="rounded-lg bg-muted/50 border border-border p-4 flex items-center justify-between">
-                                  <div className="flex items-center gap-3">
-                                    <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center">
-                                      <Search className="h-5 w-5 text-muted-foreground" />
-                                    </div>
-                                    <div>
-                                      <p className="text-sm font-medium text-muted-foreground">Not Yet Researched</p>
-                                      <p className="text-xs text-muted-foreground">
-                                        Click research to verify NPI & get AI-powered match analysis
-                                      </p>
-                                    </div>
-                                  </div>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="text-cyan-600 border-cyan-500/30 hover:bg-cyan-500/10"
-                                    disabled={researchingIds.has(candidate.id)}
-                                    onClick={() => handleResearchCandidate(candidate)}
-                                  >
-                                    {researchingIds.has(candidate.id) ? (
-                                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                    ) : (
-                                      <Target className="h-4 w-4 mr-2" />
-                                    )}
-                                    Research Now
-                                  </Button>
-                                </div>
-                              )}
+          {/* LOCAL CANDIDATES SECTION */}
+          <PoolSection
+            title="Local Candidates"
+            subtitle="In job state - faster credentialing, no relocation"
+            candidates={localPoolCandidates}
+            highlight="green"
+            addedIds={addedToJobIds}
+            selectedIds={selectedIds}
+            expandedIds={expandedIds}
+            onAdd={handleAddToJob}
+            onRemove={handleRemoveFromJob}
+            onAddAll={handleAddAllLocal}
+            onToggleSelect={toggleSelect}
+            onToggleExpand={toggleExpand}
+            onResearch={handleResearchCandidate}
+            onDeepResearch={handleDeepResearchCandidate}
+            onEnrich={handleEnrichCandidate}
+            researchingIds={researchingIds}
+            deepResearchingIds={deepResearchingIds}
+            enrichingIds={enrichingIds}
+            jobState={jobState}
+            job={job ? { specialty: job.specialty, state: job.state, payRate: job.payRate } : undefined}
+          />
 
-                              {/* ═══════════════════════════════════════════════════════ */}
-                              {/* RESEARCH SUMMARY CARD - Playbook Style */}
-                              {/* ═══════════════════════════════════════════════════════ */}
-                              
-                              {(candidate.researched || candidate.deep_researched) && (
-                                <div className="rounded-xl bg-gradient-to-br from-slate-900/80 to-slate-800/60 border border-slate-600/50 overflow-hidden">
-                                  {/* ATS-Style Header */}
-                                  <div className="bg-gradient-to-r from-emerald-600/20 via-blue-600/10 to-purple-600/20 px-5 py-4 border-b border-slate-600/30">
-                                    <div className="flex items-start justify-between">
-                                      <div className="flex items-center gap-4">
-                                        {/* Avatar with initials */}
-                                        <div className="h-14 w-14 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white font-bold text-lg shadow-lg">
-                                          {candidate.first_name?.[0]}{candidate.last_name?.[0]}
-                                        </div>
-                                        <div>
-                                          <h3 className="text-lg font-bold text-white">
-                                            Dr. {candidate.first_name} {candidate.last_name}
-                                            {candidate.credentials_summary && (
-                                              <span className="ml-2 text-sm font-normal text-slate-400">{candidate.credentials_summary}</span>
-                                            )}
-                                          </h3>
-                                          <p className="text-sm text-blue-300">
-                                            {candidate.verified_specialty || candidate.specialty}
-                                          </p>
-                                          <div className="flex items-center gap-2 mt-1">
-                                            <span className="text-xs text-slate-400">
-                                              📍 {candidate.city ? `${candidate.city}, ` : ''}{candidate.state}
-                                            </span>
-                                            {candidate.npi && (
-                                              <span className="text-xs text-emerald-400">• NPI: {candidate.npi}</span>
-                                            )}
-                                          </div>
-                                        </div>
-                                      </div>
-                                      {/* Score Badge */}
-                                      <div className="text-right">
-                                        <div className={cn(
-                                          "inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-bold",
-                                          candidate.match_strength >= 95 ? "bg-emerald-500/20 text-emerald-400 ring-1 ring-emerald-500/50" :
-                                          candidate.match_strength >= 85 ? "bg-blue-500/20 text-blue-400 ring-1 ring-blue-500/50" :
-                                          candidate.match_strength >= 70 ? "bg-amber-500/20 text-amber-400 ring-1 ring-amber-500/50" :
-                                          "bg-slate-500/20 text-slate-400"
-                                        )}>
-                                          {candidate.match_strength >= 95 && <Star className="h-3.5 w-3.5" />}
-                                          {candidate.match_strength}% Match
-                                        </div>
-                                        <p className="text-[10px] text-slate-500 mt-1">
-                                          {candidate.deep_researched ? '🔮 Deep Research' : candidate.from_cache ? '📦 Cached' : '🔬 NPI Verified'}
-                                        </p>
-                                      </div>
-                                    </div>
-                                  </div>
-                                  
-                                  <div className="p-5 space-y-5">
-                                    {/* Quick Tags Row - ATS Style */}
-                                    <div className="flex flex-wrap gap-2">
-                                      {candidate.is_local && (
-                                        <Badge className="bg-green-500/20 text-green-400 border-green-500/30 text-xs">
-                                          📍 Local Candidate
-                                        </Badge>
-                                      )}
-                                      {candidate.has_job_state_license && (
-                                        <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 text-xs">
-                                          ✓ {job?.state} Licensed
-                                        </Badge>
-                                      )}
-                                      {candidate.has_imlc && (
-                                        <Badge className="bg-indigo-500/20 text-indigo-400 border-indigo-500/30 text-xs">
-                                          🏛️ IMLC Eligible
-                                        </Badge>
-                                      )}
-                                      {(candidate.verified_licenses?.length || candidate.licenses_count || 0) >= 10 && (
-                                        <Badge className="bg-purple-500/20 text-purple-400 border-purple-500/30 text-xs">
-                                          🌟 {candidate.verified_licenses?.length || candidate.licenses_count} State Licenses
-                                        </Badge>
-                                      )}
-                                      {candidate.verified_specialty && (
-                                        <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/30 text-xs">
-                                          {candidate.verified_specialty}
-                                        </Badge>
-                                      )}
-                                      {candidate.deep_researched && (
-                                        <Badge className="bg-purple-500/20 text-purple-400 border-purple-500/30 text-xs">
-                                          🔮 AI Enriched
-                                        </Badge>
-                                      )}
-                                    </div>
-                                    
-                                    {/* ═══════════════════════════════════════════════════════ */}
-                                    {/* PROFESSIONAL SUMMARY - The main "why" section */}
-                                    {/* ═══════════════════════════════════════════════════════ */}
-                                    
-                                    {/* Show professional highlights first (from NPI research) */}
-                                    {candidate.professional_highlights && candidate.professional_highlights.length > 0 && (
-                                      <div className="rounded-lg bg-gradient-to-br from-blue-500/10 to-cyan-500/5 border border-blue-500/20 p-4">
-                                        <p className="text-xs font-bold uppercase tracking-wider text-blue-400 mb-3 flex items-center gap-2">
-                                          <Award className="h-4 w-4" /> Professional Summary
-                                        </p>
-                                        <ul className="space-y-2">
-                                          {candidate.professional_highlights.map((highlight, i) => (
-                                            <li key={i} className="flex items-start gap-3 text-sm">
-                                              <span className="text-blue-400 mt-0.5 font-bold">•</span>
-                                              <span className="text-slate-200 leading-relaxed">{highlight}</span>
-                                            </li>
-                                          ))}
-                                        </ul>
-                                      </div>
-                                    )}
-                                    
-                                    {/* WHY THIS CANDIDATE - Match reasons (if no professional highlights) */}
-                                    {(!candidate.professional_highlights || candidate.professional_highlights.length === 0) && 
-                                     candidate.match_reasons && candidate.match_reasons.length > 0 && (
-                                      <div className="rounded-lg bg-emerald-500/5 border border-emerald-500/20 p-4">
-                                        <p className="text-xs font-bold uppercase tracking-wider text-emerald-400 mb-3 flex items-center gap-2">
-                                          <CheckCircle2 className="h-4 w-4" /> Why This Candidate Is a Great Fit
-                                        </p>
-                                        <ul className="space-y-2">
-                                          {candidate.match_reasons.map((reason, i) => (
-                                            <li key={i} className="flex items-start gap-3 text-sm">
-                                              <span className="text-emerald-500 mt-0.5 font-bold">✓</span>
-                                              <span className="text-slate-200">{reason}</span>
-                                            </li>
-                                          ))}
-                                        </ul>
-                                      </div>
-                                    )}
-                                    
-                                    {/* Deep Research Summary - Formatted Component */}
-                                    {candidate.research_summary && 
-                                     candidate.research_summary.length > 50 && 
-                                     !candidate.research_summary.toLowerCase().includes('previously researched') && (
-                                      <ResearchInsights 
-                                        researchSummary={candidate.research_summary}
-                                        confidence={candidate.research_confidence}
-                                      />
-                                    )}
-                                    
-                                    {/* Personalized Icebreaker - Only show if substantial */}
-                                    {candidate.icebreaker && candidate.icebreaker.length > 40 && !candidate.icebreaker.match(/^(Hi|Hello|Dear)\s+Dr\.?\s+\w+,?\s*$/i) && (
-                                      <div className="rounded-lg bg-slate-700/30 border border-slate-600/30 p-4">
-                                        <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2 flex items-center gap-2">
-                                          💬 Suggested Opening Line
-                                        </p>
-                                        <p className="text-sm text-slate-300 leading-relaxed italic">"{candidate.icebreaker}"</p>
-                                      </div>
-                                    )}
-                                    
-                                    {/* LICENSES - Visual Tag Display */}
-                                    <div>
-                                      <p className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2 flex items-center gap-2">
-                                        <Shield className="h-3.5 w-3.5" /> Active State Licenses ({candidate.verified_licenses?.length || candidate.licenses_count || 0})
-                                      </p>
-                                      <div className="flex flex-wrap gap-1.5">
-                                        {(candidate.verified_licenses || candidate.licenses)?.slice(0, 20).map((license, i) => (
-                                          <Badge 
-                                            key={i} 
-                                            variant="outline" 
-                                            className={cn(
-                                              "text-xs font-medium",
-                                              license.toUpperCase() === job?.state?.toUpperCase() 
-                                                ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/40 ring-1 ring-emerald-500/30" 
-                                                : "bg-slate-700/50 text-slate-300 border-slate-600/50"
-                                            )}
-                                          >
-                                            {license}
-                                          </Badge>
-                                        ))}
-                                        {((candidate.verified_licenses || candidate.licenses)?.length || 0) > 20 && (
-                                          <Badge variant="outline" className="text-xs bg-slate-700/30 text-slate-400">
-                                            +{(candidate.verified_licenses || candidate.licenses).length - 20} more
-                                          </Badge>
-                                        )}
-                                      </div>
-                                    </div>
-                                    
-                                    {/* Concerns if any */}
-                                    {candidate.match_concerns && candidate.match_concerns.length > 0 && (
-                                      <div className="rounded-lg bg-amber-500/5 border border-amber-500/20 p-3">
-                                        <p className="text-xs font-semibold uppercase tracking-wider text-amber-400 mb-2">⚠️ Notes / Considerations</p>
-                                        <ul className="space-y-1">
-                                          {candidate.match_concerns.map((concern, i) => (
-                                            <li key={i} className="text-sm text-amber-300/80 flex items-start gap-2">
-                                              <span className="text-amber-500 mt-0.5">•</span>
-                                              {concern}
-                                            </li>
-                                          ))}
-                                        </ul>
-                                      </div>
-                                    )}
-                                  </div>
-                                </div>
-                              )}
-                              
-                              {/* Not Researched - show CTA */}
-                              {!candidate.researched && !candidate.deep_researched && (
-                                <div className="rounded-lg bg-slate-800/30 border border-slate-700/30 p-4 flex items-center justify-between">
-                                  <div className="flex items-center gap-3">
-                                    <div className="h-8 w-8 rounded-full bg-slate-700/50 flex items-center justify-center">
-                                      <Search className="h-4 w-4 text-slate-400" />
-                                    </div>
-                                    <div>
-                                      <p className="text-sm font-medium text-slate-300">Research Available</p>
-                                      <p className="text-xs text-slate-500">
-                                        Run research to generate personalized outreach
-                                      </p>
-                                    </div>
-                                  </div>
-                                  <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="border-slate-600 hover:bg-slate-700"
-                                    disabled={researchingIds.has(candidate.id)}
-                                    onClick={(e) => { e.stopPropagation(); handleResearchCandidate(candidate); }}
-                                  >
-                                    {researchingIds.has(candidate.id) ? (
-                                      <Loader2 className="h-4 w-4 animate-spin" />
-                                    ) : (
-                                      <Target className="h-4 w-4" />
-                                    )}
-                                    <span className="ml-2">Research</span>
-                                  </Button>
-                                </div>
-                              )}
-                              
-                              {/* Deep Research Button - Always show for researched candidates */}
-                              {candidate.researched && (
-                                <div className={cn(
-                                  "rounded-lg p-3 flex items-center justify-between",
-                                  candidate.deep_researched 
-                                    ? "bg-purple-500/10 border border-purple-500/20" 
-                                    : "bg-purple-500/5 border border-purple-500/10"
-                                )}>
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-lg">🔮</span>
-                                    <div>
-                                      <p className="text-xs font-medium text-purple-300">
-                                        {candidate.deep_researched ? 'Deep Research Complete' : 'Unlock Deep Personalization'}
-                                      </p>
-                                      <p className="text-[10px] text-slate-500">
-                                        {candidate.deep_researched ? 'Click to refresh with latest web data' : 'AI-crafted hooks from live web research'}
-                                      </p>
-                                    </div>
-                                  </div>
-                                  <Button
-                                    size="sm"
-                                    variant="ghost"
-                                    className={cn(
-                                      "text-xs h-7",
-                                      candidate.deep_researched 
-                                        ? "text-purple-300 hover:text-purple-200 hover:bg-purple-500/10" 
-                                        : "text-purple-400 hover:text-purple-300 hover:bg-purple-500/10"
-                                    )}
-                                    disabled={deepResearchingIds.has(candidate.id)}
-                                    onClick={(e) => { 
-                                      e.stopPropagation(); 
-                                      handleDeepResearchCandidate(candidate, candidate.deep_researched); // Force refresh if already done
-                                    }}
-                                  >
-                                    {deepResearchingIds.has(candidate.id) ? (
-                                      <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                                    ) : null}
-                                    {candidate.deep_researched ? '🔄 Refresh' : 'Deep Research'}
-                                  </Button>
-                                </div>
-                              )}
-                              
-                              {/* Removed duplicate licenses and concerns sections - now shown in research card above */}
-                              
-                              {/* Contact Info */}
-                              {(candidate.work_email || candidate.work_phone || candidate.personal_email || candidate.personal_mobile) && (
-                                <div className="flex flex-wrap gap-4 pt-2 border-t border-border">
-                                  {candidate.personal_mobile && (
-                                    <div className="flex items-center gap-2 text-sm">
-                                      <Phone className="h-4 w-4 text-success" />
-                                      <span className="text-foreground font-medium">{candidate.personal_mobile}</span>
-                                      <Badge className="bg-success/20 text-success text-[10px]">✅ Personal (Enriched)</Badge>
-                                    </div>
-                                  )}
-                                  {candidate.personal_email && (
-                                    <div className="flex items-center gap-2 text-sm">
-                                      <Mail className="h-4 w-4 text-success" />
-                                      <span className="text-foreground">{candidate.personal_email}</span>
-                                      <Badge className="bg-success/20 text-success text-[10px]">✅ Personal (Enriched)</Badge>
-                                    </div>
-                                  )}
-                                  {candidate.work_phone && !candidate.personal_mobile && (
-                                    <div className="flex items-center gap-2 text-sm">
-                                      <Phone className="h-4 w-4 text-amber-500" />
-                                      <span className="text-foreground">{candidate.work_phone}</span>
-                                      <Badge className="bg-amber-500/20 text-amber-600 text-[10px]">🏢 Company</Badge>
-                                    </div>
-                                  )}
-                                  {candidate.work_email && !candidate.personal_email && (
-                                    <div className="flex items-center gap-2 text-sm">
-                                      <Mail className="h-4 w-4 text-amber-500" />
-                                      <span className="text-foreground">{candidate.work_email}</span>
-                                      <Badge className="bg-amber-500/20 text-amber-600 text-[10px]">🏢 Company</Badge>
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
+          {/* OTHER CANDIDATES SECTION */}
+          <PoolSection
+            title="Other Candidates"
+            subtitle="Out-of-state candidates with matching qualifications"
+            candidates={otherPoolCandidates}
+            addedIds={addedToJobIds}
+            selectedIds={selectedIds}
+            expandedIds={expandedIds}
+            onAdd={handleAddToJob}
+            onRemove={handleRemoveFromJob}
+            onAddAll={handleAddAllOther}
+            onToggleSelect={toggleSelect}
+            onToggleExpand={toggleExpand}
+            onResearch={handleResearchCandidate}
+            onDeepResearch={handleDeepResearchCandidate}
+            onEnrich={handleEnrichCandidate}
+            researchingIds={researchingIds}
+            deepResearchingIds={deepResearchingIds}
+            enrichingIds={enrichingIds}
+            jobState={jobState}
+            job={job ? { specialty: job.specialty, state: job.state, payRate: job.payRate } : undefined}
+          />
 
-        {/* Load More */}
-        <div className="flex flex-col items-center justify-center gap-2 py-4">
+          {/* Load More */}
           {hasMore && (
-            <>
+            <div className="flex flex-col items-center justify-center gap-2 py-4">
               <Button variant="outline" onClick={handleLoadMore} disabled={isLoadingMore}>
                 {isLoadingMore ? (
                   <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Loading...</>
                 ) : (
-                  <>Load More ({Math.min(BATCH_SIZE, totalCount - candidates.length)} remaining of {totalCount})</>
+                  <>Load More ({Math.min(BATCH_SIZE, totalCount - candidates.length)} remaining)</>
                 )}
               </Button>
               <p className="text-xs text-muted-foreground">
                 Showing {candidates.length} of {totalCount} total matches
               </p>
-            </>
+            </div>
           )}
-          {!hasMore && candidates.length > 0 && (
-            <p className="text-xs text-muted-foreground">
-              ✓ All {candidates.length} candidates loaded
-            </p>
-          )}
-        </div>
 
-        {/* Footer Navigation */}
-        <div className="flex items-center justify-between pt-4 border-t border-border">
-          <Button variant="outline" onClick={() => navigate("/jobs/new")}>
-            <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Job
-          </Button>
-          <div className="flex items-center gap-3">
-            <Button 
-              variant="outline" 
-              onClick={() => setAddPanelOpen(true)}
-              className="border-muted-foreground/30 hover:bg-secondary"
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Search More
+          {/* Footer Navigation */}
+          <div className="flex items-center justify-between pt-4 border-t border-border">
+            <Button variant="outline" onClick={() => navigate("/jobs/new")}>
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              Back to Job
             </Button>
             <Button
-              variant="gradient"
               size="lg"
               onClick={handleContinue}
               disabled={addedToJobIds.size === 0}
@@ -2216,63 +1546,63 @@ const CandidateMatching = () => {
             </Button>
           </div>
         </div>
-
-        {/* P1: Floating Bulk Action Bar */}
-        {selectedIds.size > 0 && (
-          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-fade-in">
-            <div className="flex items-center gap-3 px-6 py-3 bg-card border border-border rounded-2xl shadow-2xl shadow-black/50">
-              <span className="text-sm font-medium text-foreground">
-                {selectedIds.size} selected
-              </span>
-              <div className="h-6 w-px bg-border" />
-              
-              {selectedNeedingResearch > 0 && (
-                <Button 
-                  size="sm" 
-                  variant="outline"
-                  onClick={handleBulkResearch}
-                  disabled={bulkResearching}
-                  className="bg-cyan-500/10 text-cyan-600 border-cyan-500/30 hover:bg-cyan-500/20"
-                >
-                  <Target className="h-4 w-4 mr-1" />
-                  Research ({selectedNeedingResearch})
-                </Button>
-              )}
-              
-              {selectedForDeepResearch > 0 && (
-                <Button 
-                  size="sm" 
-                  variant="outline"
-                  onClick={() => handleBulkDeepResearch(false)}
-                  disabled={bulkDeepResearching}
-                  className="bg-purple-500/10 text-purple-600 border-purple-500/30 hover:bg-purple-500/20"
-                >
-                  <span className="mr-1">🔮</span>
-                  Deep ({selectedForDeepResearch})
-                </Button>
-              )}
-              
-              <Button 
-                size="sm" 
-                onClick={handleAddSelectedToJob}
-                className="bg-success text-success-foreground hover:bg-success/90"
-              >
-                <Plus className="h-4 w-4 mr-1" />
-                Add to Job
-              </Button>
-              
-              <Button 
-                size="sm" 
-                variant="ghost"
-                onClick={() => setSelectedIds(new Set())}
-                className="text-muted-foreground hover:text-foreground"
-              >
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-        )}
       </div>
+
+      {/* P1: Floating Bulk Action Bar */}
+      {selectedIds.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-fade-in">
+          <div className="flex items-center gap-3 px-6 py-3 bg-card border border-border rounded-2xl shadow-2xl shadow-black/50">
+            <span className="text-sm font-medium text-foreground">
+              {selectedIds.size} selected
+            </span>
+            <div className="h-6 w-px bg-border" />
+            
+            {selectedNeedingResearch > 0 && (
+              <Button 
+                size="sm" 
+                variant="outline"
+                onClick={handleBulkResearch}
+                disabled={bulkResearching}
+                className="bg-cyan-500/10 text-cyan-600 border-cyan-500/30 hover:bg-cyan-500/20"
+              >
+                <Target className="h-4 w-4 mr-1" />
+                Research ({selectedNeedingResearch})
+              </Button>
+            )}
+            
+            {selectedForDeepResearch > 0 && (
+              <Button 
+                size="sm" 
+                variant="outline"
+                onClick={() => handleBulkDeepResearch(false)}
+                disabled={bulkDeepResearching}
+                className="bg-purple-500/10 text-purple-600 border-purple-500/30 hover:bg-purple-500/20"
+              >
+                <span className="mr-1">🔮</span>
+                Deep ({selectedForDeepResearch})
+              </Button>
+            )}
+            
+            <Button 
+              size="sm" 
+              onClick={handleAddSelectedToJob}
+              className="bg-success text-success-foreground hover:bg-success/90"
+            >
+              <Plus className="h-4 w-4 mr-1" />
+              Add to Job
+            </Button>
+            
+            <Button 
+              size="sm" 
+              variant="ghost"
+              onClick={() => setSelectedIds(new Set())}
+              className="text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Add More Candidates Panel */}
       <AddCandidatesPanel
