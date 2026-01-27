@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { 
   Users, Loader2, ArrowRight, ArrowLeft, ChevronDown, ChevronUp,
   AlertCircle, CheckCircle2, Star, Phone, X, Sparkles, Mail, MapPin, Search, Globe,
-  Filter, Shield, Zap, Target, Award, Plus
+  Filter, Shield, Zap, Target, Award, Plus, Check
 } from "lucide-react";
 import Layout from "@/components/layout/Layout";
 import { Button } from "@/components/ui/button";
@@ -26,6 +26,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { ResearchInsights } from "@/components/candidates/ResearchInsights";
 import AddCandidatesPanel from "@/components/candidates/AddCandidatesPanel";
+import ShortlistBanner from "@/components/candidates/ShortlistBanner";
 
 // Connection object from personalization engine
 interface ConnectionMatch {
@@ -253,6 +254,10 @@ const CandidateMatching = () => {
   const [bulkResearching, setBulkResearching] = useState(false);
   const [bulkDeepResearching, setBulkDeepResearching] = useState(false);
   const [addPanelOpen, setAddPanelOpen] = useState(false);
+  
+  // NEW: ATS-style shortlist state
+  const [addedToJobIds, setAddedToJobIds] = useState<Set<string>>(new Set());
+  const [hideAdded, setHideAdded] = useState(false);
 
   const effectiveJobId = jobId || "befd5ba5-4e46-41d9-b144-d4077f750035";
 
@@ -833,9 +838,17 @@ const CandidateMatching = () => {
     return filtered;
   }, [candidates, quickFilter, searchQuery, jobState]);
 
-  // Sorted candidates
+  // Pool candidates - optionally hide already added ones
+  const poolCandidates = useMemo(() => {
+    if (hideAdded) {
+      return filteredCandidates.filter(c => !addedToJobIds.has(c.id));
+    }
+    return filteredCandidates;
+  }, [filteredCandidates, hideAdded, addedToJobIds]);
+
+  // Sorted candidates - now uses poolCandidates instead of filteredCandidates
   const sortedCandidates = useMemo(() => {
-    const sorted = [...filteredCandidates];
+    const sorted = [...poolCandidates];
     switch (sortBy) {
       case "enriched_first":
         return sorted.sort((a, b) => {
@@ -870,7 +883,7 @@ const CandidateMatching = () => {
       default:
         return sorted;
     }
-  }, [filteredCandidates, sortBy, jobState]);
+  }, [poolCandidates, sortBy, jobState]);
 
   // Selection helpers
   const selectedNeedingEnrichment = useMemo(() => 
@@ -906,13 +919,49 @@ const CandidateMatching = () => {
     setSelectedIds(new Set(local));
   };
 
+  // NEW: Add to Job handlers
+  const handleAddToJob = (candidateId: string) => {
+    setAddedToJobIds(prev => new Set(prev).add(candidateId));
+    toast.success("Added to campaign shortlist");
+  };
+
+  const handleRemoveFromJob = (candidateId: string) => {
+    setAddedToJobIds(prev => {
+      const next = new Set(prev);
+      next.delete(candidateId);
+      return next;
+    });
+    toast.info("Removed from shortlist");
+  };
+
+  const handleClearShortlist = () => {
+    setAddedToJobIds(new Set());
+    toast.info("Shortlist cleared");
+  };
+
+  const handleAddAllVisible = () => {
+    const visibleIds = sortedCandidates.map(c => c.id);
+    setAddedToJobIds(prev => {
+      const next = new Set(prev);
+      visibleIds.forEach(id => next.add(id));
+      return next;
+    });
+    toast.success(`Added ${visibleIds.length} candidates to shortlist`);
+  };
+
   const handleContinue = () => {
-    const selected = candidates.filter(c => selectedIds.has(c.id));
+    // Use addedToJobIds instead of selectedIds for the campaign flow
+    const addedCandidates = candidates.filter(c => addedToJobIds.has(c.id));
+    
+    if (addedCandidates.length === 0) {
+      toast.error("Please add candidates to your shortlist first");
+      return;
+    }
     
     // Save all required keys for the campaign builder workflow
-    sessionStorage.setItem("selectedCandidates", JSON.stringify(selected));
-    sessionStorage.setItem("campaign_candidates", JSON.stringify(selected));
-    sessionStorage.setItem("campaign_candidate_ids", JSON.stringify(Array.from(selectedIds)));
+    sessionStorage.setItem("selectedCandidates", JSON.stringify(addedCandidates));
+    sessionStorage.setItem("campaign_candidates", JSON.stringify(addedCandidates));
+    sessionStorage.setItem("campaign_candidate_ids", JSON.stringify(Array.from(addedToJobIds)));
     
     // Save job data with required keys
     if (effectiveJobId) {
@@ -1113,6 +1162,15 @@ const CandidateMatching = () => {
   return (
     <Layout currentStep={2}>
       <div className="mx-auto max-w-7xl space-y-6">
+        {/* Shortlist Banner - Always visible when candidates are added */}
+        <ShortlistBanner
+          candidates={candidates}
+          addedIds={addedToJobIds}
+          onRemove={handleRemoveFromJob}
+          onClear={handleClearShortlist}
+          jobState={jobState}
+        />
+
         {/* Job Summary Header with Priority Breakdown */}
         <div className="rounded-xl bg-gradient-to-r from-primary/10 to-purple-500/10 border border-primary/20 px-6 py-4">
           <div className="flex items-center justify-between">
@@ -1349,7 +1407,19 @@ const CandidateMatching = () => {
             </Button>
           )}
           
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center gap-3">
+            {/* Hide Added Toggle */}
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="hideAdded"
+                checked={hideAdded}
+                onCheckedChange={(checked) => setHideAdded(!!checked)}
+              />
+              <label htmlFor="hideAdded" className="text-sm text-muted-foreground cursor-pointer">
+                Hide added ({addedToJobIds.size})
+              </label>
+            </div>
+            
             <Select value={sortBy} onValueChange={(v) => setSortBy(v as SortOption)}>
               <SelectTrigger className="w-[180px]">
                 <SelectValue placeholder="Sort by..." />
@@ -1366,12 +1436,26 @@ const CandidateMatching = () => {
           </div>
         </div>
 
-        {/* Results Summary */}
+        {/* Add All Visible + Results Summary */}
         <div className="flex items-center justify-between text-sm text-muted-foreground">
-          <span>
-            Showing {sortedCandidates.length} of {candidates.length} loaded ({totalCount} total in database)
-            {quickFilter !== "all" && ` • Filtered: ${quickFilter.replace(/_/g, ' ')}`}
-          </span>
+          <div className="flex items-center gap-3">
+            <span>
+              Showing {sortedCandidates.length} of {candidates.length} loaded ({totalCount} total)
+              {quickFilter !== "all" && ` • Filtered: ${quickFilter.replace(/_/g, ' ')}`}
+              {hideAdded && addedToJobIds.size > 0 && ` • ${addedToJobIds.size} hidden`}
+            </span>
+            {sortedCandidates.length > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleAddAllVisible}
+                className="bg-primary/10 border-primary/30 text-primary hover:bg-primary/20"
+              >
+                <Plus className="h-3.5 w-3.5 mr-1" />
+                Add All Visible ({sortedCandidates.length})
+              </Button>
+            )}
+          </div>
           {summary?.alpha_sophia_count && summary.alpha_sophia_count > 0 && (
             <span className="text-purple-400">+{summary.alpha_sophia_count} from Alpha Sophia</span>
           )}
@@ -1397,7 +1481,8 @@ const CandidateMatching = () => {
                   <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Match</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</th>
                   <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Key Info</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Actions</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Add to Job</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">Research</th>
                   <th className="px-4 py-3 w-12"></th>
                 </tr>
               </thead>
@@ -1407,6 +1492,7 @@ const CandidateMatching = () => {
                   const enrichmentBadge = getEnrichmentBadgeConfig(candidate.enrichment_tier);
                   const indicators = getKeyIndicators(candidate);
                   const contactReady = isContactReady(candidate);
+                  const isAddedToJob = addedToJobIds.has(candidate.id);
                   
                   return (
                     <>
@@ -1414,8 +1500,9 @@ const CandidateMatching = () => {
                         key={candidate.id}
                         className={cn(
                           "border-b border-border/50 transition-colors cursor-pointer",
-                          selectedIds.has(candidate.id) && "bg-primary/5",
-                          contactReady ? "hover:bg-success/5" : "hover:bg-secondary/30"
+                          isAddedToJob && "bg-success/5 border-l-2 border-l-success",
+                          selectedIds.has(candidate.id) && !isAddedToJob && "bg-primary/5",
+                          contactReady && !isAddedToJob ? "hover:bg-success/5" : "hover:bg-secondary/30"
                         )}
                         onClick={() => toggleExpand(candidate.id)}
                       >
@@ -1505,6 +1592,31 @@ const CandidateMatching = () => {
                             )}
                           </div>
                         </td>
+                        {/* Add to Job Column */}
+                        <td className="px-4 py-4" onClick={(e) => e.stopPropagation()}>
+                          {isAddedToJob ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="bg-success/20 border-success/40 text-success hover:bg-destructive/10 hover:text-destructive hover:border-destructive/40"
+                              onClick={() => handleRemoveFromJob(candidate.id)}
+                            >
+                              <Check className="h-4 w-4 mr-1" />
+                              Added
+                            </Button>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="border-primary/40 text-primary hover:bg-primary/10"
+                              onClick={() => handleAddToJob(candidate.id)}
+                            >
+                              <Plus className="h-4 w-4 mr-1" />
+                              Add
+                            </Button>
+                          )}
+                        </td>
+                        {/* Research Column */}
                         <td className="px-4 py-4" onClick={(e) => e.stopPropagation()}>
                           <div className="flex gap-1">
                             {/* Researched indicator or Research button */}
@@ -1561,7 +1673,7 @@ const CandidateMatching = () => {
                       </tr>
                       {expandedIds.has(candidate.id) && (
                         <tr key={`${candidate.id}-expanded`} className="bg-secondary/20">
-                          <td colSpan={8} className="px-6 py-4">
+                          <td colSpan={9} className="px-6 py-4">
                             <div className="space-y-4 animate-fade-in">
                               {/* Research Status Banner */}
                               {candidate.researched && (
@@ -2009,23 +2121,24 @@ const CandidateMatching = () => {
             Back to Job
           </Button>
           <div className="flex items-center gap-3">
-            {selectedIds.size > 0 && (
-              <Button 
-                variant="outline" 
-                onClick={() => setAddPanelOpen(true)}
-                className="bg-primary/10 border-primary/30 text-primary hover:bg-primary/20"
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Add More Candidates
-              </Button>
-            )}
+            <Button 
+              variant="outline" 
+              onClick={() => setAddPanelOpen(true)}
+              className="border-muted-foreground/30 hover:bg-secondary"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Search More
+            </Button>
             <Button
               variant="gradient"
               size="lg"
               onClick={handleContinue}
-              disabled={selectedIds.size === 0}
+              disabled={addedToJobIds.size === 0}
+              className={cn(
+                addedToJobIds.size > 0 && "animate-pulse-glow"
+              )}
             >
-              Continue with {selectedIds.size} Candidates
+              Continue with {addedToJobIds.size} Candidates
               <ArrowRight className="h-5 w-5 ml-2" />
             </Button>
           </div>
