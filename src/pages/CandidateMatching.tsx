@@ -2275,8 +2275,9 @@ const CandidateMatching = () => {
               </tbody>
             </table>
           </div>
-          </div>
-        ) : hideAdded && filterCounts.local > 0 ? (
+        </div>
+      </div>
+    ) : hideAdded && filterCounts.local > 0 ? (
           /* Empty state when all local candidates are added */
           <div className="rounded-xl border border-success/30 bg-success/5 p-6 text-center">
             <CheckCircle2 className="h-8 w-8 text-success mx-auto mb-2" />
