@@ -1,479 +1,35 @@
 
-# Full-Screen Split-View Candidate Matching Redesign
+
+# Improve Candidate Matching - Single Column Layout with Local/Other Sections
 
 ## Overview
 
-This plan transforms the Candidate Matching screen from a single-column layout with a collapsible banner into a true ATS-style **split-screen experience** with persistent shortlist panel and smart pool sectioning.
+This plan implements targeted UX improvements to the existing Candidate Matching page, keeping the single-column layout with ShortlistBanner but adding smart sectioning, auto-hide behavior, and better visual hierarchy.
 
 ---
 
-## Current State Analysis
+## Changes Summary
 
-### Current Layout Structure
-- Single column layout wrapped in `<Layout>` component (max-w-7xl)
-- ShortlistBanner at top (collapsible, horizontal scroll of chips)
-- Job summary header
-- Quick filter buttons (7 grid columns)
-- Alpha Sophia banner
-- Search & action bar
-- Full-width table with candidates
-- Footer navigation
-
-### Key Pain Points
-1. **Shortlist hidden at top** - Users lose sight of their selections when scrolling
-2. **No Local vs Other separation** - Local candidates mixed with everyone
-3. **Cramped candidate cards** - Table rows don't highlight key info prominently
-4. **Too much scrolling** - Can't see shortlist and pool simultaneously
+### 1. Split Table into LOCAL and OTHER Sections
+### 2. Add "Add All Local" and "Add All Other" Bulk Actions
+### 3. Auto-Hide + Undo Toast for Bulk Add Actions
+### 4. More Prominent "Hide Added" Toggle
+### 5. Empty State Messages per Section
+### 6. Local Count in Stats Header
+### 7. LOCAL Badge on In-State Candidate Rows
 
 ---
 
-## Proposed Architecture
+## Implementation Details
 
-### Split-View Layout
+### File: `src/pages/CandidateMatching.tsx`
 
-```text
-+-----------------------------------------------------------------------------------+
-|  Header (Campaign Builder breadcrumb)                                             |
-+-----------------------------------------------------------------------------------+
-|  Job Summary Bar (sticky)                                                         |
-|  IR at Ascension St. Vincent Hospital - Indianapolis • $500/hr                   |
-+-----------------------------------------------------------------------------------+
-|                                   |                                               |
-|  SHORTLIST PANEL (35%)           |  CANDIDATE POOL (65%)                         |
-|  Position: sticky, top-16        |                                               |
-|  Max-height: calc(100vh - 8rem)  |  Search + Filters                             |
-|  ─────────────────────────────── |  ─────────────────────────────────────────────|
-|                                   |                                               |
-|  Stats Summary                   |  LOCAL CANDIDATES (8)          [+ Add All]    |
-|  ┌─────────────────────────────┐ |  ┌─────────────────────────────────────────┐  |
-|  │ 12 added • 10 ready • 4 IN │ |  │  Candidate Card                         │  |
-|  └─────────────────────────────┘ |  │  Candidate Card                         │  |
-|                                   |  │  ...                                     │  |
-|  📍 LOCAL (4)                    |  └─────────────────────────────────────────┘  |
-|  ┌─────────────────────────────┐ |                                               |
-|  │ Dr. Harris     99%  [×]    │ |  OTHER CANDIDATES (486)        [+ Add All]    |
-|  │ Dr. Natarajan  99%  [×]    │ |  ┌─────────────────────────────────────────┐  |
-|  │ +2 more local              │ |  │  Candidate Card                         │  |
-|  └─────────────────────────────┘ |  │  Candidate Card                         │  |
-|                                   |  │  ...                                     │  |
-|  🌍 OTHER STATES (8)             |  └─────────────────────────────────────────┘  |
-|  ┌─────────────────────────────┐ |                                               |
-|  │ Dr. Jean-Baptiste 99% [×] │ |                                               |
-|  │ Dr. Craig        99%  [×] │ |  Load More                                    |
-|  │ +6 more                    │ |                                               |
-|  └─────────────────────────────┘ |  ─────────────────────────────────────────────|
-|                                   |                                               |
-|  📊 Shortlist Stats              |  [Back]                [Continue with 12 →]   |
-|  ┌─────────────────────────────┐ |                                               |
-|  │ Avg Match: 97%             │ |                                               |
-|  │ IN Licensed: 10/12         │ |                                               |
-|  │ Contact Ready: 8/12        │ |                                               |
-|  └─────────────────────────────┘ |                                               |
-|                                   |                                               |
-|  [Continue with 12 Candidates →] |                                               |
-|                                   |                                               |
-+-----------------------------------------------------------------------------------+
-```
+#### 1. Add Computed Arrays for Local vs Other Candidates
 
----
-
-## Implementation Plan
-
-### Phase 1: Layout Restructuring
-
-**File: `src/pages/CandidateMatching.tsx`**
-
-Replace the current single-column `max-w-7xl` container with a flex split-view:
+After line 886 (after `sortedCandidates`), add:
 
 ```typescript
-return (
-  <Layout currentStep={2} showSteps={false}>
-    {/* Sticky Job Summary Header */}
-    <div className="sticky top-14 z-40 ...">
-      {/* Job info bar */}
-    </div>
-    
-    {/* Split View Container */}
-    <div className="flex gap-6 min-h-[calc(100vh-8rem)]">
-      {/* Left: Shortlist Panel - Sticky */}
-      <div className="w-[380px] shrink-0">
-        <div className="sticky top-32 max-h-[calc(100vh-9rem)] overflow-y-auto">
-          <ShortlistPanel ... />
-        </div>
-      </div>
-      
-      {/* Right: Candidate Pool */}
-      <div className="flex-1 min-w-0 space-y-4">
-        <PoolFilters ... />
-        <LocalCandidatesSection ... />
-        <OtherCandidatesSection ... />
-        <FooterActions ... />
-      </div>
-    </div>
-  </Layout>
-);
-```
-
-### Phase 2: New Shortlist Panel Component
-
-**New File: `src/components/candidates/ShortlistPanel.tsx`**
-
-A persistent left sidebar showing:
-- Quick stats (count, ready, local)
-- Local candidates section (collapsible, max 4 visible)
-- Other states section (collapsible)
-- Detailed stats (avg match, licensed, contact ready)
-- Continue button
-
-```typescript
-interface ShortlistPanelProps {
-  candidates: Candidate[];
-  addedIds: Set<string>;
-  jobState: string;
-  onRemove: (id: string) => void;
-  onClear: () => void;
-  onContinue: () => void;
-  disabled?: boolean;
-}
-
-const ShortlistPanel = ({
-  candidates,
-  addedIds,
-  jobState,
-  onRemove,
-  onClear,
-  onContinue,
-  disabled
-}: ShortlistPanelProps) => {
-  const addedCandidates = candidates.filter(c => addedIds.has(c.id));
-  const localCandidates = addedCandidates.filter(c => c.state === jobState);
-  const otherCandidates = addedCandidates.filter(c => c.state !== jobState);
-  
-  // Calculate stats
-  const stats = useMemo(() => ({
-    total: addedCandidates.length,
-    contactReady: addedCandidates.filter(c => c.has_personal_contact || c.personal_mobile).length,
-    localCount: localCandidates.length,
-    avgMatch: Math.round(addedCandidates.reduce((s, c) => s + c.match_strength, 0) / addedCandidates.length) || 0,
-    inLicensed: addedCandidates.filter(c => c.licenses?.some(l => l.includes(jobState))).length,
-    needsEnrich: addedCandidates.filter(c => !c.has_personal_contact).length,
-  }), [addedCandidates, jobState]);
-  
-  return (
-    <div className="rounded-xl border border-border bg-card p-4 space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <h2 className="font-semibold text-foreground flex items-center gap-2">
-          <Users className="h-5 w-5 text-primary" />
-          Your Shortlist
-          <Badge className="bg-primary">{stats.total}</Badge>
-        </h2>
-        {stats.total > 0 && (
-          <Button variant="ghost" size="sm" onClick={onClear}>
-            Clear All
-          </Button>
-        )}
-      </div>
-      
-      {/* Quick Stats */}
-      <div className="grid grid-cols-3 gap-2 text-center">
-        <div className="rounded-lg bg-success/10 p-2">
-          <p className="text-lg font-bold text-success">{stats.contactReady}</p>
-          <p className="text-[10px] text-muted-foreground">Ready</p>
-        </div>
-        <div className="rounded-lg bg-primary/10 p-2">
-          <p className="text-lg font-bold text-primary">{stats.localCount}</p>
-          <p className="text-[10px] text-muted-foreground">Local</p>
-        </div>
-        <div className="rounded-lg bg-purple-500/10 p-2">
-          <p className="text-lg font-bold text-purple-400">{stats.inLicensed}</p>
-          <p className="text-[10px] text-muted-foreground">{jobState} Lic</p>
-        </div>
-      </div>
-      
-      {/* Local Section */}
-      <ShortlistSection 
-        title="Local"
-        icon={<MapPin className="h-4 w-4" />}
-        candidates={localCandidates}
-        highlight="green"
-        onRemove={onRemove}
-        maxVisible={4}
-      />
-      
-      {/* Other States Section */}
-      <ShortlistSection 
-        title="Other States"
-        icon={<Globe className="h-4 w-4" />}
-        candidates={otherCandidates}
-        onRemove={onRemove}
-        maxVisible={4}
-      />
-      
-      {/* Detailed Stats */}
-      <ShortlistStats stats={stats} jobState={jobState} />
-      
-      {/* Continue Button */}
-      <Button
-        className="w-full"
-        variant="gradient"
-        size="lg"
-        onClick={onContinue}
-        disabled={disabled || stats.total === 0}
-      >
-        Continue with {stats.total} Candidates
-        <ArrowRight className="h-5 w-5 ml-2" />
-      </Button>
-    </div>
-  );
-};
-```
-
-### Phase 3: Pool Section Components
-
-**New File: `src/components/candidates/PoolSection.tsx`**
-
-A section component that groups candidates with a header, bulk action, and candidate cards:
-
-```typescript
-interface PoolSectionProps {
-  title: string;
-  subtitle?: string;
-  candidates: Candidate[];
-  highlight?: 'green' | 'default';
-  addedIds: Set<string>;
-  onAdd: (id: string) => void;
-  onRemove: (id: string) => void;
-  onAddAll: () => void;
-  onExpandCandidate: (id: string) => void;
-  expandedIds: Set<string>;
-  jobState: string;
-}
-
-const PoolSection = ({ 
-  title, 
-  subtitle, 
-  candidates, 
-  highlight, 
-  addedIds,
-  onAdd,
-  onRemove,
-  onAddAll,
-  ...props
-}: PoolSectionProps) => {
-  if (candidates.length === 0) return null;
-  
-  return (
-    <div className="space-y-3">
-      {/* Section Header */}
-      <div className={cn(
-        "flex items-center justify-between px-4 py-2 rounded-lg",
-        highlight === 'green' ? "bg-success/10 border border-success/20" : "bg-muted/50"
-      )}>
-        <div>
-          <h3 className={cn(
-            "font-semibold flex items-center gap-2",
-            highlight === 'green' ? "text-success" : "text-foreground"
-          )}>
-            {highlight === 'green' && <MapPin className="h-4 w-4" />}
-            {title} ({candidates.length})
-          </h3>
-          {subtitle && (
-            <p className="text-xs text-muted-foreground">{subtitle}</p>
-          )}
-        </div>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={onAddAll}
-          className={cn(
-            highlight === 'green' 
-              ? "border-success/30 text-success hover:bg-success/10" 
-              : "border-primary/30 text-primary hover:bg-primary/10"
-          )}
-        >
-          <Plus className="h-3.5 w-3.5 mr-1" />
-          Add All
-        </Button>
-      </div>
-      
-      {/* Candidate Cards */}
-      <div className="space-y-2">
-        {candidates.map(candidate => (
-          <CandidatePoolCard 
-            key={candidate.id}
-            candidate={candidate}
-            isLocal={highlight === 'green'}
-            isAdded={addedIds.has(candidate.id)}
-            onAdd={() => onAdd(candidate.id)}
-            onRemove={() => onRemove(candidate.id)}
-            {...props}
-          />
-        ))}
-      </div>
-    </div>
-  );
-};
-```
-
-### Phase 4: Enhanced Candidate Pool Card
-
-**New File: `src/components/candidates/CandidatePoolCard.tsx`**
-
-A card-based design replacing the current table rows:
-
-```typescript
-const CandidatePoolCard = ({
-  candidate,
-  isLocal,
-  isAdded,
-  onAdd,
-  onRemove,
-  onExpand,
-  isExpanded,
-  jobState,
-  onResearch,
-  isResearching,
-}: CandidatePoolCardProps) => {
-  return (
-    <div className={cn(
-      "rounded-xl border bg-card p-4 transition-all",
-      isAdded && "border-success/40 bg-success/5",
-      isLocal && !isAdded && "border-success/20"
-    )}>
-      {/* Local Banner */}
-      {isLocal && (
-        <div className="bg-success/10 border border-success/20 rounded-t-lg px-3 py-2 -mx-4 -mt-4 mb-3">
-          <div className="flex items-center gap-2 text-success text-sm font-medium">
-            <MapPin className="h-4 w-4" />
-            LOCAL CANDIDATE - In job state ({jobState})
-          </div>
-          <div className="text-success/70 text-xs mt-0.5">
-            Faster credentialing • No relocation • Immediate start
-          </div>
-        </div>
-      )}
-      
-      <div className="flex items-start justify-between gap-4">
-        {/* Left: Candidate Info */}
-        <div className="flex-1 space-y-2">
-          {/* Name + Badges */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <Checkbox 
-              checked={/* for bulk select */}
-              onChange={...}
-            />
-            <span className="font-semibold text-foreground">
-              {candidate.first_name} {candidate.last_name}
-            </span>
-            {/* Research/NPI badges */}
-            {candidate.researched && <Badge className="bg-cyan-500/20 text-cyan-500">Researched</Badge>}
-            {candidate.deep_researched && <Badge className="bg-purple-500/20 text-purple-500">Deep</Badge>}
-          </div>
-          
-          {/* Specialty + Location */}
-          <p className="text-sm text-muted-foreground">
-            {candidate.specialty} • {candidate.city}, {candidate.state}
-          </p>
-          
-          {/* Score + Progress Bar */}
-          <div className="flex items-center gap-3">
-            <Badge className={getScoreBadgeConfig(candidate.unified_score).className}>
-              {candidate.unified_score}
-            </Badge>
-            <div className="flex items-center gap-2 flex-1 max-w-[200px]">
-              <Progress value={candidate.match_strength} className="h-2" />
-              <span className="text-sm font-medium">{candidate.match_strength}%</span>
-            </div>
-            <Badge className={getEnrichmentBadgeConfig(candidate.enrichment_tier).className}>
-              {candidate.enrichment_tier}
-            </Badge>
-          </div>
-          
-          {/* Key Indicators */}
-          <div className="flex flex-wrap gap-1.5">
-            {/* IN Licensed, 10+ States, Contact Ready, etc. */}
-            {getKeyIndicators(candidate).slice(0, 4).map((ind, i) => (
-              <Badge key={i} variant="outline" className={ind.className}>
-                {ind.label}
-              </Badge>
-            ))}
-          </div>
-          
-          {/* Needs Enrichment Banner */}
-          {needsEnrichment(candidate) && (
-            <div className="bg-warning/10 border border-warning/20 rounded-lg px-3 py-2 flex items-center justify-between">
-              <span className="text-sm text-warning">
-                Missing personal contact
-              </span>
-              <Button size="sm" variant="outline" className="border-warning/30 text-warning">
-                Enrich Now - $0.20
-              </Button>
-            </div>
-          )}
-        </div>
-        
-        {/* Right: Actions */}
-        <div className="flex flex-col gap-2 items-end">
-          {/* Add/Added Button */}
-          {isAdded ? (
-            <Button
-              size="sm"
-              className="bg-success/20 text-success border border-success/30 hover:bg-destructive/10 hover:text-destructive"
-              onClick={onRemove}
-            >
-              <Check className="h-4 w-4 mr-1" />
-              Added
-            </Button>
-          ) : (
-            <Button
-              size="sm"
-              onClick={onAdd}
-            >
-              <Plus className="h-4 w-4 mr-1" />
-              Add
-            </Button>
-          )}
-          
-          {/* Research Button */}
-          {!candidate.researched && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="text-cyan-600"
-              onClick={onResearch}
-              disabled={isResearching}
-            >
-              {isResearching ? <Loader2 className="h-4 w-4 animate-spin" /> : <>Research</>}
-            </Button>
-          )}
-          
-          {/* Expand Toggle */}
-          <Button size="sm" variant="ghost" onClick={onExpand}>
-            {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-          </Button>
-        </div>
-      </div>
-      
-      {/* Expanded Details */}
-      {isExpanded && (
-        <div className="mt-4 pt-4 border-t border-border animate-fade-in">
-          <ResearchInsights candidate={candidate} ... />
-        </div>
-      )}
-    </div>
-  );
-};
-```
-
-### Phase 5: Pool Filtering Updates
-
-**File: `src/pages/CandidateMatching.tsx`**
-
-Add computed arrays for Local vs Other candidates:
-
-```typescript
-// Separate pool into Local vs Other
+// Split pool into LOCAL vs OTHER sections
 const localPoolCandidates = useMemo(() => 
   sortedCandidates.filter(c => c.state === jobState),
 [sortedCandidates, jobState]);
@@ -481,51 +37,333 @@ const localPoolCandidates = useMemo(() =>
 const otherPoolCandidates = useMemo(() => 
   sortedCandidates.filter(c => c.state !== jobState),
 [sortedCandidates, jobState]);
+```
 
-// Handlers for section-level bulk add
+#### 2. Add Section-Level Bulk Add Handlers with Undo
+
+After `handleAddAllVisible` (around line 965), add:
+
+```typescript
+// Store previous state for undo functionality
+const [lastBulkAddAction, setLastBulkAddAction] = useState<{
+  ids: string[];
+  previousHideAdded: boolean;
+} | null>(null);
+
 const handleAddAllLocal = () => {
   const localIds = localPoolCandidates.map(c => c.id);
-  setAddedToJobIds(prev => new Set([...prev, ...localIds]));
+  if (localIds.length === 0) return;
+  
+  // Store for undo
+  const previousHideAdded = hideAdded;
+  setLastBulkAddAction({ ids: localIds, previousHideAdded });
+  
+  setAddedToJobIds(prev => {
+    const next = new Set(prev);
+    localIds.forEach(id => next.add(id));
+    return next;
+  });
   setHideAdded(true);
-  toast.success(`Added ${localIds.length} local candidates to shortlist`);
+  
+  toast.success(`Added ${localIds.length} local candidates to shortlist`, {
+    action: {
+      label: "Undo",
+      onClick: () => {
+        setAddedToJobIds(prev => {
+          const next = new Set(prev);
+          localIds.forEach(id => next.delete(id));
+          return next;
+        });
+        setHideAdded(previousHideAdded);
+      }
+    }
+  });
 };
 
 const handleAddAllOther = () => {
   const otherIds = otherPoolCandidates.map(c => c.id);
-  setAddedToJobIds(prev => new Set([...prev, ...otherIds]));
+  if (otherIds.length === 0) return;
+  
+  const previousHideAdded = hideAdded;
+  setLastBulkAddAction({ ids: otherIds, previousHideAdded });
+  
+  setAddedToJobIds(prev => {
+    const next = new Set(prev);
+    otherIds.forEach(id => next.add(id));
+    return next;
+  });
   setHideAdded(true);
-  toast.success(`Added ${otherIds.length} candidates to shortlist`);
+  
+  toast.success(`Added ${otherIds.length} candidates to shortlist`, {
+    action: {
+      label: "Undo",
+      onClick: () => {
+        setAddedToJobIds(prev => {
+          const next = new Set(prev);
+          otherIds.forEach(id => next.delete(id));
+          return next;
+        });
+        setHideAdded(previousHideAdded);
+      }
+    }
+  });
 };
 ```
 
-### Phase 6: Hide Layout Steps Header
+#### 3. Update `handleAddAllVisible` with Undo Support
 
-**File: `src/pages/CandidateMatching.tsx`**
-
-Pass `showSteps={false}` to Layout to maximize vertical space:
+Replace the existing `handleAddAllVisible` function:
 
 ```typescript
-<Layout currentStep={2} showSteps={false}>
+const handleAddAllVisible = () => {
+  const visibleIds = sortedCandidates.map(c => c.id);
+  if (visibleIds.length === 0) return;
+  
+  const previousHideAdded = hideAdded;
+  
+  setAddedToJobIds(prev => {
+    const next = new Set(prev);
+    visibleIds.forEach(id => next.add(id));
+    return next;
+  });
+  setHideAdded(true);
+  
+  toast.success(`Added ${visibleIds.length} candidates to shortlist`, {
+    action: {
+      label: "Undo",
+      onClick: () => {
+        setAddedToJobIds(prev => {
+          const next = new Set(prev);
+          visibleIds.forEach(id => next.delete(id));
+          return next;
+        });
+        setHideAdded(previousHideAdded);
+      }
+    }
+  });
+};
 ```
 
-### Phase 7: Responsive Considerations
+#### 4. Update Stats Header to Include Local Count and Added Count
 
-For mobile/tablet, collapse to single column with shortlist as collapsible header:
+In the job summary header (around lines 1229-1260), add new stats:
 
 ```typescript
-<div className="flex flex-col lg:flex-row gap-6 min-h-[calc(100vh-8rem)]">
-  {/* Shortlist: Full width on mobile, sidebar on desktop */}
-  <div className="w-full lg:w-[380px] lg:shrink-0">
-    {/* On mobile: Collapsible version */}
-    {/* On desktop: Sticky panel */}
-  </div>
-  
-  {/* Pool */}
-  <div className="flex-1 min-w-0">
-    ...
-  </div>
+{/* Added to Shortlist count */}
+<div className="text-center">
+  <p className="text-2xl font-bold text-success">{addedToJobIds.size}</p>
+  <p className="text-xs text-muted-foreground">Added</p>
+</div>
+
+{/* Local count already exists but ensure it's prominent */}
+<div className="text-center">
+  <p className="text-2xl font-bold text-emerald-400">{filterCounts.local}</p>
+  <p className="text-xs text-muted-foreground">Local ({jobState})</p>
 </div>
 ```
+
+#### 5. Move "Hide Added" Toggle to Search Bar Area
+
+Move the toggle from its current location to next to the search bar (around line 1390). Update styling:
+
+```typescript
+{/* Search & Actions Bar */}
+<div className="flex flex-wrap gap-3 items-center">
+  <div className="relative flex-1 min-w-[200px] max-w-md">
+    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+    <Input
+      placeholder="Search by name, specialty, location..."
+      value={searchQuery}
+      onChange={(e) => setSearchQuery(e.target.value)}
+      className="pl-9"
+    />
+  </div>
+  
+  {/* Prominent Hide Added Toggle */}
+  <div className={cn(
+    "flex items-center gap-2 px-3 py-2 rounded-lg border transition-all",
+    addedToJobIds.size > 0 
+      ? "bg-success/10 border-success/30 shadow-sm" 
+      : "bg-muted/50 border-border"
+  )}>
+    <Checkbox
+      id="hideAdded"
+      checked={hideAdded}
+      onCheckedChange={(checked) => setHideAdded(!!checked)}
+    />
+    <label 
+      htmlFor="hideAdded" 
+      className={cn(
+        "text-sm cursor-pointer font-medium",
+        addedToJobIds.size > 0 ? "text-success" : "text-muted-foreground"
+      )}
+    >
+      {addedToJobIds.size > 0 
+        ? `Hide ${addedToJobIds.size} added` 
+        : "Hide added"}
+    </label>
+  </div>
+  
+  {/* Rest of actions... */}
+</div>
+```
+
+#### 6. Replace Single Table with Two Section Tables
+
+Replace the existing single table (lines 1538-2165) with two sectioned tables:
+
+```typescript
+{/* LOCAL CANDIDATES SECTION */}
+{localPoolCandidates.length > 0 ? (
+  <div className="space-y-3">
+    {/* Section Header */}
+    <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-success/10 border border-success/30">
+      <div className="flex items-center gap-3">
+        <MapPin className="h-5 w-5 text-success" />
+        <div>
+          <h3 className="font-semibold text-success flex items-center gap-2">
+            LOCAL CANDIDATES
+            <Badge className="bg-success text-success-foreground">
+              {localPoolCandidates.length}
+            </Badge>
+          </h3>
+          <p className="text-xs text-success/70">
+            Faster credentialing - No relocation - Immediate availability
+          </p>
+        </div>
+      </div>
+      <Button
+        size="sm"
+        onClick={handleAddAllLocal}
+        className="bg-success text-success-foreground hover:bg-success/90"
+      >
+        <Plus className="h-4 w-4 mr-1" />
+        Add All Local ({localPoolCandidates.length})
+      </Button>
+    </div>
+    
+    {/* Local Candidates Table */}
+    <CandidatesTable 
+      candidates={localPoolCandidates} 
+      isLocalSection={true}
+      // ...other props
+    />
+  </div>
+) : hideAdded && filterCounts.local > 0 ? (
+  /* Empty state when all local candidates are added */
+  <div className="rounded-xl border border-success/30 bg-success/5 p-6 text-center">
+    <CheckCircle2 className="h-8 w-8 text-success mx-auto mb-2" />
+    <p className="text-success font-medium">All local candidates added to shortlist</p>
+    <p className="text-xs text-muted-foreground mt-1">
+      Toggle "Hide added" to review your selections
+    </p>
+  </div>
+) : null}
+
+{/* OTHER CANDIDATES SECTION */}
+{otherPoolCandidates.length > 0 ? (
+  <div className="space-y-3">
+    {/* Section Header */}
+    <div className="flex items-center justify-between px-4 py-3 rounded-xl bg-muted/50 border border-border">
+      <div className="flex items-center gap-3">
+        <Globe className="h-5 w-5 text-muted-foreground" />
+        <div>
+          <h3 className="font-semibold text-foreground flex items-center gap-2">
+            OTHER CANDIDATES
+            <Badge variant="secondary">
+              {otherPoolCandidates.length}
+            </Badge>
+          </h3>
+          <p className="text-xs text-muted-foreground">
+            Out-of-state candidates with matching qualifications
+          </p>
+        </div>
+      </div>
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={handleAddAllOther}
+      >
+        <Plus className="h-4 w-4 mr-1" />
+        Add All Other ({otherPoolCandidates.length})
+      </Button>
+    </div>
+    
+    {/* Other Candidates Table */}
+    <CandidatesTable 
+      candidates={otherPoolCandidates} 
+      isLocalSection={false}
+      // ...other props
+    />
+  </div>
+) : hideAdded && (candidates.length - filterCounts.local) > 0 ? (
+  /* Empty state when all other candidates are added */
+  <div className="rounded-xl border border-border bg-muted/30 p-6 text-center">
+    <CheckCircle2 className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
+    <p className="text-muted-foreground font-medium">All candidates added to shortlist</p>
+    <p className="text-xs text-muted-foreground mt-1">
+      Toggle "Hide added" to review your selections
+    </p>
+  </div>
+) : null}
+```
+
+#### 7. Add LOCAL Badge to In-State Candidate Rows
+
+In the candidate name cell (around line 1590), add a LOCAL badge for local section:
+
+```typescript
+<td className="px-4 py-4">
+  <div className="space-y-1">
+    <div className="flex items-center gap-2">
+      <span className="font-medium text-foreground">
+        {candidate.first_name} {candidate.last_name}
+      </span>
+      {/* LOCAL badge for in-state candidates */}
+      {isLocal(candidate) && (
+        <Badge 
+          className="bg-success/20 text-success border border-success/30 text-[10px] font-bold"
+        >
+          LOCAL
+        </Badge>
+      )}
+      {contactReady && (
+        <CheckCircle2 className="h-4 w-4 text-success" />
+      )}
+      {/* ... rest of badges */}
+    </div>
+    {/* ... rest of content */}
+  </div>
+</td>
+```
+
+---
+
+## Component Extraction (Optional Refactor)
+
+To avoid code duplication, extract the table body into a reusable component:
+
+```typescript
+interface CandidatesTableProps {
+  candidates: Candidate[];
+  isLocalSection: boolean;
+  selectedIds: Set<string>;
+  expandedIds: Set<string>;
+  addedToJobIds: Set<string>;
+  onToggleSelect: (id: string) => void;
+  onToggleExpand: (id: string) => void;
+  onAddToJob: (id: string) => void;
+  onRemoveFromJob: (id: string) => void;
+  onResearch: (candidate: Candidate) => void;
+  onEnrich: (candidate: Candidate) => void;
+  researchingIds: Set<string>;
+  enrichingIds: Set<string>;
+  deepResearchingIds: Set<string>;
+  // ... other handlers
+}
+```
+
+This keeps the code DRY while having separate section wrappers.
 
 ---
 
@@ -533,29 +371,55 @@ For mobile/tablet, collapse to single column with shortlist as collapsible heade
 
 | File | Action | Description |
 |------|--------|-------------|
-| `src/pages/CandidateMatching.tsx` | Modify | Restructure to split-view layout, add local/other pool separation |
-| `src/components/candidates/ShortlistPanel.tsx` | Create | Persistent left sidebar with sections and stats |
-| `src/components/candidates/PoolSection.tsx` | Create | Section component for Local/Other grouping |
-| `src/components/candidates/CandidatePoolCard.tsx` | Create | Card-based candidate display replacing table rows |
-| `src/components/candidates/ShortlistBanner.tsx` | Keep | Can be repurposed for mobile view or deleted |
+| `src/pages/CandidateMatching.tsx` | Modify | Add local/other section logic, undo toasts, hide toggle, LOCAL badges |
 
 ---
 
-## Migration Strategy
+## Visual Summary
 
-1. Keep existing `ShortlistBanner.tsx` as fallback for mobile
-2. Create new components incrementally
-3. Update CandidateMatching.tsx layout last
-4. Test both desktop and mobile views
+```text
++------------------------------------------------------------------+
+|  Job Header + Stats                                               |
+|  [Total] [Local] [Added] [Researched] [Contact Ready] [10+ Lic]  |
++------------------------------------------------------------------+
+|  Search [___________]  [Hide 12 added ✓]  [Select Actions...]    |
++------------------------------------------------------------------+
+|                                                                   |
+|  ┌─ LOCAL CANDIDATES (8) ────────────────── [+ Add All Local] ─┐ |
+|  │  Green header with "Faster credentialing" subtitle          │ |
+|  │                                                              │ |
+|  │  ☐ Dr. Harris  [LOCAL] A+ 99% Gold  ✅ Contact  [+ Add]    │ |
+|  │  ☐ Dr. Natarajan [LOCAL] A+ 99% Gold ✅ Contact [✓ Added]  │ |
+|  │  ...                                                         │ |
+|  └──────────────────────────────────────────────────────────────┘ |
+|                                                                   |
+|  ┌─ OTHER CANDIDATES (486) ─────────────── [+ Add All Other] ─┐  |
+|  │  Default header with count                                  │  |
+|  │                                                              │  |
+|  │  ☐ Dr. Jean-Baptiste  A+ 99% Gold  ✅ Contact  [+ Add]     │  |
+|  │  ☐ Dr. Craig  A+ 98% Silver  🔍 Needs Enrich  [+ Add]      │  |
+|  │  ...                                                         │  |
+|  └──────────────────────────────────────────────────────────────┘ |
+|                                                                   |
+|  [Load More]                                                      |
+|                                                                   |
+|  [Back to Job]            [Search More] [Continue with 12 →]     |
++------------------------------------------------------------------+
+```
 
 ---
 
-## Success Criteria
+## Expected Behavior
 
-1. Shortlist always visible on left (desktop)
-2. Local candidates grouped at top of pool with green styling
-3. "Add All Local" one-click action works
-4. Pool automatically hides added candidates
-5. Real-time stats update as candidates are added/removed
-6. Smooth transitions when adding/removing candidates
-7. Mobile responsive with collapsible shortlist
+1. **Page Load**: Candidates split into LOCAL (top, green) and OTHER (bottom)
+2. **Click "Add All Local"**: 
+   - All local candidates added to shortlist
+   - "Hide added" toggle auto-enabled
+   - Toast appears with "Undo" button
+   - LOCAL section shows empty state: "All local candidates added"
+3. **Click "Undo"**: 
+   - Candidates removed from shortlist
+   - "Hide added" reverts to previous state
+4. **Toggle "Hide added" OFF**: Shows all candidates (both added and not)
+5. **LOCAL Badge**: Visible on all in-state candidate rows for quick identification
+
