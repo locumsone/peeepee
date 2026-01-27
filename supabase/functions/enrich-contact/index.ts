@@ -231,33 +231,23 @@ Deno.serve(async (req) => {
     }
 
     // Step 3: Update candidate record if we found something
+    // Note: We save to contact_enrichment_source to preserve the original enrichment_source (Crelate, CureHire, etc.)
     if (result.success && (result.personal_email || result.personal_mobile)) {
-      const updateData: Record<string, any> = {
-        enrichment_source: result.source, // Should be "PDL" or "Whitepages"
-        last_enrichment_date: new Date().toISOString(),
-        enriched_at: new Date().toISOString(),
-        enrichment_tier: "Platinum",
-        enrichment_needed: false,
-      };
-      
-      if (result.personal_email) updateData.personal_email = result.personal_email;
-      if (result.personal_mobile) updateData.personal_mobile = result.personal_mobile;
+      console.log(`Updating candidate ${candidate_id} with contact enrichment source: ${result.source}`);
 
-      console.log(`Updating candidate ${candidate_id} with source: ${result.source}`);
-
-      // Use RPC function to ensure all fields are updated properly
+      // Use RPC function to update contact enrichment fields (preserves original enrichment_source)
       const { error: updateError } = await supabase.rpc('update_candidate_enrichment', {
         p_candidate_id: candidate_id,
         p_personal_email: result.personal_email,
         p_personal_mobile: result.personal_mobile,
-        p_enrichment_source: result.source,
+        p_enrichment_source: result.source, // This goes to contact_enrichment_source
         p_enrichment_tier: 'Platinum'
       });
 
       if (updateError) {
-        console.error("Failed to update candidate:", updateError);
+        console.error("Failed to update candidate via RPC:", updateError);
       } else {
-        console.log("Candidate updated successfully via RPC");
+        console.log("Candidate contact enrichment updated successfully");
       }
 
       // Log enrichment for cost tracking
