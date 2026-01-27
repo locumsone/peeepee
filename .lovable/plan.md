@@ -1,343 +1,279 @@
 
-# Campaigns Page Overhaul + Inbox Caller Fix - Complete Implementation Plan
+# Enhanced Candidate Selection - "Add More Candidates" Feature
 
 ## Overview
 
-This plan implements two major features:
-1. **Campaigns Page Overhaul** - Transform the flat table into a comprehensive ATS/CRM Command Center with rich campaign cards, Kanban view, pipeline visualization, and candidate quick-view
-2. **Inbox "Unknown" Caller Fix** - Improve phone number matching and display logic to eliminate "Unknown" entries
+This feature enhances the Candidate Matching page (`/candidates/matching`) to allow recruiters to:
+1. **Preserve** their current selection of candidates (e.g., 50 selected)
+2. **Search** for additional candidates from the database with specific filters (Local, 10+ Licenses, etc.)
+3. **Add** newly found candidates to the existing queue without losing current selections
 
 ---
 
-## Part 1: Campaigns Page Overhaul
+## Current State Analysis
 
-### Current State Problems
-- Flat table design with no visual hierarchy
-- Missing job context (specialty, facility, pay rate, location)
-- No pipeline/funnel visualization
-- No quick actions for candidates
-- Limited metrics display (only Sent/Opened/Replied text)
-- Emoji in header violating brand guidelines
-- No Kanban or card view options
+### How It Works Now
+- Candidates are loaded in batches of 50 from the `ai-candidate-matcher` edge function
+- Selection is stored in a `selectedIds` state (Set of IDs)
+- Quick filters exist (Local, 10+ Licenses, Contact Ready) but they only **filter the current view** - they don't search for MORE candidates
+- "Load More" fetches the next batch from the same query
+- Alpha Sophia search exists but only searches external sources
 
-### New Architecture
+### The Gap
+There's no way to:
+- Search the database for specific candidate types (e.g., "find me more local candidates")
+- Add those candidates to the current list without replacing it
+- Keep the current 50 selected while adding more
+
+---
+
+## New Feature: "Add More Candidates" Panel
+
+### UI Design
 
 ```text
 +------------------------------------------------------------------+
-|  CAMPAIGNS                        [Search]   [+ New Campaign]    |
+|  [Current Selection Bar]                                          |
+|  50 candidates selected    [Continue] [+ Add More Candidates]     |
 +------------------------------------------------------------------+
-|  [List] [Kanban] [Pipeline]    Filter: [All] [Active] [Paused]   |
+
+When clicked, opens a Sheet panel:
+
++------------------------------------------------------------------+
+|  ADD MORE CANDIDATES                                    [X Close] |
++------------------------------------------------------------------+
+|  Your 50 selected candidates are preserved.                       |
+|  Search for additional candidates to add to your campaign.        |
++------------------------------------------------------------------+
+|  QUICK SEARCH                                                     |
+|  +--------------------+ +--------------------+                    |
+|  | [x] Local (WI)     | | [x] 10+ Licenses   |                    |
+|  | Candidates in      | | Multi-state        |                    |
+|  | job state          | | travelers          |                    |
+|  +--------------------+ +--------------------+                    |
+|  +--------------------+ +--------------------+                    |
+|  | [ ] Contact Ready  | | [ ] Needs Enrichmt |                    |
+|  | Has personal       | | Missing personal   |                    |
+|  | contact info       | | contact info       |                    |
+|  +--------------------+ +--------------------+                    |
++------------------------------------------------------------------+
+|  [Search by Name/NPI]  ___________________________  [Search]      |
++------------------------------------------------------------------+
+|  EXCLUDE ALREADY SELECTED: [x] Yes                                |
 +------------------------------------------------------------------+
 |                                                                   |
-|  +------------------------------------------------------------+  |
-|  | [Active] IR Campaign - Interventional Radiology             |  |
-|  | Chippewa Valley Health, WI | $500/hr                        |  |
-|  +------------------------------------------------------------+  |
-|  | SENT    OPENED    REPLIED    INTERESTED                     |  |
-|  | ████░   ███░░     █░░░░      ●●○○○                          |  |
-|  | 156     42 (27%)  8 (5%)     4 leads                        |  |
-|  +------------------------------------------------------------+  |
-|  | EMAIL: 120 | SMS: 36 | CALLS: 8 connected                   |  |
-|  +------------------------------------------------------------+  |
-|  | [Pause] [View Leads] [Inbox] [Duplicate] [...]              |  |
-|  +------------------------------------------------------------+  |
+|  RESULTS (23 found)                                               |
+|  +--------------------------------------------------------------+ |
+|  | [ ] Dr. John Smith - IR, WI - 12 licenses - 94% match        | |
+|  | [ ] Dr. Jane Doe - IR, MN - 8 licenses - Local - 89% match   | |
+|  | ...                                                          | |
+|  +--------------------------------------------------------------+ |
 |                                                                   |
+|  [Select All (23)] [Add Selected to Campaign]                     |
 +------------------------------------------------------------------+
 ```
 
-### New Components to Create
+---
 
-#### 1. CampaignCard.tsx
-Rich card component displaying:
-- Campaign name + status badge with health indicator
-- Job context: specialty, facility, city/state, pay rate
-- Visual progress bars for metrics (sent, opened, replied)
-- Channel breakdown (Email, SMS, Calls) with icons
-- Quick action buttons (Pause/Resume, View Leads, Inbox, Duplicate)
+## Implementation Plan
 
-#### 2. CampaignHealthIndicator.tsx
-Visual health status component:
-- Green dot: Healthy (Open Rate >= 30%)
-- Yellow dot: Needs Attention (Open Rate 15-30%)
-- Red dot: Low Engagement (Open Rate < 15%)
-- Tooltip with explanation
+### Phase 1: New Component - AddCandidatesPanel
 
-#### 3. CampaignStats.tsx
-Enhanced stats dashboard:
-- Active/Paused/Completed/Draft counts
-- Total leads across all campaigns
-- Average open rate and reply rate
-- "Hot" leads count (interested status)
+Create `src/components/candidates/AddCandidatesPanel.tsx`:
 
-#### 4. CampaignKanbanBoard.tsx
-Drag-and-drop Kanban view:
-- Columns: Draft, Active, Paused, Completed
-- Compact cards showing campaign name, job, lead count
-- Drag to change status
-- Visual health indicators
+**Features:**
+- Sheet panel that slides in from the right (500px width)
+- Filter checkboxes: Local, 10+ Licenses, 5+ Licenses, Contact Ready, Needs Enrichment
+- Text search input for name/NPI
+- Toggle to exclude already-selected candidates
+- Results list with checkboxes
+- "Add Selected" button that merges with existing selection
 
-#### 5. CampaignPipeline.tsx
-Funnel visualization:
-- Stages: Total Leads -> Contacted -> Opened -> Replied -> Interested -> Placed
-- Visual funnel with percentages
-- Click to filter by stage
-
-#### 6. CandidateQuickView.tsx
-Slide-out panel for campaign leads:
-- List of candidates in the campaign
-- Status badges (contacted, opened, replied, interested)
-- Quick action buttons (Call, SMS, Email)
-- Filter chips (All, Hot, Replied, Interested)
-- Search within candidates
-
-#### 7. CampaignFilters.tsx
-Enhanced filter bar:
-- Status tabs: All, Active, Paused, Completed, Draft
-- Job dropdown filter
-- Channel filter (Email, SMS, Multi-channel)
-- Health filter (Healthy, Needs Attention, Critical)
-
-### Enhanced Data Fetching
-
-Current query:
+**Props:**
 ```typescript
-const { data } = await supabase
-  .from("campaigns")
-  .select(`*, jobs (job_name)`)
-```
-
-New query:
-```typescript
-const { data } = await supabase
-  .from("campaigns")
-  .select(`
-    *,
-    jobs (
-      job_name,
-      specialty,
-      facility_name,
-      city,
-      state,
-      pay_rate
-    )
-  `)
-  .order("updated_at", { ascending: false });
-```
-
-### Interface Updates
-
-```typescript
-interface CampaignWithJob {
-  id: string;
-  name: string | null;
-  job_id: string | null;
-  channel: string | null;
-  status: string | null;
-  leads_count: number | null;
-  created_at: string | null;
-  updated_at: string | null;
-  // Email metrics
-  emails_sent: number | null;
-  emails_opened: number | null;
-  emails_clicked: number | null;
-  emails_replied: number | null;
-  emails_bounced: number | null;
-  // SMS metrics
-  sms_sent: number | null;
-  sms_delivered: number | null;
-  sms_replied: number | null;
-  // Call metrics
-  calls_attempted: number | null;
-  calls_connected: number | null;
-  // Job context
-  jobs: {
-    job_name: string | null;
-    specialty: string | null;
-    facility_name: string | null;
-    city: string | null;
-    state: string | null;
-    pay_rate: number | null;
-  } | null;
+interface AddCandidatesPanelProps {
+  isOpen: boolean;
+  onClose: () => void;
+  jobId: string;
+  jobState: string;
+  specialty: string;
+  existingCandidateIds: Set<string>;
+  onAddCandidates: (candidates: Candidate[]) => void;
 }
 ```
 
-### View Modes Implementation
+### Phase 2: Database Search Function
+
+The panel will query Supabase directly for candidates matching the filters:
 
 ```typescript
-type ViewMode = "list" | "kanban" | "pipeline";
-const [viewMode, setViewMode] = useState<ViewMode>("list");
+// Build dynamic query based on filters
+let query = supabase
+  .from("candidates")
+  .select(`
+    id, first_name, last_name, specialty, state, city,
+    licenses, enrichment_tier, personal_mobile, personal_email,
+    phone, email
+  `)
+  .ilike("specialty", `%${specialty}%`)
+  .limit(100);
+
+// Apply filters
+if (filters.local) {
+  query = query.eq("state", jobState);
+}
+if (filters.tenPlusLicenses) {
+  query = query.gte("array_length(licenses, 1)", 10);
+}
+if (filters.contactReady) {
+  query = query.or("personal_mobile.neq.null,personal_email.neq.null");
+}
+if (filters.excludeSelected && existingIds.length > 0) {
+  query = query.not("id", "in", `(${existingIds.join(",")})`);
+}
+if (nameSearch) {
+  query = query.or(`first_name.ilike.%${nameSearch}%,last_name.ilike.%${nameSearch}%`);
+}
 ```
 
-### File Structure
+### Phase 3: Integration with CandidateMatching.tsx
+
+**Changes to main page:**
+
+1. Add state for panel visibility:
+```typescript
+const [addPanelOpen, setAddPanelOpen] = useState(false);
+```
+
+2. Add handler to merge new candidates:
+```typescript
+const handleAddCandidates = (newCandidates: Candidate[]) => {
+  // Merge new candidates with existing list (avoid duplicates)
+  const existingIds = new Set(candidates.map(c => c.id));
+  const uniqueNew = newCandidates.filter(c => !existingIds.has(c.id));
+  
+  setCandidates(prev => [...prev, ...uniqueNew]);
+  
+  // Auto-select the newly added candidates
+  setSelectedIds(prev => {
+    const next = new Set(prev);
+    uniqueNew.forEach(c => next.add(c.id));
+    return next;
+  });
+  
+  toast.success(`Added ${uniqueNew.length} candidates to your selection`);
+  setAddPanelOpen(false);
+};
+```
+
+3. Add button in selection bar:
+```typescript
+{selectedIds.size > 0 && (
+  <Button 
+    variant="outline" 
+    onClick={() => setAddPanelOpen(true)}
+    className="bg-blue-500/10 border-blue-500/30 text-blue-400"
+  >
+    <Plus className="h-4 w-4 mr-2" />
+    Add More Candidates
+  </Button>
+)}
+```
+
+4. Render the panel:
+```typescript
+<AddCandidatesPanel
+  isOpen={addPanelOpen}
+  onClose={() => setAddPanelOpen(false)}
+  jobId={effectiveJobId}
+  jobState={jobState}
+  specialty={job?.specialty || ""}
+  existingCandidateIds={new Set(candidates.map(c => c.id))}
+  onAddCandidates={handleAddCandidates}
+/>
+```
+
+### Phase 4: Selection Persistence Banner
+
+Add a visual indicator that selections are preserved:
+
+```typescript
+{selectedIds.size > 0 && addPanelOpen && (
+  <div className="bg-success/10 border border-success/30 rounded-lg p-3 flex items-center gap-2">
+    <CheckCircle2 className="h-5 w-5 text-success" />
+    <span className="text-sm text-success">
+      Your {selectedIds.size} selected candidates are preserved. 
+      Adding more will merge with your current selection.
+    </span>
+  </div>
+)}
+```
+
+---
+
+## File Structure
 
 ```text
-src/components/campaigns/
-├── CampaignCard.tsx           # NEW - Rich campaign card
-├── CampaignHealthIndicator.tsx # NEW - Health status dot
-├── CampaignStats.tsx          # NEW - Dashboard stats
-├── CampaignKanbanBoard.tsx    # NEW - Kanban view
-├── CampaignPipeline.tsx       # NEW - Funnel view
-├── CandidateQuickView.tsx     # NEW - Slide-out panel
-├── CampaignFilters.tsx        # NEW - Enhanced filters
-├── CampaignMetrics.tsx        # EXISTING - Enhance
-└── index.ts                   # NEW - Barrel export
-
-src/pages/
-└── Campaigns.tsx              # REWRITE - Complete overhaul
+src/
+  components/
+    candidates/
+      AddCandidatesPanel.tsx      # NEW - Slide-out search panel
+      CandidateDetailPanel.tsx    # EXISTING
+      ResearchInsights.tsx        # EXISTING
+  pages/
+    CandidateMatching.tsx         # MODIFY - Add button and panel integration
 ```
 
 ---
 
-## Part 2: Inbox "Unknown" Caller Fix
+## Technical Details
 
-### Root Causes Identified
-1. Phone number normalization inconsistency
-2. Call logs with empty `phone_number` fields
-3. Incomplete candidate matching in voice-incoming webhook
-4. Display logic not falling back to formatted phone
+### Candidate Scoring for Added Candidates
 
-### Fixes Required
+When candidates are added via the panel, they need match scores calculated. Options:
 
-#### 1. Enhanced Phone Matching in useTwilioDevice.ts
-```typescript
-const normalizePhone = (phone: string): string => {
-  const digits = phone.replace(/\D/g, "");
-  return digits.slice(-10); // Last 10 digits
-};
+**Option A (Recommended):** Use the existing `calculateMatchStrength` function client-side for quick scoring, then optionally trigger deep research for the new candidates.
 
-// Query with multiple field matching
-const { data: candidate } = await supabase
-  .from("candidates")
-  .select("id, first_name, last_name, specialty, state")
-  .or(`
-    phone.ilike.%${last10},
-    personal_mobile.ilike.%${last10},
-    phone_enriched.ilike.%${last10}
-  `)
-  .limit(1)
-  .maybeSingle();
-```
+**Option B:** Call the `ai-candidate-matcher` edge function with just the new candidate IDs for full AI scoring (slower but more accurate).
 
-#### 2. voice-incoming Edge Function Updates
-- Normalize phone numbers on both inbound and outbound
-- Match against all phone fields (phone, personal_mobile, phone_enriched)
-- Set candidate_name immediately when match found
-- Update ai_call_logs with proper candidate context
+The implementation will use Option A for immediate results with an optional "Research Added Candidates" button.
 
-#### 3. Communications.tsx Display Logic
-```typescript
-// For call logs
-const displayName = call.candidate_name && call.candidate_name !== ""
-  ? call.candidate_name
-  : formatPhoneNumber(call.phone_number) || "Unknown";
+### Duplicate Prevention
 
-// Filter out invalid entries
-.filter((call) => call.phone_number && call.phone_number !== "")
-```
+- The panel will have a toggle "Exclude already selected" (default: on)
+- The merge function double-checks for duplicates before adding
+- UI shows "(X already in list)" badge on search results if there's overlap
 
-#### 4. ConversationDetail.tsx Header Fix
-```typescript
-const displayPhone = callData?.phone_number || conversation.candidatePhone;
-const displayName = callData?.candidate_name && callData.candidate_name !== ""
-  ? callData.candidate_name
-  : conversation.candidateName && conversation.candidateName !== "Unknown"
-    ? conversation.candidateName
-    : formatPhoneNumber(displayPhone) || "Unknown";
-```
+### Filter Chip States
+
+Each filter chip will show:
+- Estimated count from database (can be expensive - consider caching or using approximate counts)
+- Active/inactive state
+- "AND" logic (all selected filters must match)
 
 ---
 
-## Implementation Order
+## User Flow
 
-### Phase 1: Inbox Fix (Quick Win)
-1. Update useTwilioDevice.ts phone matching
-2. Update voice-incoming edge function
-3. Fix Communications.tsx display logic
-4. Fix ConversationDetail.tsx header
-
-### Phase 2: Campaign Components
-1. Create CampaignHealthIndicator.tsx
-2. Create CampaignCard.tsx with full layout
-3. Create CampaignStats.tsx dashboard
-4. Create CampaignFilters.tsx
-
-### Phase 3: Views and Panels
-1. Create CandidateQuickView.tsx slide-out
-2. Create CampaignKanbanBoard.tsx
-3. Create CampaignPipeline.tsx
-
-### Phase 4: Main Page Integration
-1. Rewrite Campaigns.tsx with new components
-2. Add view mode toggle
-3. Add real-time subscriptions
-4. Remove emoji from header
-
----
-
-## Technical Specifications
-
-### Real-time Subscriptions
-```typescript
-useEffect(() => {
-  const channel = supabase
-    .channel("campaigns-realtime")
-    .on("postgres_changes", {
-      event: "*",
-      schema: "public",
-      table: "campaigns",
-    }, () => refetch())
-    .subscribe();
-  return () => supabase.removeChannel(channel);
-}, []);
-```
-
-### Health Calculation Logic
-```typescript
-const calculateHealth = (campaign: CampaignWithJob): "healthy" | "warning" | "critical" => {
-  const sent = campaign.emails_sent || 0;
-  if (sent === 0) return "warning";
-  
-  const openRate = (campaign.emails_opened || 0) / sent * 100;
-  if (openRate >= 30) return "healthy";
-  if (openRate >= 15) return "warning";
-  return "critical";
-};
-```
-
-### Xbox Corporate Theme Styling
-- Card backgrounds: `bg-card` (#16191D)
-- Active glow: `shadow-glow` with Electric Blue
-- Status colors: Success (green), Warning (yellow), Destructive (red)
-- Progress bars with gradient fills
-- No emojis anywhere in the UI
-
----
-
-## Files to Create
-1. `src/components/campaigns/CampaignCard.tsx`
-2. `src/components/campaigns/CampaignHealthIndicator.tsx`
-3. `src/components/campaigns/CampaignStats.tsx`
-4. `src/components/campaigns/CampaignFilters.tsx`
-5. `src/components/campaigns/CandidateQuickView.tsx`
-6. `src/components/campaigns/CampaignKanbanBoard.tsx`
-7. `src/components/campaigns/CampaignPipeline.tsx`
-8. `src/components/campaigns/index.ts`
-
-## Files to Modify
-1. `src/pages/Campaigns.tsx` - Complete rewrite
-2. `src/pages/Communications.tsx` - Display logic fixes
-3. `src/components/inbox/ConversationDetail.tsx` - Header fix
-4. `src/hooks/useTwilioDevice.ts` - Phone matching improvement
-5. `supabase/functions/voice-incoming/index.ts` - Candidate lookup fix
+1. User is on Candidate Matching page with 50 candidates selected
+2. User clicks "Add More Candidates" button
+3. Panel slides in from right
+4. Banner shows "Your 50 selected candidates are preserved"
+5. User selects filters (e.g., Local + Contact Ready)
+6. User clicks "Search" or results auto-load
+7. Results show candidates NOT in current selection
+8. User selects some or all results
+9. User clicks "Add Selected to Campaign"
+10. Panel closes, candidates are merged, toast confirms "Added 12 candidates"
+11. User now has 62 selected candidates
+12. User clicks "Continue with 62 Candidates"
 
 ---
 
 ## Success Criteria
-1. No "Unknown" entries in inbox when phone number exists
-2. Campaign cards show job context (specialty, facility, location, pay rate)
-3. Visual health indicators on all campaigns
-4. View mode toggle works (List/Kanban/Pipeline)
-5. Candidate quick-view panel opens from campaign
-6. Real-time updates when campaign data changes
-7. No emojis in the UI
-8. Xbox Corporate theme applied consistently
+
+1. User can search for specific candidate types without losing current selection
+2. New candidates are merged and auto-selected
+3. No duplicates in final list
+4. Clear visual feedback that existing selection is preserved
+5. Works with Local, 10+ Licenses, Contact Ready, and name search filters
