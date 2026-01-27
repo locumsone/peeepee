@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { 
   Users, Loader2, ArrowRight, ArrowLeft, ChevronDown, ChevronUp,
   AlertCircle, CheckCircle2, Star, Phone, X, Sparkles, Mail, MapPin, Search, Globe,
-  Filter, Shield, Zap, Target, Award, Plus, Check
+  Filter, Shield, Zap, Target, Award, Plus, Check, Download
 } from "lucide-react";
 import Layout from "@/components/layout/Layout";
 import { Button } from "@/components/ui/button";
@@ -27,6 +27,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { ResearchInsights } from "@/components/candidates/ResearchInsights";
 import AddCandidatesPanel from "@/components/candidates/AddCandidatesPanel";
 import ShortlistBanner from "@/components/candidates/ShortlistBanner";
+import { useCampaignDraft } from "@/hooks/useCampaignDraft";
+import type { SelectedCandidate } from "@/components/campaign-review/types";
 
 // Connection object from personalization engine
 interface ConnectionMatch {
@@ -258,6 +260,16 @@ const CandidateMatching = () => {
   // NEW: ATS-style shortlist state
   const [addedToJobIds, setAddedToJobIds] = useState<Set<string>>(new Set());
   const [hideAdded, setHideAdded] = useState(false);
+  
+  // Database totals for accurate counts
+  const [dbTotals, setDbTotals] = useState<{
+    localTotal: number;
+    otherTotal: number;
+  } | null>(null);
+  const [isLoadingMoreLocal, setIsLoadingMoreLocal] = useState(false);
+  
+  // Auto-save integration
+  const { lastSaved, isDirty, updateCandidates, updateJob } = useCampaignDraft();
 
   const effectiveJobId = jobId || "befd5ba5-4e46-41d9-b144-d4077f750035";
 
@@ -353,9 +365,125 @@ const CandidateMatching = () => {
     fetchCandidates(0, false);
   }, [effectiveJobId]);
 
+  // Fetch database totals for accurate local/other counts
+  useEffect(() => {
+    const fetchTotalCounts = async () => {
+      if (!job?.specialty || !jobState) return;
+      
+      const { data, error } = await supabase
+        .rpc('get_candidate_counts_by_state', {
+          p_specialty: job.specialty,
+          p_job_state: jobState
+        });
+      
+      if (!error && data && data.length > 0) {
+        setDbTotals({
+          localTotal: data[0].local_count,
+          otherTotal: data[0].other_count
+        });
+      }
+    };
+    
+    fetchTotalCounts();
+  }, [job?.specialty, jobState]);
+
+  // Sync added candidates to draft for auto-save
+  useEffect(() => {
+    if (addedToJobIds.size > 0 && candidates.length > 0) {
+      const addedCandidates = candidates.filter(c => addedToJobIds.has(c.id));
+      updateCandidates(addedCandidates as unknown as SelectedCandidate[]);
+    }
+  }, [addedToJobIds, candidates, updateCandidates]);
+
+  // Sync job to draft for auto-save
+  useEffect(() => {
+    if (job && effectiveJobId) {
+      updateJob({
+        id: effectiveJobId,
+        job_name: job.specialty,
+        facility_name: job.facility,
+        city: job.location?.split(',')[0]?.trim() || null,
+        state: jobState,
+        specialty: job.specialty,
+        bill_rate: job.billRate ?? null,
+        pay_rate: job.payRate ?? null,
+        start_date: null,
+      }, effectiveJobId);
+    }
+  }, [job, effectiveJobId, jobState, updateJob]);
+
   const handleLoadMore = () => {
     if (!isLoadingMore && hasMore) {
       fetchCandidates(offset, true);
+    }
+  };
+
+  // Load more LOCAL candidates from database
+  const handleLoadMoreLocal = async () => {
+    if (isLoadingMoreLocal || !job?.specialty || !jobState) return;
+    
+    setIsLoadingMoreLocal(true);
+    
+    try {
+      // Get current local candidate IDs to exclude
+      const existingLocalIds = candidates
+        .filter(c => c.state === jobState)
+        .map(c => c.id);
+      
+      const { data, error } = await supabase
+        .from('candidates')
+        .select(`
+          id, first_name, last_name, specialty, state, city,
+          licenses, enrichment_tier, enrichment_source,
+          personal_mobile, personal_email, phone, email, npi
+        `)
+        .ilike('specialty', `%${job.specialty}%`)
+        .eq('state', jobState)
+        .not('id', 'in', `(${existingLocalIds.join(',')})`)
+        .limit(25);
+      
+      if (error) throw error;
+      
+      if (data && data.length > 0) {
+        // Transform to match Candidate interface
+        const newCandidates: Candidate[] = data.map(c => ({
+          id: c.id,
+          first_name: c.first_name || '',
+          last_name: c.last_name || '',
+          specialty: c.specialty || '',
+          state: c.state || '',
+          city: c.city || '',
+          licenses: c.licenses || [],
+          licenses_count: (c.licenses || []).length,
+          enrichment_tier: c.enrichment_tier || 'Unknown',
+          enrichment_source: c.enrichment_source,
+          unified_score: c.state === jobState ? 'A' : 'B',
+          match_strength: c.state === jobState ? 95 : 80,
+          score_reason: `Loaded via "Load More Local"`,
+          icebreaker: '',
+          talking_points: [],
+          has_personal_contact: !!(c.personal_mobile || c.personal_email),
+          needs_enrichment: !(c.personal_mobile || c.personal_email),
+          is_enriched: !!(c.personal_mobile || c.personal_email),
+          personal_mobile: c.personal_mobile,
+          personal_email: c.personal_email,
+          work_email: c.email,
+          work_phone: c.phone,
+          npi: c.npi,
+          source: 'load_more_local',
+          is_local: c.state === jobState,
+        }));
+        
+        setCandidates(prev => [...prev, ...newCandidates]);
+        toast.success(`Loaded ${data.length} more local candidates`);
+      } else {
+        toast.info('No more local candidates available');
+      }
+    } catch (err) {
+      console.error('Error loading more local candidates:', err);
+      toast.error('Failed to load more candidates');
+    } finally {
+      setIsLoadingMoreLocal(false);
     }
   };
 
@@ -1235,7 +1363,7 @@ const CandidateMatching = () => {
 
   if (isLoading) {
     return (
-      <Layout currentStep={2}>
+      <Layout currentStep={2} lastSaved={lastSaved} isDirty={isDirty}>
         <div className="flex flex-col items-center justify-center min-h-[400px] gap-6">
           <div className="relative">
             <div className="h-20 w-20 rounded-full gradient-primary animate-pulse-glow flex items-center justify-center">
@@ -1254,7 +1382,7 @@ const CandidateMatching = () => {
 
   if (error) {
     return (
-      <Layout currentStep={2}>
+      <Layout currentStep={2} lastSaved={lastSaved} isDirty={isDirty}>
         <div className="flex flex-col items-center justify-center min-h-[400px] gap-6">
           <AlertCircle className="h-16 w-16 text-destructive" />
           <div className="text-center space-y-2">
@@ -1271,7 +1399,7 @@ const CandidateMatching = () => {
   }
 
   return (
-    <Layout currentStep={2}>
+    <Layout currentStep={2} lastSaved={lastSaved} isDirty={isDirty}>
       <div className="mx-auto max-w-7xl space-y-6">
         {/* Shortlist Banner - Always visible when candidates are added */}
         <ShortlistBanner
@@ -1610,6 +1738,9 @@ const CandidateMatching = () => {
                     LOCAL CANDIDATES
                     <Badge className="bg-success text-success-foreground">
                       {localPoolCandidates.length}
+                      {dbTotals?.localTotal && dbTotals.localTotal > candidates.filter(c => c.state === jobState).length && (
+                        <span className="ml-1 opacity-80">/ {dbTotals.localTotal} in database</span>
+                      )}
                     </Badge>
                   </h3>
                   <p className="text-xs text-success/70">
@@ -1617,14 +1748,33 @@ const CandidateMatching = () => {
                   </p>
                 </div>
               </div>
-              <Button
-                size="sm"
-                onClick={handleAddAllLocal}
-                className="bg-success text-success-foreground hover:bg-success/90"
-              >
-                <Plus className="h-4 w-4 mr-1" />
-                Add All Local ({localPoolCandidates.length})
-              </Button>
+              <div className="flex items-center gap-2">
+                {/* Load More Local button - only show if more exist */}
+                {dbTotals?.localTotal && dbTotals.localTotal > candidates.filter(c => c.state === jobState).length && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleLoadMoreLocal}
+                    disabled={isLoadingMoreLocal}
+                    className="border-success/30 text-success hover:bg-success/10"
+                  >
+                    {isLoadingMoreLocal ? (
+                      <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                    ) : (
+                      <Download className="h-4 w-4 mr-1" />
+                    )}
+                    Load 25 More
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  onClick={handleAddAllLocal}
+                  className="bg-success text-success-foreground hover:bg-success/90"
+                >
+                  <Plus className="h-4 w-4 mr-1" />
+                  Add All ({localPoolCandidates.length})
+                </Button>
+              </div>
             </div>
             
             {/* Local Candidates Table */}
