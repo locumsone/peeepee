@@ -1,133 +1,27 @@
 
-# Enhanced ATS-Style Candidate Selection Workflow
 
-## Research Findings: Best Practices from Modern ATS Systems
+# ATS Candidate Selection - UX Improvements Plan
 
-Based on research from leading ATS platforms (Bullhorn, Lever, Recruitee, iCIMS), here are the key UX patterns that make candidate selection effective:
+## Overview
 
-### Key UX Patterns from ATS Industry Leaders
-
-1. **Two-Panel "Pool vs Shortlist" Model**: Candidates exist in a search pool, and users explicitly "add to job" to move them to a shortlist. Once added, they're visually differentiated or removed from the pool view.
-
-2. **Persistent Selection State**: Selected candidates remain selected even when filters change. The "shortlist" is independent of the current view filter.
-
-3. **Quick Actions**: Add-to-job should be a single click, not a multi-step process. Remove should be equally easy.
-
-4. **Filter + Add Workflow**: Users filter (e.g., "Local"), review results, then add all or select specific candidates to the job pipeline.
-
-5. **Visual Separation**: Clear distinction between "Candidates in Pool" vs "Candidates Added to This Job" using badges, sections, or color coding.
-
-6. **Summary Bar**: Always-visible summary showing "X added to job | Y in pool | Z total matched"
+This plan addresses the detailed feedback on the Enhanced ATS-Style Candidate Selection Workflow. The issues are categorized into P0 (Critical), P1 (High), P2 (Medium), and P3 (Nice to have) priorities.
 
 ---
 
-## Current State Analysis
+## P0 - Critical Fixes
 
-### What Works Now
-- AI matching loads candidates into a list
-- Checkbox selection allows multi-select
-- Filters (Local, 10+ Licenses, Contact Ready) filter the view
-- "Continue with X Candidates" saves to session and navigates
+### 1. Fix "Add All Visible" to Auto-Hide Added Candidates
 
-### What's Missing (User's Request)
-1. No "Add to Job" action - candidates are just selected, not explicitly added
-2. Unchecking a candidate doesn't "remove" them - they stay in the list
-3. Filters only hide/show - they don't help you "find more local ones" and add them
-4. No visual separation between "Added to Job" vs "Available in Pool"
-5. No way to remove candidates from the search area after adding them
+**Current Issue**: When clicking "Add All Visible", candidates stay visible even when "Hide added" is checked. The list should immediately reflect the hidden state.
 
----
+**Solution**:
+- Modify `handleAddAllVisible()` to auto-enable `hideAdded` after adding
+- Add slide-out animation for candidates being hidden
+- Update the count display to reflect "Showing 0 of 50 loaded" when all are hidden
 
-## Proposed Solution: Dual-State Candidate Management
+**File**: `src/pages/CandidateMatching.tsx`
 
-### Concept: "Pool" vs "Added" States
-
-```text
-+------------------------------------------------------------------+
-|  JOB: Interventional Radiology - Wisconsin Medical Center        |
-+------------------------------------------------------------------+
-|                                                                   |
-|  CAMPAIGN SHORTLIST (12 candidates added)          [View All →]  |
-|  +----------------------------------------------------------+    |
-|  | Dr. Smith (95%) | Dr. Jones (92%) | Dr. Lee (90%) | +9   |    |
-|  +----------------------------------------------------------+    |
-|                                                                   |
-+------------------------------------------------------------------+
-|  CANDIDATE POOL                              [Filters: Local ▼]  |
-|  +----------------------------------------------------------+    |
-|  | [ ] Dr. Johnson - IR, WI - Local - 94% match  [+ Add]    |    |
-|  | [✓] Dr. Wilson - IR, MN - 12 licenses - 89%   [Added ✓]  |    |
-|  | [ ] Dr. Brown - IR, TX - 8 licenses - 85%     [+ Add]    |    |
-|  +----------------------------------------------------------+    |
-|                                                                   |
-|  [+ Add All Visible (8)] [Continue with 12 Candidates →]        |
-+------------------------------------------------------------------+
-```
-
-### Key Changes
-
-**1. New State: `addedToJobIds` (Set)**
-- Separate from checkbox selection
-- Represents candidates explicitly added to this job/campaign
-- Persists when filters change
-- These are the candidates that move to the next step
-
-**2. "Add to Job" Action**
-- Each candidate row gets an "Add" button
-- Clicking adds the candidate to `addedToJobIds`
-- The row shows "Added ✓" badge and can be optionally hidden from pool
-
-**3. "Remove from Job" Action**  
-- Candidates with "Added ✓" status can be removed
-- They return to the pool as unselected
-
-**4. Filter + Add Workflow**
-- Click "Local" filter → Shows only local candidates
-- Click "Add All Visible" → Adds all visible to job
-- Clear filter → See full pool, but added candidates show "Added ✓"
-
-**5. Shortlist Summary Banner**
-- Collapsible section at top showing all added candidates
-- Quick overview with match scores and key tags
-- Click to expand and see full list with ability to remove
-
-**6. Hide Added Toggle**
-- Checkbox: "Hide added candidates from pool" (default: off)
-- When on, added candidates disappear from the search list
-- Keeps focus on finding more candidates to add
-
----
-
-## Implementation Plan
-
-### Phase 1: Core State Management
-
-**File: `src/pages/CandidateMatching.tsx`**
-
-Add new state:
 ```typescript
-// Candidates explicitly added to this job (the "shortlist")
-const [addedToJobIds, setAddedToJobIds] = useState<Set<string>>(new Set());
-// Toggle to hide added candidates from pool view
-const [hideAdded, setHideAdded] = useState(false);
-```
-
-Add handlers:
-```typescript
-const handleAddToJob = (candidateId: string) => {
-  setAddedToJobIds(prev => new Set(prev).add(candidateId));
-  toast.success("Added to campaign shortlist");
-};
-
-const handleRemoveFromJob = (candidateId: string) => {
-  setAddedToJobIds(prev => {
-    const next = new Set(prev);
-    next.delete(candidateId);
-    return next;
-  });
-  toast.info("Removed from campaign shortlist");
-};
-
 const handleAddAllVisible = () => {
   const visibleIds = sortedCandidates.map(c => c.id);
   setAddedToJobIds(prev => {
@@ -135,175 +29,414 @@ const handleAddAllVisible = () => {
     visibleIds.forEach(id => next.add(id));
     return next;
   });
-  toast.success(`Added ${visibleIds.length} candidates to shortlist`);
+  
+  // Auto-enable hide toggle after bulk add
+  setHideAdded(true);
+  
+  toast.success(`Added ${visibleIds.length} candidates to shortlist`, {
+    description: "Toggle 'Hide added' to see remaining pool"
+  });
 };
 ```
 
-### Phase 2: Shortlist Summary Banner
+### 2. Ensure ShortlistBanner Renders Properly
 
-**New Component: `src/components/candidates/ShortlistBanner.tsx`**
+**Current Issue**: The ShortlistBanner component exists but may not be visually prominent or rendering when `addedToJobIds.size > 0`.
 
-A collapsible banner at the top of the page showing:
-- Count of added candidates
-- Horizontal scrollable list of candidate chips with match scores
-- Quick remove (X) button on each chip
-- "View Details" expands to full list
-- Key stats: "8 Contact Ready | 5 Local | 3 with 10+ Licenses"
+**Solution**:
+- Verify the component is positioned correctly (after job header, before filters)
+- Add animation when it appears
+- Update stats to show accurate counts
 
-```text
-+------------------------------------------------------------------+
-| 📋 SHORTLIST (12 candidates)                    [Collapse ▲]     |
-+------------------------------------------------------------------+
-| [Dr. Smith 95% ×] [Dr. Jones 92% ×] [Dr. Lee 90% ×] +9 more     |
-| Stats: 8 Contact Ready • 5 Local • 3 with 10+ Licenses           |
-+------------------------------------------------------------------+
-```
+**Verification**: The ShortlistBanner is already in the JSX at line 1166. The issue may be visual prominence. Will enhance styling:
 
-### Phase 3: Updated Candidate Row UI
+**File**: `src/components/candidates/ShortlistBanner.tsx`
+- Add `animate-fade-in` class when appearing
+- Make the banner more visually prominent with a stronger gradient
+- Ensure the stats dynamically update
 
-Each candidate card gets:
-- **Add Button**: Shows "Add to Campaign" if not added
-- **Added Badge**: Shows "✓ Added" with green styling if added
-- **Remove Option**: Click the "✓ Added" badge to remove
+### 3. Fix "Hide Added" Count to Reflect Actual Added Count
+
+**Current Issue**: The toggle shows "(0)" even when candidates have been added.
+
+**Solution**:
+- The count `({addedToJobIds.size})` is correct in code (line 1419)
+- Enhance styling when count > 0 to make it more prominent
+
+**File**: `src/pages/CandidateMatching.tsx`
 
 ```typescript
-// In the candidate row
-{addedToJobIds.has(candidate.id) ? (
-  <Button
-    variant="outline"
-    size="sm"
-    className="bg-success/20 border-success/40 text-success"
-    onClick={() => handleRemoveFromJob(candidate.id)}
-  >
-    <Check className="h-4 w-4 mr-1" />
-    Added
-  </Button>
-) : (
-  <Button
-    variant="outline"
-    size="sm"
-    onClick={() => handleAddToJob(candidate.id)}
-  >
-    <Plus className="h-4 w-4 mr-1" />
-    Add
-  </Button>
-)}
-```
-
-### Phase 4: Pool Filtering Logic
-
-Update the filter logic to optionally hide added candidates:
-```typescript
-const poolCandidates = useMemo(() => {
-  let pool = sortedCandidates;
-  if (hideAdded) {
-    pool = pool.filter(c => !addedToJobIds.has(c.id));
-  }
-  return pool;
-}, [sortedCandidates, hideAdded, addedToJobIds]);
-```
-
-Add toggle in the filter bar:
-```typescript
-<div className="flex items-center gap-2">
+<div className={cn(
+  "flex items-center gap-2 px-3 py-1.5 rounded-lg transition-colors",
+  addedToJobIds.size > 0 && "bg-success/10 border border-success/30"
+)}>
   <Checkbox
     id="hideAdded"
     checked={hideAdded}
     onCheckedChange={(checked) => setHideAdded(!!checked)}
   />
-  <label htmlFor="hideAdded" className="text-sm text-muted-foreground">
-    Hide added candidates
+  <label 
+    htmlFor="hideAdded" 
+    className={cn(
+      "text-sm cursor-pointer",
+      addedToJobIds.size > 0 ? "text-success font-medium" : "text-muted-foreground"
+    )}
+  >
+    {addedToJobIds.size > 0 ? `Hide ${addedToJobIds.size} added` : "Hide added (0)"}
   </label>
 </div>
 ```
 
-### Phase 5: Updated Continue Flow
+---
 
-Change the "Continue" button to use `addedToJobIds` instead of `selectedIds`:
+## P1 - High Priority (Recruiter Efficiency)
+
+### 4. Add Floating Bulk Action Bar for Selected Candidates
+
+**Current Issue**: Checkboxes exist but there's no clear bulk action bar. The "Research Selected" buttons appear inline but are easy to miss.
+
+**Solution**:
+- Create a sticky floating action bar at the bottom of the screen when 1+ candidates are selected
+- Include: "Research Selected", "Deep Research Selected", "Add Selected to Job", "Clear Selection"
+
+**File**: `src/pages/CandidateMatching.tsx` - Add new component/section:
+
 ```typescript
-const handleContinue = () => {
-  const addedCandidates = candidates.filter(c => addedToJobIds.has(c.id));
-  
-  sessionStorage.setItem("selectedCandidates", JSON.stringify(addedCandidates));
-  sessionStorage.setItem("campaign_candidates", JSON.stringify(addedCandidates));
-  sessionStorage.setItem("campaign_candidate_ids", JSON.stringify(Array.from(addedToJobIds)));
-  
-  // ... rest of job data saving
-  navigate("/campaigns/new/personalize");
+{/* Floating Bulk Action Bar */}
+{selectedIds.size > 0 && (
+  <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 animate-fade-in">
+    <div className="flex items-center gap-3 px-6 py-3 bg-card border border-border rounded-2xl shadow-2xl">
+      <span className="text-sm font-medium text-foreground">
+        {selectedIds.size} selected
+      </span>
+      <div className="h-6 w-px bg-border" />
+      
+      {selectedNeedingResearch > 0 && (
+        <Button 
+          size="sm" 
+          variant="outline"
+          onClick={handleBulkResearch}
+          disabled={bulkResearching}
+          className="bg-cyan-500/10 text-cyan-600 border-cyan-500/30"
+        >
+          <Target className="h-4 w-4 mr-1" />
+          Research ({selectedNeedingResearch})
+        </Button>
+      )}
+      
+      {selectedForDeepResearch > 0 && (
+        <Button 
+          size="sm" 
+          variant="outline"
+          onClick={() => handleBulkDeepResearch(false)}
+          disabled={bulkDeepResearching}
+          className="bg-purple-500/10 text-purple-600 border-purple-500/30"
+        >
+          <span className="mr-1">🔮</span>
+          Deep Research ({selectedForDeepResearch})
+        </Button>
+      )}
+      
+      <Button 
+        size="sm" 
+        onClick={handleAddSelectedToJob}
+        className="bg-success text-success-foreground"
+      >
+        <Plus className="h-4 w-4 mr-1" />
+        Add to Job
+      </Button>
+      
+      <Button 
+        size="sm" 
+        variant="ghost"
+        onClick={() => setSelectedIds(new Set())}
+      >
+        <X className="h-4 w-4" />
+      </Button>
+    </div>
+  </div>
+)}
+```
+
+**New Handler**:
+```typescript
+const handleAddSelectedToJob = () => {
+  const newIds = Array.from(selectedIds);
+  setAddedToJobIds(prev => {
+    const next = new Set(prev);
+    newIds.forEach(id => next.add(id));
+    return next;
+  });
+  setSelectedIds(new Set());
+  toast.success(`Added ${newIds.length} candidates to shortlist`);
 };
 ```
 
-### Phase 6: Remove Legacy Checkbox Selection
+### 5. Add "Research All Unresearched" Button
 
-Since "Add to Job" replaces the old checkbox selection:
-- Remove the checkbox from each row
-- Remove `selectedIds` state (or repurpose for bulk actions)
-- The shortlist IS the selection
+**Current Issue**: No way to research all candidates at once.
 
-**Alternative**: Keep checkboxes for bulk operations (bulk add, bulk research) but use `addedToJobIds` for final campaign selection.
+**Solution**:
+- Add a toolbar button to research all candidates that haven't been researched
+- Show research progress in the stats bar
 
----
+**File**: `src/pages/CandidateMatching.tsx`
 
-## Updated User Flow
+Add to toolbar:
+```typescript
+const unresearchedCount = candidates.filter(c => !c.researched).length;
 
-1. User arrives at Candidate Matching with job context
-2. AI loads matched candidates into the **Pool**
-3. User clicks "Add" on individual high-match candidates → They appear in **Shortlist Banner**
-4. User clicks "Local" filter → Pool shows only local candidates
-5. User clicks "Add All Visible" → All local candidates added to Shortlist
-6. User toggles "Hide Added" → Pool now shows only un-added candidates
-7. User can click "10+ Licenses" filter → Find more to add
-8. Shortlist shows running total: "18 candidates added"
-9. User reviews Shortlist Banner, removes any unwanted
-10. User clicks "Continue with 18 Candidates" → Moves to Personalization
-
----
-
-## Technical Details
-
-### File Changes
-
-| File | Change |
-|------|--------|
-| `src/pages/CandidateMatching.tsx` | Add `addedToJobIds` state, add/remove handlers, update UI, update continue flow |
-| `src/components/candidates/ShortlistBanner.tsx` | **NEW** - Collapsible banner showing added candidates |
-| `src/components/candidates/AddCandidatesPanel.tsx` | Update to use "Add to Job" instead of checkbox selection |
-
-### State Flow
-
-```text
-Candidate Pool (from AI matcher)
-       ↓
-   [Add to Job]
-       ↓
-Shortlist (addedToJobIds Set)
-       ↓
-   [Continue]
-       ↓
-Session Storage → PersonalizationStudio
+// In the toolbar section:
+{unresearchedCount > 0 && (
+  <Button 
+    variant="outline" 
+    size="sm" 
+    onClick={handleResearchAll}
+    disabled={bulkResearching || researchingIds.size > 0}
+    className="bg-cyan-500/10 text-cyan-600 border-cyan-500/30"
+  >
+    <Target className="h-4 w-4 mr-1" />
+    Research All ({unresearchedCount})
+  </Button>
+)}
 ```
 
-### Key Props for ShortlistBanner
+Add handler:
+```typescript
+const handleResearchAll = () => {
+  const unresearchedIds = candidates.filter(c => !c.researched).map(c => c.id);
+  researchCandidates(unresearchedIds, false, false);
+};
+```
+
+### 6. Add Research Progress to Stats Bar
+
+**Current Issue**: No way to see "X of 50 researched" at a glance.
+
+**Solution**:
+- Add research count to the job summary header stats
+
+**File**: `src/pages/CandidateMatching.tsx`
+
+Add to job header stats section:
+```typescript
+const researchedCount = candidates.filter(c => c.researched).length;
+const deepResearchedCount = candidates.filter(c => c.deep_researched).length;
+
+// In the stats section of the header:
+<div className="text-center">
+  <p className="text-2xl font-bold text-cyan-400">{researchedCount}/{candidates.length}</p>
+  <p className="text-xs text-muted-foreground">Researched</p>
+</div>
+```
+
+---
+
+## P2 - Medium Priority (Polish)
+
+### 7. Clarify Checkbox vs "Add" Button Purpose
+
+**Current Issue**: Users are confused about two selection systems.
+
+**Solution Option B (Clarify with labels)**:
+- Rename checkbox column header from empty to "Select"
+- Add tooltip explaining: "Select for bulk research actions"
+- Add tooltip on "Add to Job" column: "Add to campaign shortlist"
+
+**File**: `src/pages/CandidateMatching.tsx`
+
+Update table header:
+```typescript
+<th className="px-4 py-3 text-left w-12">
+  <TooltipProvider>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div className="flex items-center gap-1">
+          <Checkbox
+            checked={selectedIds.size === sortedCandidates.length && sortedCandidates.length > 0}
+            onCheckedChange={(checked) => {
+              if (checked) setSelectedIds(new Set(sortedCandidates.map(c => c.id)));
+              else setSelectedIds(new Set());
+            }}
+          />
+        </div>
+      </TooltipTrigger>
+      <TooltipContent>
+        <p>Select for bulk research actions</p>
+      </TooltipContent>
+    </Tooltip>
+  </TooltipProvider>
+</th>
+```
+
+### 8. Fix "Add More Candidates" Panel Toast Bug
+
+**Current Issue**: "No candidates found" toast appears while results are showing.
+
+**Solution**:
+- Only show the toast when `filteredResults.length === 0` AND there are no results in state
+
+**File**: `src/components/candidates/AddCandidatesPanel.tsx`
 
 ```typescript
-interface ShortlistBannerProps {
-  candidates: Candidate[];
-  addedIds: Set<string>;
-  onRemove: (id: string) => void;
-  onClear: () => void;
-  jobState: string; // For showing "Local" badges
+// Move toast inside the results check
+if (filteredResults.length === 0) {
+  toast.info("No candidates found matching your criteria");
+}
+setResults(filteredResults);
+```
+
+This is already correct in the current implementation. The issue may be a race condition. Add a check to prevent duplicate toasts:
+
+```typescript
+if (filteredResults.length === 0 && !toast.dismiss) {
+  toast.info("No candidates found matching your criteria");
+}
+```
+
+### 9. Add Micro-Animations for Add/Remove Actions
+
+**Current Issue**: No visual feedback when candidates are added/removed.
+
+**Solution**:
+- Add CSS transitions for row state changes
+- Add slide-out animation when hiding added candidates
+
+**File**: `src/pages/CandidateMatching.tsx`
+
+The row already has `transition-colors` class. Enhance with:
+
+```typescript
+// Add to row className
+className={cn(
+  "border-b border-border/50 transition-all duration-200 cursor-pointer",
+  isAddedToJob && "bg-success/5 border-l-2 border-l-success animate-fade-in",
+  // ... rest
+)}
+```
+
+Add CSS for slide-out (in index.css or tailwind):
+```css
+@keyframes slide-out-left {
+  from { transform: translateX(0); opacity: 1; }
+  to { transform: translateX(-20px); opacity: 0; }
+}
+
+.animate-slide-out {
+  animation: slide-out-left 0.3s ease-out forwards;
 }
 ```
 
 ---
 
-## Success Criteria
+## P3 - Nice to Have
 
-1. Users can "Add to Job" individual candidates with one click
-2. Added candidates are visually distinct in the pool (or hidden)
-3. Shortlist banner shows real-time count and summary
-4. Filters help find specific candidates to add (e.g., "show me locals")
-5. "Add All Visible" quickly adds filtered results
-6. Users can remove candidates from shortlist before continuing
-7. Only shortlisted candidates proceed to Personalization Studio
-8. Next page (Personalization) shows all added candidates with scores/tags/status
+### 10. Keyboard Shortcuts
+
+**Solution**: Add keyboard event listeners:
+- `A` = Add focused candidate to job
+- `R` = Research focused candidate
+- `Space` = Expand/collapse row
+
+**File**: `src/pages/CandidateMatching.tsx`
+
+```typescript
+useEffect(() => {
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (document.activeElement?.tagName === 'INPUT') return;
+    
+    if (e.key === 'a' && focusedCandidateId) {
+      handleAddToJob(focusedCandidateId);
+    }
+    // ... etc
+  };
+  
+  document.addEventListener('keydown', handleKeyDown);
+  return () => document.removeEventListener('keydown', handleKeyDown);
+}, [focusedCandidateId]);
+```
+
+### 11. Remember Filter/Sort Preferences
+
+**Solution**: Store in sessionStorage when changed:
+
+```typescript
+useEffect(() => {
+  sessionStorage.setItem('candidateMatching_sortBy', sortBy);
+  sessionStorage.setItem('candidateMatching_quickFilter', quickFilter);
+}, [sortBy, quickFilter]);
+
+// On mount, restore:
+const [sortBy, setSortBy] = useState<SortOption>(() => 
+  sessionStorage.getItem('candidateMatching_sortBy') as SortOption || 'enriched_first'
+);
+```
+
+### 12. "Undo" Toast After Bulk Actions
+
+**Solution**: Use sonner's action callback:
+
+```typescript
+toast.success(`Added ${visibleIds.length} candidates to shortlist`, {
+  action: {
+    label: "Undo",
+    onClick: () => {
+      setAddedToJobIds(prev => {
+        const next = new Set(prev);
+        visibleIds.forEach(id => next.delete(id));
+        return next;
+      });
+      setHideAdded(false);
+    }
+  }
+});
+```
+
+---
+
+## Files to Modify
+
+| File | Changes |
+|------|---------|
+| `src/pages/CandidateMatching.tsx` | P0 #1, P0 #3, P1 #4, P1 #5, P1 #6, P2 #7, P2 #9, P3 #10-12 |
+| `src/components/candidates/ShortlistBanner.tsx` | P0 #2 - Enhance styling and animation |
+| `src/components/candidates/AddCandidatesPanel.tsx` | P2 #8 - Fix toast bug |
+| `src/index.css` | P2 #9 - Add slide-out animation keyframes |
+
+---
+
+## Implementation Order
+
+1. **P0 Critical** (implement first):
+   - Auto-enable "Hide added" after "Add All Visible"
+   - Fix "Hide added" count styling
+   - Verify ShortlistBanner is visible and styled
+
+2. **P1 High Priority**:
+   - Add floating bulk action bar
+   - Add "Research All" button
+   - Add research progress to stats
+
+3. **P2 Medium**:
+   - Add tooltips for checkbox vs add button
+   - Fix AddCandidatesPanel toast
+   - Add micro-animations
+
+4. **P3 Nice to Have** (optional):
+   - Keyboard shortcuts
+   - Remember preferences
+   - Undo toasts
+
+---
+
+## Expected Recruiter Flow After Implementation
+
+1. Land on matching screen - See 50 AI-matched candidates
+2. Quick scan the filter chips - "8 Local, 47 with 10+ licenses"
+3. See research progress - "12/50 Researched" in header
+4. Click "Local" filter - 8 candidates shown
+5. Click "Add All Visible (8)" - 8 added, **shortlist banner appears, hide toggle auto-enabled, list now shows remaining 42**
+6. See floating action bar when selecting candidates
+7. Clear filter, continue adding or proceed with shortlist
+8. Click "Continue with 50 Candidates"
+
