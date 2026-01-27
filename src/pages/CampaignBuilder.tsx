@@ -203,7 +203,8 @@ const CampaignBuilder = () => {
     if (!selectedJob) return;
     sessionStorage.setItem("campaign_job_id", selectedJob.id);
     sessionStorage.setItem("campaign_job", JSON.stringify(selectedJob));
-    navigate("/campaigns/new/candidates");
+    // Navigate to AI candidate matching page with job context
+    navigate(`/candidates/matching?jobId=${selectedJob.id}`);
   };
 
   const filteredJobs = jobs.filter(job => {
