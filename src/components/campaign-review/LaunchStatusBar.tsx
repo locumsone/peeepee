@@ -201,6 +201,13 @@ export function LaunchStatusBar({
           candidate_name: `${c.first_name} ${c.last_name}`,
           candidate_email: c.email || c.personal_email,
           candidate_phone: c.phone || c.personal_mobile,
+          candidate_specialty: c.specialty || null,
+          candidate_state: c.state || null,
+          match_score: c.unified_score ? parseInt(c.unified_score, 10) : null,
+          tier: c.tier || null,
+          notes: c.icebreaker 
+            ? `Icebreaker: ${c.icebreaker}\n\nTalking Points:\n${(c.talking_points || []).map((tp, i) => `${i + 1}. ${tp}`).join('\n')}`
+            : null,
           status: "pending",
         }));
 

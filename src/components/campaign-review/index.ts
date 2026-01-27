@@ -16,5 +16,6 @@ export { LaunchStatusBar } from "./LaunchStatusBar";
 export { TestCampaignModal } from "./TestCampaignModal";
 export { DraftRecoveryModal } from "./DraftRecoveryModal";
 export { AutoSaveIndicator } from "./AutoSaveIndicator";
+export { ManualEntryDialog } from "./ManualEntryDialog";
 
 export * from "./types";

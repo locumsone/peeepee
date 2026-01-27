@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Users, ArrowRight, CheckCircle2, AlertTriangle, Loader2, Sparkles, Edit2, Download, XCircle, Search } from "lucide-react";
+import { Users, ArrowRight, CheckCircle2, AlertTriangle, Loader2, Sparkles, Edit2, Download, XCircle, Search, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
+import { ManualEntryDialog } from "./ManualEntryDialog";
 import type { SelectedCandidate, TierStats } from "./types";
 
 interface StepPrepareCandidatesProps {
@@ -49,6 +50,15 @@ export function StepPrepareCandidates({
   const [showResults, setShowResults] = useState(false);
   const [totalCostSpent, setTotalCostSpent] = useState(0);
   const [searchQuery, setSearchQuery] = useState("");
+  
+  // Manual entry dialog state
+  const [manualEntryOpen, setManualEntryOpen] = useState(false);
+  const [selectedCandidate, setSelectedCandidate] = useState<{
+    id: string;
+    name: string;
+    currentEmail?: string | null;
+    currentPhone?: string | null;
+  } | null>(null);
 
   const needsEnrichment = tierStats.needsEnrichment;
   const estimatedCost = (needsEnrichment * 0.20).toFixed(2);
@@ -70,7 +80,7 @@ export function StepPrepareCandidates({
     const candidateIds = potentialCandidates.map(c => c.id);
     const { data: dbCandidates } = await supabase
       .from('candidates')
-      .select('id, personal_email, personal_mobile, enrichment_source')
+      .select('id, personal_email, personal_mobile, enrichment_source, contact_enrichment_source')
       .in('id', candidateIds);
 
     const alreadyEnriched: EnrichmentResult[] = [];
@@ -79,7 +89,8 @@ export function StepPrepareCandidates({
 
     for (const candidate of potentialCandidates) {
       const dbRecord = dbCandidates?.find(d => d.id === candidate.id);
-      if (dbRecord?.personal_email || dbRecord?.personal_mobile) {
+      // Enhanced check: also check contact_enrichment_source
+      if (dbRecord?.personal_email || dbRecord?.personal_mobile || dbRecord?.contact_enrichment_source) {
         // Already enriched in DB - update local state and skip API call
         const idx = updatedCandidates.findIndex(c => c.id === candidate.id);
         if (idx !== -1) {
@@ -87,17 +98,18 @@ export function StepPrepareCandidates({
             ...updatedCandidates[idx],
             personal_email: dbRecord.personal_email || updatedCandidates[idx].personal_email,
             personal_mobile: dbRecord.personal_mobile || updatedCandidates[idx].personal_mobile,
-            enrichment_source: dbRecord.enrichment_source || undefined,
+            enrichment_source: dbRecord.contact_enrichment_source || dbRecord.enrichment_source || undefined,
             enrichment_tier: "Platinum",
           };
         }
+        const source = dbRecord.contact_enrichment_source || dbRecord.enrichment_source || 'DB';
         alreadyEnriched.push({
           candidateId: candidate.id,
           candidateName: `Dr. ${candidate.first_name} ${candidate.last_name}`,
           status: 'success',
           email: dbRecord.personal_email,
           phone: dbRecord.personal_mobile,
-          source: `${dbRecord.enrichment_source || 'DB'} (cached)`
+          source: `${source} (cached)`
         });
       } else {
         candidatesToEnrich.push(candidate);
@@ -227,6 +239,52 @@ export function StepPrepareCandidates({
     setEnrichmentProgress({ current: 0, total: 0, status: "idle" });
   };
 
+  // Handle manual entry dialog open
+  const handleOpenManualEntry = (result: EnrichmentResult) => {
+    const candidate = candidates.find(c => c.id === result.candidateId);
+    if (candidate) {
+      setSelectedCandidate({
+        id: candidate.id,
+        name: result.candidateName,
+        currentEmail: candidate.email || candidate.personal_email,
+        currentPhone: candidate.phone || candidate.personal_mobile,
+      });
+      setManualEntryOpen(true);
+    }
+  };
+
+  // Handle manual entry save
+  const handleManualEntrySave = (candidateId: string, email: string | null, phone: string | null) => {
+    // Update local candidates state
+    const updatedCandidates = candidates.map(c => {
+      if (c.id === candidateId) {
+        return {
+          ...c,
+          personal_email: email || c.personal_email,
+          personal_mobile: phone || c.personal_mobile,
+          enrichment_source: "Manual",
+          enrichment_tier: "Platinum" as const,
+        };
+      }
+      return c;
+    });
+    onCandidatesUpdate(updatedCandidates);
+
+    // Update enrichment results
+    setEnrichmentResults(prev => prev.map(r => {
+      if (r.candidateId === candidateId) {
+        return {
+          ...r,
+          status: 'success' as const,
+          email,
+          phone,
+          source: 'Manual',
+        };
+      }
+      return r;
+    }));
+  };
+
   const filteredResults = enrichmentResults.filter(r => 
     r.candidateName.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -235,6 +293,40 @@ export function StepPrepareCandidates({
   const failedCount = enrichmentResults.filter(r => r.status !== 'success').length;
 
   const allReady = needsEnrichment === 0 && !showResults;
+
+  // Get source badge styling
+  const getSourceBadge = (source?: string) => {
+    if (!source) return null;
+    const isCached = source.includes('(cached)');
+    const sourceName = source.replace(' (cached)', '');
+    
+    if (sourceName === 'Manual') {
+      return (
+        <Badge variant="outline" className="text-xs bg-blue-500/10 text-blue-400 border-blue-500/30">
+          ✏️ Manual
+        </Badge>
+      );
+    }
+    if (sourceName === 'PDL') {
+      return (
+        <Badge variant="outline" className="text-xs bg-emerald-500/10 text-emerald-400 border-emerald-500/30">
+          {isCached ? '📦 PDL (cached)' : '🔍 PDL'}
+        </Badge>
+      );
+    }
+    if (sourceName === 'Whitepages') {
+      return (
+        <Badge variant="outline" className="text-xs bg-amber-500/10 text-amber-400 border-amber-500/30">
+          {isCached ? '📦 Whitepages (cached)' : '📞 Whitepages'}
+        </Badge>
+      );
+    }
+    return (
+      <Badge variant="outline" className="text-xs">
+        {source}
+      </Badge>
+    );
+  };
 
   return (
     <div className="space-y-4">
@@ -277,6 +369,8 @@ export function StepPrepareCandidates({
                   <TableHead>Name</TableHead>
                   <TableHead>Email</TableHead>
                   <TableHead>Phone</TableHead>
+                  <TableHead>Source</TableHead>
+                  <TableHead className="w-20">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -292,6 +386,20 @@ export function StepPrepareCandidates({
                     <TableCell className="font-medium text-foreground">{result.candidateName}</TableCell>
                     <TableCell className="text-muted-foreground">{result.email || '--'}</TableCell>
                     <TableCell className="text-muted-foreground">{result.phone || '--'}</TableCell>
+                    <TableCell>{getSourceBadge(result.source)}</TableCell>
+                    <TableCell>
+                      {result.status !== 'success' && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleOpenManualEntry(result)}
+                          className="h-7 px-2 text-muted-foreground hover:text-foreground"
+                        >
+                          <Pencil className="h-3 w-3 mr-1" />
+                          Edit
+                        </Button>
+                      )}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -446,6 +554,16 @@ export function StepPrepareCandidates({
           Edit Candidates
         </Button>
       </div>
+
+      {/* Manual Entry Dialog */}
+      {selectedCandidate && (
+        <ManualEntryDialog
+          open={manualEntryOpen}
+          onOpenChange={setManualEntryOpen}
+          candidate={selectedCandidate}
+          onSave={handleManualEntrySave}
+        />
+      )}
     </div>
   );
 }
