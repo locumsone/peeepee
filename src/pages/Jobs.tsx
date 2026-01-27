@@ -5,8 +5,10 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Loader2, Calendar, ArrowRight, Building2, MapPin, Stethoscope, Clock } from "lucide-react";
+import { Plus, Loader2, Calendar, ArrowRight, Building2, MapPin, Stethoscope, Clock, Flame, Users, TrendingUp } from "lucide-react";
 import { format } from "date-fns";
+import { JobPipeline, JobReplyBadge } from "@/components/jobs";
+import { cn } from "@/lib/utils";
 
 interface Job {
   id: string;
@@ -23,6 +25,14 @@ interface Job {
   created_at: string | null;
 }
 
+interface JobStats {
+  jobId: string;
+  totalCandidates: number;
+  pipelineCounts: Record<string, number>;
+  totalReplies: number;
+  hotLeads: number;
+}
+
 const statusColors: Record<string, string> = {
   active: "bg-success/20 text-success border-success/30",
   on_hold: "bg-warning/20 text-warning border-warning/30",
@@ -33,30 +43,116 @@ const statusColors: Record<string, string> = {
 export default function Jobs() {
   const navigate = useNavigate();
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [jobStats, setJobStats] = useState<Record<string, JobStats>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [filter, setFilter] = useState("all");
 
   useEffect(() => {
-    fetchJobs();
+    fetchJobsWithStats();
   }, []);
 
-  const fetchJobs = async () => {
+  const fetchJobsWithStats = async () => {
     setIsLoading(true);
-    const { data, error } = await supabase
-      .from("jobs")
-      .select("id, job_name, facility_name, city, state, specialty, schedule, pay_rate, bill_rate, status, start_date, created_at")
-      .order("created_at", { ascending: false });
+    
+    try {
+      // Fetch jobs
+      const { data: jobsData, error: jobsError } = await supabase
+        .from("jobs")
+        .select("id, job_name, facility_name, city, state, specialty, schedule, pay_rate, bill_rate, status, start_date, created_at")
+        .order("created_at", { ascending: false });
 
-    if (error) {
-      console.error("Error fetching jobs:", error);
-    } else {
-      setJobs(data || []);
+      if (jobsError) {
+        console.error("Error fetching jobs:", jobsError);
+        return;
+      }
+
+      setJobs(jobsData || []);
+
+      // Fetch campaigns and leads for all jobs
+      const { data: campaigns } = await supabase
+        .from("campaigns")
+        .select("id, job_id");
+
+      if (!campaigns || campaigns.length === 0) {
+        setIsLoading(false);
+        return;
+      }
+
+      const campaignIdsByJob: Record<string, string[]> = {};
+      campaigns.forEach(c => {
+        if (c.job_id) {
+          if (!campaignIdsByJob[c.job_id]) {
+            campaignIdsByJob[c.job_id] = [];
+          }
+          campaignIdsByJob[c.job_id].push(c.id);
+        }
+      });
+
+      const allCampaignIds = campaigns.map(c => c.id);
+      
+      // Fetch leads for all campaigns
+      const { data: leads } = await supabase
+        .from("campaign_leads_v2")
+        .select("campaign_id, status, emails_replied, sms_replied, interest_level, updated_at")
+        .in("campaign_id", allCampaignIds);
+
+      if (leads) {
+        // Calculate stats per job
+        const stats: Record<string, JobStats> = {};
+        const now = new Date();
+        const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+        Object.entries(campaignIdsByJob).forEach(([jobId, cIds]) => {
+          const jobLeads = leads.filter(l => cIds.includes(l.campaign_id || ""));
+          
+          const pipelineCounts: Record<string, number> = {};
+          let totalReplies = 0;
+          let hotLeads = 0;
+
+          jobLeads.forEach(lead => {
+            const status = lead.status || "sourced";
+            pipelineCounts[status] = (pipelineCounts[status] || 0) + 1;
+            
+            const replies = (lead.emails_replied || 0) + (lead.sms_replied || 0);
+            totalReplies += replies;
+
+            // Hot lead = interested or engaged with recent activity
+            if (
+              lead.interest_level === "interested" ||
+              (replies > 0 && lead.updated_at && new Date(lead.updated_at) > oneDayAgo)
+            ) {
+              hotLeads++;
+            }
+          });
+
+          stats[jobId] = {
+            jobId,
+            totalCandidates: jobLeads.length,
+            pipelineCounts,
+            totalReplies,
+            hotLeads,
+          };
+        });
+
+        setJobStats(stats);
+      }
+    } catch (err) {
+      console.error("Error:", err);
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   };
 
   const filteredJobs = jobs.filter((job) => {
     if (filter === "all") return true;
+    if (filter === "hot") {
+      const stats = jobStats[job.id];
+      return stats && stats.hotLeads > 0;
+    }
+    if (filter === "no_outreach") {
+      const stats = jobStats[job.id];
+      return !stats || stats.totalCandidates === 0;
+    }
     return job.status === filter;
   });
 
@@ -70,6 +166,11 @@ export default function Jobs() {
     const malpractice = payRate * 0.10;
     return billRate - payRate - malpractice;
   };
+
+  // Summary stats
+  const activeJobs = jobs.filter(j => j.status === "active").length;
+  const totalHotLeads = Object.values(jobStats).reduce((sum, s) => sum + s.hotLeads, 0);
+  const totalCandidates = Object.values(jobStats).reduce((sum, s) => sum + s.totalCandidates, 0);
 
   return (
     <div className="min-h-screen bg-background">
@@ -89,13 +190,76 @@ export default function Jobs() {
           </Button>
         </div>
 
+        {/* Stats Row */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+          <Card className="bg-card border-border">
+            <CardContent className="pt-4">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-lg bg-success/20 flex items-center justify-center">
+                  <TrendingUp className="h-5 w-5 text-success" />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold text-foreground">{activeJobs}</p>
+                  <p className="text-xs text-muted-foreground">Active Jobs</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-card border-border">
+            <CardContent className="pt-4">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-lg bg-primary/20 flex items-center justify-center">
+                  <Users className="h-5 w-5 text-primary" />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold text-foreground">{totalCandidates}</p>
+                  <p className="text-xs text-muted-foreground">Total Candidates</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-card border-border">
+            <CardContent className="pt-4">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-lg bg-orange-500/20 flex items-center justify-center">
+                  <Flame className="h-5 w-5 text-orange-400" />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold text-foreground">{totalHotLeads}</p>
+                  <p className="text-xs text-muted-foreground">Hot Leads</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-card border-border">
+            <CardContent className="pt-4">
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-lg bg-purple-500/20 flex items-center justify-center">
+                  <Calendar className="h-5 w-5 text-purple-400" />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold text-foreground">{jobs.length}</p>
+                  <p className="text-xs text-muted-foreground">Total Jobs</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
         {/* Filter Tabs */}
         <Tabs value={filter} onValueChange={setFilter} className="mb-6">
           <TabsList className="bg-muted/50">
             <TabsTrigger value="all">All</TabsTrigger>
             <TabsTrigger value="active">Active</TabsTrigger>
+            <TabsTrigger value="hot" className="flex items-center gap-1">
+              <Flame className="h-3 w-3" />
+              Hot Leads
+            </TabsTrigger>
+            <TabsTrigger value="no_outreach">Needs Outreach</TabsTrigger>
             <TabsTrigger value="on_hold">On Hold</TabsTrigger>
-            <TabsTrigger value="filled">Filled</TabsTrigger>
           </TabsList>
         </Tabs>
 
@@ -118,6 +282,7 @@ export default function Jobs() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {filteredJobs.map((job) => {
               const margin = calculateMargin(job.bill_rate, job.pay_rate);
+              const stats = jobStats[job.id];
               
               return (
                 <Card 
@@ -128,9 +293,16 @@ export default function Jobs() {
                   <CardHeader className="pb-3">
                     {/* Header Row */}
                     <div className="flex items-start justify-between gap-2">
-                      <h3 className="text-lg font-semibold text-foreground line-clamp-1">
-                        {job.job_name || "Untitled Job"}
-                      </h3>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-lg font-semibold text-foreground line-clamp-1">
+                            {job.job_name || "Untitled Job"}
+                          </h3>
+                          {stats && stats.hotLeads > 0 && (
+                            <Flame className="h-4 w-4 text-orange-400 flex-shrink-0" />
+                          )}
+                        </div>
+                      </div>
                       <div className="flex items-center gap-2 flex-shrink-0">
                         <Badge 
                           variant="outline" 
@@ -166,6 +338,19 @@ export default function Jobs() {
                         <span className="truncate">{job.schedule || "—"}</span>
                       </div>
                     </div>
+
+                    {/* Pipeline Progress */}
+                    {stats && stats.totalCandidates > 0 && (
+                      <JobPipeline counts={stats.pipelineCounts} compact />
+                    )}
+
+                    {/* Reply Badges */}
+                    {stats && (
+                      <JobReplyBadge 
+                        totalReplies={stats.totalReplies}
+                        hotLeads={stats.hotLeads}
+                      />
+                    )}
 
                     {/* Pay Section */}
                     <div className="bg-muted/30 rounded-lg p-3 space-y-1">
