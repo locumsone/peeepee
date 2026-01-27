@@ -1,62 +1,51 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { 
-  Plus, Search, MoreVertical, Play, Pause, Copy, Trash2,
-  Mail, MessageSquare, Phone, Eye, Activity, Users, CheckCircle2, Clock
-} from "lucide-react";
+import { Plus, Loader2 } from "lucide-react";
 import Layout from "@/components/layout/Layout";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import { supabase } from "@/integrations/supabase/client";
-import { cn } from "@/lib/utils";
-import { formatDistanceToNow } from "date-fns";
-
-interface Campaign {
-  id: string;
-  name: string | null;
-  job_id: string | null;
-  channel: string | null;
-  status: string | null;
-  leads_count: number | null;
-  created_at: string | null;
-  external_id: string | null;
-  emails_sent: number | null;
-  emails_opened: number | null;
-  emails_replied: number | null;
-  sms_sent: number | null;
-  sms_replied: number | null;
-  calls_connected: number | null;
-  jobs?: {
-    job_name: string | null;
-  } | null;
-}
-
-type FilterTab = "all" | "active" | "paused" | "completed" | "draft";
+import { toast } from "sonner";
+import {
+  CampaignCard,
+  CampaignStats,
+  CampaignFilters,
+  CampaignKanbanBoard,
+  CampaignPipeline,
+  CandidateQuickView,
+  calculateHealth,
+} from "@/components/campaigns";
+import type { CampaignWithJob, FilterTab, ViewMode, HealthStatus } from "@/components/campaigns";
 
 const Campaigns = () => {
   const navigate = useNavigate();
-  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [campaigns, setCampaigns] = useState<CampaignWithJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState<FilterTab>("all");
+  const [viewMode, setViewMode] = useState<ViewMode>("list");
+  const [healthFilter, setHealthFilter] = useState<HealthStatus | null>(null);
+  const [channelFilter, setChannelFilter] = useState<string | null>(null);
+  
+  // Quick view state
+  const [quickViewCampaignId, setQuickViewCampaignId] = useState<string | null>(null);
+  const [quickViewCampaignName, setQuickViewCampaignName] = useState<string | null>(null);
 
   useEffect(() => {
     fetchCampaigns();
+    
+    // Real-time subscription
+    const channel = supabase
+      .channel("campaigns-realtime")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "campaigns" },
+        () => fetchCampaigns()
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   const fetchCampaigns = async () => {
@@ -66,147 +55,184 @@ const Campaigns = () => {
         .select(`
           *,
           jobs (
-            job_name
+            job_name,
+            specialty,
+            facility_name,
+            city,
+            state,
+            pay_rate
           )
         `)
-        .order("created_at", { ascending: false });
+        .order("updated_at", { ascending: false });
 
       if (error) throw error;
-      setCampaigns(data || []);
+      setCampaigns((data as CampaignWithJob[]) || []);
     } catch (error) {
       console.error("Error fetching campaigns:", error);
+      toast.error("Failed to load campaigns");
     } finally {
       setLoading(false);
     }
   };
 
-  // Stats calculations
-  const stats = {
-    active: campaigns.filter(c => c.status === "active").length,
-    paused: campaigns.filter(c => c.status === "paused").length,
-    completed: campaigns.filter(c => c.status === "completed").length,
-    totalLeads: campaigns.reduce((sum, c) => sum + (c.leads_count || 0), 0),
-  };
+  // Calculate stats
+  const stats = useMemo(() => {
+    const activeCount = campaigns.filter((c) => c.status === "active").length;
+    const pausedCount = campaigns.filter((c) => c.status === "paused").length;
+    const completedCount = campaigns.filter((c) => c.status === "completed").length;
+    const draftCount = campaigns.filter((c) => !c.status || c.status === "draft").length;
+    const totalLeads = campaigns.reduce((sum, c) => sum + (c.leads_count || 0), 0);
+
+    // Calculate average rates
+    const campaignsWithSent = campaigns.filter((c) => (c.emails_sent || 0) > 0);
+    const avgOpenRate =
+      campaignsWithSent.length > 0
+        ? campaignsWithSent.reduce((sum, c) => {
+            const rate = ((c.emails_opened || 0) / (c.emails_sent || 1)) * 100;
+            return sum + rate;
+          }, 0) / campaignsWithSent.length
+        : 0;
+
+    const avgReplyRate =
+      campaignsWithSent.length > 0
+        ? campaignsWithSent.reduce((sum, c) => {
+            const rate = ((c.emails_replied || 0) / (c.emails_sent || 1)) * 100;
+            return sum + rate;
+          }, 0) / campaignsWithSent.length
+        : 0;
+
+    // Hot leads would come from campaign_leads_v2, for now estimate from replied
+    const hotLeadsCount = campaigns.reduce(
+      (sum, c) => sum + (c.emails_replied || 0) + (c.sms_replied || 0),
+      0
+    );
+
+    return {
+      activeCount,
+      pausedCount,
+      completedCount,
+      draftCount,
+      totalLeads,
+      avgOpenRate,
+      avgReplyRate,
+      hotLeadsCount,
+    };
+  }, [campaigns]);
 
   // Filter campaigns
-  const filteredCampaigns = campaigns.filter(campaign => {
-    const matchesSearch = 
-      (campaign.name?.toLowerCase().includes(searchQuery.toLowerCase()) || false) ||
-      (campaign.jobs?.job_name?.toLowerCase().includes(searchQuery.toLowerCase()) || false);
-    
-    const matchesFilter = 
-      activeFilter === "all" || 
-      campaign.status === activeFilter;
-    
-    return matchesSearch && matchesFilter;
-  });
+  const filteredCampaigns = useMemo(() => {
+    return campaigns.filter((campaign) => {
+      // Search filter
+      const matchesSearch =
+        !searchQuery ||
+        campaign.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        campaign.jobs?.job_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        campaign.jobs?.specialty?.toLowerCase().includes(searchQuery.toLowerCase());
+
+      // Status filter
+      const matchesStatus =
+        activeFilter === "all" ||
+        (activeFilter === "draft" && (!campaign.status || campaign.status === "draft")) ||
+        campaign.status === activeFilter;
+
+      // Health filter
+      let matchesHealth = true;
+      if (healthFilter) {
+        const health = calculateHealth(
+          campaign.emails_sent || 0,
+          campaign.emails_opened || 0,
+          campaign.emails_bounced || 0
+        );
+        matchesHealth = health === healthFilter;
+      }
+
+      // Channel filter
+      let matchesChannel = true;
+      if (channelFilter) {
+        const channel = campaign.channel?.toLowerCase() || "";
+        if (channelFilter === "email") {
+          matchesChannel = channel.includes("email") && !channel.includes("sms");
+        } else if (channelFilter === "sms") {
+          matchesChannel = channel.includes("sms") && !channel.includes("email");
+        } else if (channelFilter === "multi") {
+          matchesChannel = channel.includes("all") || 
+            (channel.includes("email") && channel.includes("sms"));
+        }
+      }
+
+      return matchesSearch && matchesStatus && matchesHealth && matchesChannel;
+    });
+  }, [campaigns, searchQuery, activeFilter, healthFilter, channelFilter]);
 
   const handlePauseResume = async (campaignId: string, currentStatus: string) => {
     const newStatus = currentStatus === "active" ? "paused" : "active";
     try {
-      await supabase
+      const { error } = await supabase
         .from("campaigns")
         .update({ status: newStatus })
         .eq("id", campaignId);
+      if (error) throw error;
+      toast.success(`Campaign ${newStatus === "active" ? "resumed" : "paused"}`);
       fetchCampaigns();
     } catch (error) {
       console.error("Error updating campaign:", error);
+      toast.error("Failed to update campaign");
     }
   };
 
   const handleDelete = async (campaignId: string) => {
     if (!confirm("Are you sure you want to delete this campaign?")) return;
     try {
-      await supabase.from("campaigns").delete().eq("id", campaignId);
+      const { error } = await supabase.from("campaigns").delete().eq("id", campaignId);
+      if (error) throw error;
+      toast.success("Campaign deleted");
       fetchCampaigns();
     } catch (error) {
       console.error("Error deleting campaign:", error);
+      toast.error("Failed to delete campaign");
     }
   };
 
-  const getStatusBadge = (status: string | null) => {
-    switch (status) {
-      case "active":
-        return (
-          <Badge className="bg-success/10 text-success border-success/20 animate-pulse">
-            <span className="w-2 h-2 rounded-full bg-success mr-1.5" />
-            Active
-          </Badge>
-        );
-      case "paused":
-        return (
-          <Badge className="bg-warning/10 text-warning border-warning/20">
-            Paused
-          </Badge>
-        );
-      case "completed":
-        return (
-          <Badge className="bg-muted text-muted-foreground border-muted-foreground/20">
-            Completed
-          </Badge>
-        );
-      case "draft":
-      default:
-        return (
-          <Badge variant="secondary">
-            Draft
-          </Badge>
-        );
+  const handleDuplicate = async (campaignId: string) => {
+    const campaign = campaigns.find((c) => c.id === campaignId);
+    if (!campaign) return;
+
+    try {
+      const { error } = await supabase.from("campaigns").insert({
+        name: `${campaign.name || "Campaign"} (Copy)`,
+        job_id: campaign.job_id,
+        channel: campaign.channel,
+        status: "draft",
+      });
+      if (error) throw error;
+      toast.success("Campaign duplicated");
+      fetchCampaigns();
+    } catch (error) {
+      console.error("Error duplicating campaign:", error);
+      toast.error("Failed to duplicate campaign");
     }
   };
 
-  const getChannelIcons = (channel: string | null) => {
-    if (!channel) return <span className="text-muted-foreground">—</span>;
-    
-    const channels = channel.toLowerCase();
-    return (
-      <div className="flex items-center gap-1">
-        {(channels.includes("email") || channels.includes("all")) && (
-          <Mail className="h-4 w-4 text-primary" />
-        )}
-        {(channels.includes("sms") || channels.includes("all")) && (
-          <MessageSquare className="h-4 w-4 text-primary" />
-        )}
-        {(channels.includes("call") || channels.includes("phone") || channels.includes("all")) && (
-          <Phone className="h-4 w-4 text-primary" />
-        )}
-      </div>
-    );
+  const handleViewLeads = (campaignId: string) => {
+    const campaign = campaigns.find((c) => c.id === campaignId);
+    setQuickViewCampaignId(campaignId);
+    setQuickViewCampaignName(campaign?.name || null);
   };
 
-  const renderMetrics = (campaign: Campaign) => {
-    const sent = campaign.emails_sent || 0;
-    const opened = campaign.emails_opened || 0;
-    const replied = campaign.emails_replied || 0;
-    
-    if (sent === 0) {
-      return <span className="font-mono text-muted-foreground">— | — | —</span>;
+  const handleStatusChange = async (campaignId: string, newStatus: string) => {
+    try {
+      const { error } = await supabase
+        .from("campaigns")
+        .update({ status: newStatus })
+        .eq("id", campaignId);
+      if (error) throw error;
+      toast.success(`Campaign moved to ${newStatus}`);
+      fetchCampaigns();
+    } catch (error) {
+      console.error("Error updating campaign status:", error);
+      toast.error("Failed to update campaign");
     }
-
-    const openRate = sent > 0 ? Math.round((opened / sent) * 100) : 0;
-    const replyRate = sent > 0 ? Math.round((replied / sent) * 100) : 0;
-
-    return (
-      <span className="font-mono tabular-nums">
-        <span className="text-foreground">{sent}</span>
-        <span className="text-muted-foreground"> | </span>
-        <span className={openRate >= 30 ? "text-success" : openRate >= 15 ? "text-warning" : "text-muted-foreground"}>
-          {openRate}%
-        </span>
-        <span className="text-muted-foreground"> | </span>
-        <span className={replied > 0 ? "text-primary font-semibold" : "text-muted-foreground"}>
-          {replyRate}%
-        </span>
-      </span>
-    );
   };
-
-  const filterTabs: { key: FilterTab; label: string }[] = [
-    { key: "all", label: "All" },
-    { key: "active", label: "Active" },
-    { key: "paused", label: "Paused" },
-    { key: "completed", label: "Completed" },
-  ];
 
   return (
     <Layout>
@@ -214,7 +240,7 @@ const Campaigns = () => {
         {/* Header */}
         <div className="flex items-center justify-between">
           <h1 className="font-display text-3xl font-bold text-foreground">
-            📊 Campaigns
+            Campaigns
           </h1>
           <Button variant="default" onClick={() => navigate("/campaigns/new")}>
             <Plus className="h-4 w-4 mr-2" />
@@ -222,201 +248,84 @@ const Campaigns = () => {
           </Button>
         </div>
 
-        {/* Stats Row */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="rounded-xl bg-card shadow-card p-4 border-l-4 border-success">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-success/10">
-                <Activity className="h-5 w-5 text-success" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Active</p>
-                <p className="text-2xl font-bold text-foreground">{stats.active}</p>
-              </div>
-            </div>
-          </div>
-          
-          <div className="rounded-xl bg-card shadow-card p-4 border-l-4 border-warning">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-warning/10">
-                <Pause className="h-5 w-5 text-warning" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Paused</p>
-                <p className="text-2xl font-bold text-foreground">{stats.paused}</p>
-              </div>
-            </div>
-          </div>
-          
-          <div className="rounded-xl bg-card shadow-card p-4 border-l-4 border-primary">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10">
-                <CheckCircle2 className="h-5 w-5 text-primary" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Completed</p>
-                <p className="text-2xl font-bold text-foreground">{stats.completed}</p>
-              </div>
-            </div>
-          </div>
-          
-          <div className="rounded-xl bg-card shadow-card p-4 border-l-4 border-muted-foreground">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
-                <Users className="h-5 w-5 text-muted-foreground" />
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">Total Leads</p>
-                <p className="text-2xl font-bold text-foreground">{stats.totalLeads}</p>
-              </div>
-            </div>
-          </div>
-        </div>
+        {/* Stats Dashboard */}
+        <CampaignStats {...stats} />
 
-        {/* Filters and Search */}
-        <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-          {/* Filter Tabs */}
-          <div className="flex gap-1 p-1 rounded-lg bg-secondary/50">
-            {filterTabs.map((tab) => (
-              <button
-                key={tab.key}
-                onClick={() => setActiveFilter(tab.key)}
-                className={cn(
-                  "px-4 py-2 rounded-md text-sm font-medium transition-all",
-                  activeFilter === tab.key
-                    ? "bg-card shadow-sm text-foreground"
-                    : "text-muted-foreground hover:text-foreground"
-                )}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
+        {/* Filters */}
+        <CampaignFilters
+          activeFilter={activeFilter}
+          onFilterChange={setActiveFilter}
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          viewMode={viewMode}
+          onViewModeChange={setViewMode}
+          healthFilter={healthFilter}
+          onHealthFilterChange={setHealthFilter}
+          channelFilter={channelFilter}
+          onChannelFilterChange={setChannelFilter}
+        />
 
-          {/* Search */}
-          <div className="relative w-full sm:w-72">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search campaigns or jobs..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10"
-            />
+        {/* Content */}
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
           </div>
-        </div>
-
-        {/* Campaigns Table */}
-        <div className="rounded-xl bg-card shadow-card overflow-hidden">
-          <Table>
-            <TableHeader>
-              <TableRow className="bg-secondary/30">
-                <TableHead className="font-semibold">Campaign</TableHead>
-                <TableHead className="font-semibold">Job</TableHead>
-                <TableHead className="font-semibold">Status</TableHead>
-                <TableHead className="font-semibold text-center">Leads</TableHead>
-                <TableHead className="font-semibold text-center">Sent | Opened | Replied</TableHead>
-                <TableHead className="font-semibold">Created</TableHead>
-                <TableHead className="font-semibold w-12">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {loading ? (
-                <TableRow>
-                  <TableCell colSpan={7} className="text-center py-12">
-                    <div className="flex items-center justify-center gap-2 text-muted-foreground">
-                      <Clock className="h-5 w-5 animate-spin" />
-                      Loading campaigns...
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ) : filteredCampaigns.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={7} className="text-center py-12">
-                    <p className="text-muted-foreground">No campaigns found</p>
-                    <Button 
-                      variant="outline" 
-                      className="mt-4"
-                      onClick={() => navigate("/campaigns/new")}
-                    >
-                      Create Your First Campaign
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ) : (
-                filteredCampaigns.map((campaign) => (
-                  <TableRow 
+        ) : filteredCampaigns.length === 0 ? (
+          <div className="rounded-xl bg-card shadow-card p-12 text-center">
+            <p className="text-muted-foreground mb-4">No campaigns found</p>
+            <Button variant="outline" onClick={() => navigate("/campaigns/new")}>
+              Create Your First Campaign
+            </Button>
+          </div>
+        ) : (
+          <>
+            {/* List View */}
+            {viewMode === "list" && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {filteredCampaigns.map((campaign) => (
+                  <CampaignCard
                     key={campaign.id}
-                    className="cursor-pointer hover:bg-secondary/30 transition-colors"
-                    onClick={() => navigate(`/campaigns/${campaign.id}`)}
-                  >
-                    <TableCell>
-                      <span className="font-medium text-foreground hover:text-primary transition-colors">
-                        {campaign.name || "Untitled Campaign"}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {campaign.jobs?.job_name || "—"}
-                    </TableCell>
-                    <TableCell>{getStatusBadge(campaign.status)}</TableCell>
-                    <TableCell className="text-center font-medium">
-                      {campaign.leads_count || 0}
-                    </TableCell>
-                    <TableCell className="text-center text-muted-foreground">
-                      {renderMetrics(campaign)}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground text-sm">
-                      {campaign.created_at
-                        ? formatDistanceToNow(new Date(campaign.created_at), { addSuffix: true })
-                        : "—"}
-                    </TableCell>
-                    <TableCell onClick={(e) => e.stopPropagation()}>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-8 w-8">
-                            <MoreVertical className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem onClick={() => navigate(`/campaigns/${campaign.id}`)}>
-                            <Eye className="h-4 w-4 mr-2" />
-                            View
-                          </DropdownMenuItem>
-                          <DropdownMenuItem 
-                            onClick={() => handlePauseResume(campaign.id, campaign.status || "")}
-                          >
-                            {campaign.status === "active" ? (
-                              <>
-                                <Pause className="h-4 w-4 mr-2" />
-                                Pause
-                              </>
-                            ) : (
-                              <>
-                                <Play className="h-4 w-4 mr-2" />
-                                Resume
-                              </>
-                            )}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem>
-                            <Copy className="h-4 w-4 mr-2" />
-                            Duplicate
-                          </DropdownMenuItem>
-                          <DropdownMenuItem 
-                            className="text-destructive"
-                            onClick={() => handleDelete(campaign.id)}
-                          >
-                            <Trash2 className="h-4 w-4 mr-2" />
-                            Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </div>
+                    campaign={campaign}
+                    onPauseResume={handlePauseResume}
+                    onDelete={handleDelete}
+                    onDuplicate={handleDuplicate}
+                    onViewLeads={handleViewLeads}
+                  />
+                ))}
+              </div>
+            )}
+
+            {/* Kanban View */}
+            {viewMode === "kanban" && (
+              <CampaignKanbanBoard
+                campaigns={filteredCampaigns}
+                onStatusChange={handleStatusChange}
+              />
+            )}
+
+            {/* Pipeline View */}
+            {viewMode === "pipeline" && (
+              <CampaignPipeline
+                campaigns={filteredCampaigns}
+                onStageClick={(stage) => console.log("Filter by stage:", stage)}
+              />
+            )}
+          </>
+        )}
       </div>
+
+      {/* Candidate Quick View */}
+      <CandidateQuickView
+        campaignId={quickViewCampaignId}
+        campaignName={quickViewCampaignName}
+        open={!!quickViewCampaignId}
+        onOpenChange={(open) => {
+          if (!open) {
+            setQuickViewCampaignId(null);
+            setQuickViewCampaignName(null);
+          }
+        }}
+      />
     </Layout>
   );
 };
