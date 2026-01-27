@@ -830,10 +830,18 @@ const CandidateMatching = () => {
           const result = data.results?.find((r: any) => r.candidate_id === c.id);
           if (!result) return c;
           
-          // Only mark as deep_researched if actual research was done (not from cache or icebreaker is substantial)
-          const actualDeepResearch = !result.from_cache || 
-            (result.icebreaker && result.icebreaker.length > 60) ||
-            result.deep_research_done;
+          // Helper function to detect if research summary contains actual Perplexity web research
+          const hasPerplexityContent = (summary: string | null | undefined): boolean => {
+            if (!summary || summary.length < 100) return false;
+            const markers = [/\*\*EMPLOYER\*\*/i, /\*\*TRAINING\*\*/i, /\*\*CREDENTIALS\*\*/i, /fellowship/i, /residency at/i];
+            return markers.filter(m => m.test(summary)).length >= 2;
+          };
+          
+          // Only mark as deep_researched if:
+          // 1. deep_research_done flag is explicitly true from backend, OR
+          // 2. Research summary contains Perplexity-style structured content
+          const hasVerifiedPerplexityData = hasPerplexityContent(result.research_summary);
+          const actualDeepResearch = result.deep_research_done === true || hasVerifiedPerplexityData;
           
           return {
             ...c,
@@ -886,12 +894,25 @@ const CandidateMatching = () => {
 
   // Handle single candidate deep research
   const handleDeepResearchCandidate = (candidate: Candidate, forceRefresh = false) => {
-    if (candidate.deep_researched && !forceRefresh) {
-      // Already researched - ask if they want to refresh
+    // Helper to check if candidate has verified Perplexity research
+    const hasVerifiedDeepResearch = (c: Candidate): boolean => {
+      if (!c.research_summary || c.research_summary.length < 100) return false;
+      const markers = [/\*\*EMPLOYER\*\*/i, /\*\*TRAINING\*\*/i, /\*\*CREDENTIALS\*\*/i, /fellowship/i, /residency at/i];
+      return markers.filter(m => m.test(c.research_summary || '')).length >= 2;
+    };
+    
+    // If candidate appears "deep researched" but doesn't have actual Perplexity data,
+    // auto-trigger force refresh to get real web research
+    const needsRealDeepResearch = candidate.deep_researched && !hasVerifiedDeepResearch(candidate);
+    
+    if (candidate.deep_researched && !forceRefresh && !needsRealDeepResearch) {
+      // Already has REAL deep research - ask if they want to refresh
       toast.info("Already researched - click again to refresh", { duration: 2000 });
       return;
     }
-    deepResearchCandidates([candidate.id], forceRefresh);
+    
+    // Force refresh if we need real deep research (cached data doesn't have Perplexity content)
+    deepResearchCandidates([candidate.id], forceRefresh || needsRealDeepResearch);
   };
 
   // Bulk deep research selected candidates
