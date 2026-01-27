@@ -679,32 +679,40 @@ serve(async (req) => {
     console.log(`Found ${dbCandidates.length} local candidates`);
 
     // Fetch cached research data for all candidates
+    // Batch the candidate IDs to avoid Supabase .in() filter limits (max ~100-200 per query)
     const candidateIds = dbCandidates.map(c => c.id);
+    const BATCH_SIZE = 100;
     
-    const [researchResult, matchResult] = await Promise.all([
-      supabase
-        .from('candidate_research')
-        .select('candidate_id, npi_verified, has_imlc, npi, verified_specialty, license_count, last_researched_at')
-        .in('candidate_id', candidateIds),
-      supabase
-        .from('candidate_job_matches')
-        .select('candidate_id, job_id, match_grade, match_score, match_reasons, match_concerns, icebreaker, talking_points, scored_at')
-        .eq('job_id', job_id)
-        .in('candidate_id', candidateIds)
-    ]);
-
-    // Build lookup maps for cached data
     const researchMap = new Map<string, CachedResearch>();
-    (researchResult.data || []).forEach((r: any) => {
-      researchMap.set(r.candidate_id, r as CachedResearch);
-    });
-    
     const matchMap = new Map<string, CachedJobMatch>();
-    (matchResult.data || []).forEach((m: any) => {
-      matchMap.set(m.candidate_id, m as CachedJobMatch);
-    });
     
-    console.log(`Found ${researchMap.size} cached research records, ${matchMap.size} cached job matches`);
+    // Process in batches to avoid .in() filter limits
+    for (let i = 0; i < candidateIds.length; i += BATCH_SIZE) {
+      const batchIds = candidateIds.slice(i, i + BATCH_SIZE);
+      
+      const [researchResult, matchResult] = await Promise.all([
+        supabase
+          .from('candidate_research')
+          .select('candidate_id, npi_verified, has_imlc, npi, verified_specialty, license_count, last_researched_at')
+          .in('candidate_id', batchIds),
+        supabase
+          .from('candidate_job_matches')
+          .select('candidate_id, job_id, match_grade, match_score, match_reasons, match_concerns, icebreaker, talking_points, scored_at')
+          .eq('job_id', job_id)
+          .in('candidate_id', batchIds)
+      ]);
+
+      // Add to lookup maps
+      (researchResult.data || []).forEach((r: any) => {
+        researchMap.set(r.candidate_id, r as CachedResearch);
+      });
+      
+      (matchResult.data || []).forEach((m: any) => {
+        matchMap.set(m.candidate_id, m as CachedJobMatch);
+      });
+    }
+    
+    console.log(`Found ${researchMap.size} cached research records, ${matchMap.size} cached job matches for ${candidateIds.length} candidates`);
 
     const ENRICHED_SOURCES = ['Whitepages', 'PDL', 'Apollo', 'Hunter', 'Clearbit', 'ZoomInfo'];
     
