@@ -2517,6 +2517,47 @@ export type Database = {
           },
         ]
       }
+      job_notes: {
+        Row: {
+          content: string
+          created_at: string
+          created_by: string
+          created_by_name: string | null
+          id: string
+          is_pinned: boolean | null
+          job_id: string
+          updated_at: string
+        }
+        Insert: {
+          content: string
+          created_at?: string
+          created_by: string
+          created_by_name?: string | null
+          id?: string
+          is_pinned?: boolean | null
+          job_id: string
+          updated_at?: string
+        }
+        Update: {
+          content?: string
+          created_at?: string
+          created_by?: string
+          created_by_name?: string | null
+          id?: string
+          is_pinned?: boolean | null
+          job_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "job_notes_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       jobs: {
         Row: {
           bill_rate: number | null
