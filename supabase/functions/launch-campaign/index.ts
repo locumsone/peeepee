@@ -25,7 +25,9 @@ interface CandidatePayload {
 
 interface ChannelConfig {
   email?: {
+    provider?: 'instantly' | 'gmail' | 'smtp';
     sender: string;
+    senderName?: string;
     sequenceLength: number;
     gapDays: number;
   } | null;
@@ -201,83 +203,117 @@ serve(async (req) => {
       }
     }
 
-    // 5. Create Instantly email campaign (if email channel enabled)
+    // 5. Send emails (via Gmail/SMTP or Instantly based on provider)
     if (channels.email) {
-      const instantlyApiKey = Deno.env.get("INSTANTLY_API_KEY");
-      if (instantlyApiKey) {
-        const candidatesWithEmail = candidates.filter((c) => c.email);
-        console.log(`[launch-campaign] Email enabled, ${candidatesWithEmail.length} candidates with email`);
+      const candidatesWithEmail = candidates.filter((c) => c.email);
+      console.log(`[launch-campaign] Email enabled (${channels.email.provider || 'instantly'}), ${candidatesWithEmail.length} candidates with email`);
 
-        try {
-          // Create campaign in Instantly
-          const campaignCreateRes = await fetch("https://api.instantly.ai/api/v1/campaign/create", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${instantlyApiKey}`,
-            },
-            body: JSON.stringify({
-              name: campaign_name,
-              sending_account: sender_email,
-            }),
-          });
+      const emailProvider = channels.email.provider || 'instantly';
 
-          if (campaignCreateRes.ok) {
-            const instantlyCampaign = await campaignCreateRes.json();
-            const instantlyCampaignId = instantlyCampaign.id;
+      if (emailProvider === 'gmail' || emailProvider === 'smtp') {
+        // Use Gmail/SMTP
+        for (const candidate of candidatesWithEmail) {
+          try {
+            const emailSubject = candidate.email_subject || `Opportunity for Dr. ${candidate.last_name}`;
+            const emailBody = candidate.email_body || `Hi Dr. ${candidate.last_name},\n\n${candidate.icebreaker || 'I wanted to reach out about an exciting locums opportunity.'}\n\nBest regards`;
 
-            // Update our campaign with external ID
-            await supabase
-              .from("campaigns")
-              .update({ external_id: instantlyCampaignId })
-              .eq("id", campaign.id);
+            const { error: emailError } = await supabase.functions.invoke("send-email-smtp", {
+              body: {
+                to: candidate.email,
+                subject: emailSubject,
+                html: emailBody.replace(/\n/g, '<br>'),
+                from_email: channels.email.sender,
+                from_name: channels.email.senderName || channels.email.sender.split('@')[0],
+                campaign_id: campaign.id,
+                candidate_id: candidate.id,
+              },
+            });
 
-            // Add leads to Instantly
-            for (const candidate of candidatesWithEmail) {
-              try {
-                const leadRes = await fetch("https://api.instantly.ai/api/v1/lead/add", {
-                  method: "POST",
-                  headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${instantlyApiKey}`,
-                  },
-                  body: JSON.stringify({
-                    campaign_id: instantlyCampaignId,
-                    email: candidate.email,
-                    first_name: candidate.first_name,
-                    last_name: candidate.last_name,
-                    custom_variables: {
-                      icebreaker: candidate.icebreaker || "",
-                      talking_points: (candidate.talking_points || []).join("; "),
-                    },
-                  }),
-                });
-
-                if (leadRes.ok) {
-                  emailsQueued++;
-                }
-              } catch (err) {
-                console.error(`[launch-campaign] Instantly lead add error for ${candidate.email}:`, err);
-              }
+            if (!emailError) {
+              emailsQueued++;
+            } else {
+              console.error(`[launch-campaign] SMTP email error for ${candidate.email}:`, emailError);
             }
-
-            // Launch the campaign
-            await fetch("https://api.instantly.ai/api/v1/campaign/launch", {
+          } catch (err) {
+            console.error(`[launch-campaign] Email error for ${candidate.email}:`, err);
+          }
+        }
+        console.log(`[launch-campaign] Sent ${emailsQueued} emails via ${emailProvider.toUpperCase()}`);
+      } else {
+        // Use Instantly (existing flow)
+        const instantlyApiKey = Deno.env.get("INSTANTLY_API_KEY");
+        if (instantlyApiKey) {
+          try {
+            // Create campaign in Instantly
+            const campaignCreateRes = await fetch("https://api.instantly.ai/api/v1/campaign/create", {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
                 Authorization: `Bearer ${instantlyApiKey}`,
               },
-              body: JSON.stringify({ campaign_id: instantlyCampaignId }),
+              body: JSON.stringify({
+                name: campaign_name,
+                sending_account: sender_email,
+              }),
             });
 
-            console.log(`[launch-campaign] Created Instantly campaign ${instantlyCampaignId} with ${emailsQueued} leads`);
+            if (campaignCreateRes.ok) {
+              const instantlyCampaign = await campaignCreateRes.json();
+              const instantlyCampaignId = instantlyCampaign.id;
+
+              // Update our campaign with external ID
+              await supabase
+                .from("campaigns")
+                .update({ external_id: instantlyCampaignId })
+                .eq("id", campaign.id);
+
+              // Add leads to Instantly
+              for (const candidate of candidatesWithEmail) {
+                try {
+                  const leadRes = await fetch("https://api.instantly.ai/api/v1/lead/add", {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                      Authorization: `Bearer ${instantlyApiKey}`,
+                    },
+                    body: JSON.stringify({
+                      campaign_id: instantlyCampaignId,
+                      email: candidate.email,
+                      first_name: candidate.first_name,
+                      last_name: candidate.last_name,
+                      custom_variables: {
+                        icebreaker: candidate.icebreaker || "",
+                        talking_points: (candidate.talking_points || []).join("; "),
+                      },
+                    }),
+                  });
+
+                  if (leadRes.ok) {
+                    emailsQueued++;
+                  }
+                } catch (err) {
+                  console.error(`[launch-campaign] Instantly lead add error for ${candidate.email}:`, err);
+                }
+              }
+
+              // Launch the campaign
+              await fetch("https://api.instantly.ai/api/v1/campaign/launch", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${instantlyApiKey}`,
+                },
+                body: JSON.stringify({ campaign_id: instantlyCampaignId }),
+              });
+
+              console.log(`[launch-campaign] Created Instantly campaign ${instantlyCampaignId} with ${emailsQueued} leads`);
+            }
+          } catch (err) {
+            console.error("[launch-campaign] Instantly API error:", err);
           }
-        } catch (err) {
-          console.error("[launch-campaign] Instantly API error:", err);
+        } else {
+          console.log("[launch-campaign] INSTANTLY_API_KEY not configured, skipping Instantly email");
         }
-      } else {
-        console.log("[launch-campaign] INSTANTLY_API_KEY not configured, skipping email");
       }
     }
 

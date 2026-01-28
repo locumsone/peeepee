@@ -13,7 +13,9 @@ export interface Job {
 
 export interface ChannelConfig {
   email?: {
+    provider?: 'instantly' | 'gmail' | 'smtp';
     sender: string;
+    senderName?: string;
     sequenceLength: number;
     gapDays: number;
   } | null;
