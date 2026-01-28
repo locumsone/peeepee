@@ -25,6 +25,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
 import { ResearchInsights } from "@/components/candidates/ResearchInsights";
+import { CandidateExpandedView } from "@/components/candidates/CandidateExpandedView";
 import AddCandidatesPanel from "@/components/candidates/AddCandidatesPanel";
 import ShortlistBanner from "@/components/candidates/ShortlistBanner";
 import { useCampaignDraft } from "@/hooks/useCampaignDraft";
@@ -2713,11 +2714,14 @@ const CandidateMatching = () => {
                           {expandedIds.has(candidate.id) && (
                             <tr className="bg-secondary/20">
                               <td colSpan={9} className="px-6 py-4">
-                                <div className="space-y-4 animate-fade-in">
-                                  <p className="text-sm text-muted-foreground">
-                                    Expand for detailed research and contact information...
-                                  </p>
-                                </div>
+                                <CandidateExpandedView
+                                  candidate={candidate}
+                                  jobState={job?.state}
+                                  researchingIds={researchingIds}
+                                  deepResearchingIds={deepResearchingIds}
+                                  onResearch={handleResearchCandidate}
+                                  onDeepResearch={handleDeepResearchCandidate}
+                                />
                               </td>
                             </tr>
                           )}
