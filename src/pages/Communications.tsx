@@ -6,7 +6,7 @@ import Layout from "@/components/layout/Layout";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Plus, Inbox as InboxIcon, Flame, MessageSquare, Phone, Star, Clock, Mail, Zap, Users } from "lucide-react";
+import { Plus, Inbox as InboxIcon, Flame, MessageSquare, Phone, Star, Clock, Mail, Zap } from "lucide-react";
 import { formatPhoneNumber } from "@/lib/formatPhone";
 import { ConversationList } from "@/components/inbox/ConversationList";
 import { ConversationDetail } from "@/components/inbox/ConversationDetail";
@@ -14,8 +14,6 @@ import { NewMessageModal } from "@/components/inbox/NewMessageModal";
 import { CampaignFilter } from "@/components/inbox/CampaignFilter";
 import { RemindersList } from "@/components/inbox/RemindersList";
 import { calculatePriorityLevel, type PriorityLevel } from "@/components/inbox/PriorityBadge";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
 
 export type ChannelFilter = "all" | "urgent" | "hot" | "sms" | "calls" | "reminders";
 
@@ -51,12 +49,12 @@ const Communications = () => {
   const [isNewMessageOpen, setIsNewMessageOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
-  const [showAllTeam, setShowAllTeam] = useState(false);
+  // Note: RLS policies enforce user-specific data - users only see their own conversations
   const queryClient = useQueryClient();
 
-  // Fetch SMS conversations - filtered by current user's recruiter_id
+  // Fetch SMS conversations - RLS automatically filters by current user's recruiter_id
   const { data: smsConversations = [], isLoading: smsLoading, refetch: refetchConversations } = useQuery({
-    queryKey: ["sms-conversations", user?.id, showAllTeam],
+    queryKey: ["sms-conversations", user?.id],
     queryFn: async () => {
       let query = supabase
         .from("sms_conversations")
@@ -85,10 +83,7 @@ const Communications = () => {
         .order("last_message_at", { ascending: false })
         .limit(100);
       
-      // Filter by user's ID unless showing all team
-      if (!showAllTeam && user?.id) {
-        query = query.or(`recruiter_id.eq.${user.id},recruiter_id.is.null`);
-      }
+      // RLS handles filtering - no need for manual filter
 
       const { data, error } = await query;
       
@@ -134,11 +129,11 @@ const Communications = () => {
     };
   }, [refetchConversations]);
 
-  // Fetch AI call logs - filtered by current user's recruiter_id
+  // Fetch AI call logs - RLS automatically filters by current user's recruiter_id
   const { data: aiCallLogs = [], isLoading: callsLoading } = useQuery({
-    queryKey: ["ai-call-logs", user?.id, showAllTeam],
+    queryKey: ["ai-call-logs", user?.id],
     queryFn: async () => {
-      let query = supabase
+      const { data, error } = await supabase
         .from("ai_call_logs")
         .select(`
           id,
@@ -155,13 +150,6 @@ const Communications = () => {
         .order("created_at", { ascending: false })
         .limit(100);
 
-      // Filter by user's ID unless showing all team
-      if (!showAllTeam && user?.id) {
-        query = query.or(`recruiter_id.eq.${user.id},recruiter_id.is.null`);
-      }
-      
-      const { data, error } = await query;
-      
       if (error) throw error;
       return data || [];
     },
@@ -411,18 +399,7 @@ const Communications = () => {
                 />
               </div>
 
-              {/* Team toggle */}
-              <div className="hidden lg:flex items-center gap-2 ml-2 pl-2 border-l border-border">
-                <Switch
-                  id="show-team"
-                  checked={showAllTeam}
-                  onCheckedChange={setShowAllTeam}
-                />
-                <Label htmlFor="show-team" className="text-xs text-muted-foreground flex items-center gap-1 cursor-pointer">
-                  <Users className="h-3 w-3" />
-                  Team
-                </Label>
-              </div>
+              {/* Note: RLS policies enforce user-specific data, no team toggle needed */}
             </div>
 
             {/* Center: Tabs */}
