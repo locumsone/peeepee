@@ -1,15 +1,17 @@
 import { useState } from "react";
-import { Users, ArrowRight, CheckCircle2, AlertTriangle, Loader2, Sparkles, Edit2, Download, XCircle, Search, Pencil } from "lucide-react";
+import { Users, ArrowRight, CheckCircle2, AlertTriangle, Loader2, Sparkles, Edit2, Download, XCircle, Search, Pencil, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Separator } from "@/components/ui/separator";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { ManualEntryDialog } from "./ManualEntryDialog";
+import { CSVUploadDialog } from "./CSVUploadDialog";
 import type { SelectedCandidate, TierStats } from "./types";
 
 interface StepPrepareCandidatesProps {
@@ -61,8 +63,62 @@ export function StepPrepareCandidates({
     currentPhone?: string | null;
   } | null>(null);
 
+  // CSV upload dialog state
+  const [csvUploadOpen, setCsvUploadOpen] = useState(false);
+
   const needsEnrichment = tierStats.needsEnrichment;
   const estimatedCost = (needsEnrichment * 0.20).toFixed(2);
+
+  // Export unenriched candidates as CSV for external enrichment
+  const handleDownloadForEnrichment = () => {
+    const candidatesToExport = candidates.filter(c => {
+      const hasEmail = c.email || c.personal_email;
+      const hasPhone = c.phone || c.personal_mobile;
+      return !hasEmail && !hasPhone;
+    });
+
+    if (candidatesToExport.length === 0) {
+      toast({ title: "No candidates to export", description: "All candidates already have contact info" });
+      return;
+    }
+
+    const headers = ["candidate_id", "first_name", "last_name", "specialty", "city", "state", "personal_email", "personal_phone"];
+    const rows = candidatesToExport.map(c => {
+      // Escape values that contain commas or quotes
+      const escapeCSV = (val: string | undefined | null): string => {
+        if (!val) return "";
+        if (val.includes(",") || val.includes('"') || val.includes("\n")) {
+          return `"${val.replace(/"/g, '""')}"`;
+        }
+        return val;
+      };
+      
+      return [
+        c.id,
+        escapeCSV(c.first_name),
+        escapeCSV(c.last_name),
+        escapeCSV(c.specialty),
+        escapeCSV(c.city),
+        escapeCSV(c.state),
+        "", // empty for user to fill in
+        "", // empty for user to fill in
+      ].join(",");
+    });
+
+    const csv = [headers.join(","), ...rows].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `candidates-for-enrichment-${new Date().toISOString().split("T")[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    toast({
+      title: "CSV Downloaded",
+      description: `${candidatesToExport.length} candidates exported. Fill in email/phone columns and re-upload.`,
+    });
+  };
 
   const handleEnrichAll = async () => {
     // First, get candidates that appear to need enrichment based on local state
@@ -626,7 +682,7 @@ export function StepPrepareCandidates({
                       />
                     </div>
                   ) : (
-                    <div className="space-y-2">
+                    <div className="space-y-3">
                       <Button
                         onClick={handleEnrichAll}
                         className="w-full bg-gradient-to-r from-primary to-sky-500"
@@ -642,10 +698,44 @@ export function StepPrepareCandidates({
                         <Pencil className="h-4 w-4 mr-2" />
                         Enter Contact Info Manually
                       </Button>
+
+                      {/* External Enrichment Section */}
+                      <div className="pt-2">
+                        <div className="relative">
+                          <Separator className="my-3" />
+                          <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-amber-500/10 px-2 text-xs text-muted-foreground">
+                            OR ENRICH EXTERNALLY
+                          </span>
+                        </div>
+                        
+                        <div className="grid grid-cols-2 gap-2 mt-3">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleDownloadForEnrichment}
+                            className="text-xs"
+                          >
+                            <Download className="h-3 w-3 mr-1.5" />
+                            Download CSV
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setCsvUploadOpen(true)}
+                            className="text-xs"
+                          >
+                            <Upload className="h-3 w-3 mr-1.5" />
+                            Upload CSV
+                          </Button>
+                        </div>
+                        <p className="text-xs text-muted-foreground text-center mt-2">
+                          Download template, add contact info externally, then re-upload
+                        </p>
+                      </div>
                     </div>
                   )}
 
-                  <p className="text-xs text-muted-foreground text-center">
+                  <p className="text-xs text-muted-foreground text-center border-t border-amber-500/30 pt-3 mt-1">
                     You can skip this step - campaigns will only reach candidates with contact info
                   </p>
                 </div>
@@ -677,6 +767,14 @@ export function StepPrepareCandidates({
           onSave={handleManualEntrySave}
         />
       )}
+
+      {/* CSV Upload Dialog */}
+      <CSVUploadDialog
+        open={csvUploadOpen}
+        onOpenChange={setCsvUploadOpen}
+        candidates={candidates}
+        onCandidatesUpdate={onCandidatesUpdate}
+      />
     </div>
   );
 }
