@@ -1,118 +1,61 @@
 
 # Instantly 2.0 Migration Plan
 
-## Current Situation
+## ✅ COMPLETED - Code Migration
 
-Your codebase is currently using **Instantly API v1** endpoints, which are being **deprecated on January 19, 2026**. Since you've created a new Instantly account with a v2 API key, the following updates are required.
+The following edge functions have been updated to use Instantly API v2:
 
----
+### Updated Files
 
-## What Needs to Be Configured
+| File | Change |
+|------|--------|
+| `supabase/functions/check-integrations/index.ts` | ✅ Updated to `GET /api/v2/accounts` |
+| `supabase/functions/launch-campaign/index.ts` | ✅ Updated to v2 endpoints: campaigns, leads, activate |
 
-### 1. Edge Functions Migration to API v2
+### API Changes Implemented
 
-The following edge functions use the old v1 endpoints and need updating:
+| Action | Old v1 Endpoint | New v2 Endpoint |
+|--------|-----------------|-----------------|
+| List accounts | `GET /api/v1/account/list` | `GET /api/v2/accounts` |
+| Create campaign | `POST /api/v1/campaign/create` | `POST /api/v2/campaigns` |
+| Add leads | `POST /api/v1/lead/add` (one at a time) | `POST /api/v2/leads` (batch) |
+| Activate | `POST /api/v1/campaign/launch` | `POST /api/v2/campaigns/{id}/activate` |
 
-| Function | Current v1 Endpoint | New v2 Endpoint |
-|----------|---------------------|-----------------|
-| `launch-campaign` | `POST /api/v1/campaign/create` | `POST /api/v2/campaigns` |
-| `launch-campaign` | `POST /api/v1/lead/add` | `POST /api/v2/leads` |
-| `launch-campaign` | `POST /api/v1/campaign/launch` | `POST /api/v2/campaigns/{id}/activate` |
-| `check-integrations` | `GET /api/v1/account/list` | `GET /api/v2/accounts` |
+### Key Improvements in v2
 
-### 2. Email Accounts in Instantly Dashboard
-
-You need to add your sender email accounts in the Instantly dashboard:
-
-**Current hardcoded accounts in the app:**
-- rainey@locums.one, rainey@trylocumsone.com, etc.
-- parker@locums.one, parker@trylocumsone.com, etc.
-- ali@trylocumsone.com, ali@meetlocumsone.com, etc.
-- gio@locums.one, gio@trylocumsone.com, etc.
-
-**Action Required:**
-1. Go to Instantly dashboard and add each sender account
-2. Connect each email via OAuth (Google or Microsoft) or SMTP
-3. Enable warmup for each account
-
-### 3. Webhook Configuration
-
-Update the webhook URL in Instantly to receive delivery events:
-- **Webhook URL**: `https://qpvyzyspwxwtwjhfcuhh.supabase.co/functions/v1/instantly-webhook`
-- **Events to track**: email_sent, email_opened, email_clicked, email_replied, email_bounced
+- **Batch lead import**: v2 now supports adding multiple leads in a single API call
+- **Full schedule config**: Campaign schedules are now configured during creation
+- **Cleaner payload structure**: Custom variables moved to `payload` object
 
 ---
 
-## Technical Implementation
+## ⚠️ STILL NEEDED - Instantly Dashboard Setup
 
-### Phase 1: Update `check-integrations` Edge Function
+### 1. Add Email Accounts in Instantly Dashboard
 
-Update the API endpoint from v1 to v2:
-```text
-Current:  https://api.instantly.ai/api/v1/account/list
-New:      https://api.instantly.ai/api/v2/accounts
-```
+Go to [app.instantly.ai](https://app.instantly.ai) → Email Accounts → Add Account
 
-### Phase 2: Update `launch-campaign` Edge Function
+**Required sender emails:**
+- rainey@locums.one, rainey@trylocumsone.com
+- parker@locums.one, parker@trylocumsone.com  
+- ali@trylocumsone.com, ali@meetlocumsone.com
+- gio@locums.one, gio@trylocumsone.com
 
-**Campaign Creation:**
-```text
-Current:  POST /api/v1/campaign/create
-New:      POST /api/v2/campaigns
-```
+### 2. Configure Webhook
 
-The v2 campaign creation requires a different payload structure including:
-- `name`: Campaign name
-- `email_list`: Array of sender email addresses
-- `campaign_schedule`: Schedule configuration object
-- `sequences`: Array containing email steps/copy
+In Instantly Dashboard → Settings → Webhooks, add:
+- **URL**: `https://qpvyzyspwxwtwjhfcuhh.supabase.co/functions/v1/instantly-webhook`
+- **Events**: email_sent, email_opened, email_clicked, email_replied, email_bounced
 
-**Lead Addition:**
-```text
-Current:  POST /api/v1/lead/add
-New:      POST /api/v2/leads
-```
+### 3. Enable Warmup
 
-The v2 lead creation payload changes:
-- `campaign_id` becomes just `campaign` 
-- Custom variables move to `payload` object
-
-**Campaign Activation:**
-```text
-Current:  POST /api/v1/campaign/launch
-New:      POST /api/v2/campaigns/{id}/activate
-```
-
-### Phase 3: Update `instantly-webhook` Edge Function
-
-The webhook may need adjustments to handle v2 event payloads if the structure changed.
+For each connected email account, enable warmup to improve deliverability.
 
 ---
 
-## Pre-Implementation Checklist (Action for You)
+## Status
 
-Before I implement the code changes, please confirm:
-
-1. **Email accounts added in Instantly?**
-   - Which sender emails are configured in your new Instantly account?
-   - Are they warmed up and ready to send?
-
-2. **API Scope verification:**
-   - Your API key has `all:all` scope - this is correct for full access
-
-3. **Do you want me to:**
-   - Update the hardcoded sender accounts list in `CampaignChannels.tsx`?
-   - Add new team members?
-
----
-
-## Estimated Changes
-
-| File | Change Type |
-|------|-------------|
-| `supabase/functions/launch-campaign/index.ts` | Update all Instantly API calls to v2 |
-| `supabase/functions/check-integrations/index.ts` | Update account list endpoint to v2 |
-| `supabase/functions/instantly-webhook/index.ts` | Verify v2 webhook payload compatibility |
-| `src/pages/CampaignChannels.tsx` | Optional: Update sender account list |
-
-Once you confirm what email accounts you have in Instantly, I'll implement the migration to v2.
+- ✅ API key updated to v2
+- ✅ Edge functions migrated
+- ⏳ Email accounts need to be added in Instantly dashboard
+- ⏳ Webhook URL needs to be configured

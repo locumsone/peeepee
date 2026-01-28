@@ -47,19 +47,25 @@ Deno.serve(async (req) => {
         results.instantly = { connected: false, error: "API key not configured" };
       } else {
         try {
-          const res = await fetch("https://api.instantly.ai/api/v1/account/list", {
+          // Instantly v2 API - accounts endpoint
+          const res = await fetch("https://api.instantly.ai/api/v2/accounts?limit=10", {
             headers: { Authorization: `Bearer ${instantlyKey}` },
           });
           if (res.ok) {
             const data = await res.json();
+            // v2 returns { items: [...] } format
+            const accounts = data.items || data.accounts || [];
             results.instantly = { 
               connected: true,
-              phoneNumber: senderEmail || (data.accounts?.[0]?.email) || "Email ready"
+              phoneNumber: senderEmail || (accounts[0]?.email) || "Email ready"
             };
           } else {
+            const errorText = await res.text();
+            console.error("Instantly API error:", res.status, errorText);
             results.instantly = { connected: false, error: "API authentication failed" };
           }
         } catch (err) {
+          console.error("Instantly connection error:", err);
           results.instantly = { connected: false, error: "Connection failed" };
         }
       }

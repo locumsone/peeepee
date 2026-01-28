@@ -240,26 +240,62 @@ serve(async (req) => {
         }
         console.log(`[launch-campaign] Sent ${emailsQueued} emails via ${emailProvider.toUpperCase()}`);
       } else {
-        // Use Instantly (existing flow)
+        // Use Instantly v2 API
         const instantlyApiKey = Deno.env.get("INSTANTLY_API_KEY");
         if (instantlyApiKey) {
           try {
-            // Create campaign in Instantly
-            const campaignCreateRes = await fetch("https://api.instantly.ai/api/v1/campaign/create", {
+            // Build schedule config
+            const scheduleConfig = channels.schedule || {
+              startDate: new Date().toISOString().split('T')[0],
+              sendWindowStart: "09:00",
+              sendWindowEnd: "17:00",
+              timezone: "America/New_York",
+              weekdaysOnly: true,
+            };
+
+            // Instantly v2 campaign creation with full payload
+            const campaignPayload = {
+              name: campaign_name,
+              email_list: [sender_email],
+              campaign_schedule: {
+                schedules: [
+                  {
+                    name: "Default Schedule",
+                    days: {
+                      sunday: !scheduleConfig.weekdaysOnly,
+                      monday: true,
+                      tuesday: true,
+                      wednesday: true,
+                      thursday: true,
+                      friday: true,
+                      saturday: !scheduleConfig.weekdaysOnly,
+                    },
+                    timezone: scheduleConfig.timezone || "America/New_York",
+                    timing: {
+                      from: scheduleConfig.sendWindowStart || "09:00",
+                      to: scheduleConfig.sendWindowEnd || "17:00",
+                    },
+                  },
+                ],
+              },
+            };
+
+            console.log(`[launch-campaign] Creating Instantly v2 campaign:`, JSON.stringify(campaignPayload));
+
+            const campaignCreateRes = await fetch("https://api.instantly.ai/api/v2/campaigns", {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
                 Authorization: `Bearer ${instantlyApiKey}`,
               },
-              body: JSON.stringify({
-                name: campaign_name,
-                sending_account: sender_email,
-              }),
+              body: JSON.stringify(campaignPayload),
             });
 
             if (campaignCreateRes.ok) {
               const instantlyCampaign = await campaignCreateRes.json();
               const instantlyCampaignId = instantlyCampaign.id;
+
+              console.log(`[launch-campaign] Created Instantly campaign: ${instantlyCampaignId}`);
 
               // Update our campaign with external ID
               await supabase
@@ -267,46 +303,60 @@ serve(async (req) => {
                 .update({ external_id: instantlyCampaignId })
                 .eq("id", campaign.id);
 
-              // Add leads to Instantly
-              for (const candidate of candidatesWithEmail) {
-                try {
-                  const leadRes = await fetch("https://api.instantly.ai/api/v1/lead/add", {
-                    method: "POST",
-                    headers: {
-                      "Content-Type": "application/json",
-                      Authorization: `Bearer ${instantlyApiKey}`,
-                    },
-                    body: JSON.stringify({
-                      campaign_id: instantlyCampaignId,
-                      email: candidate.email,
-                      first_name: candidate.first_name,
-                      last_name: candidate.last_name,
-                      custom_variables: {
-                        icebreaker: candidate.icebreaker || "",
-                        talking_points: (candidate.talking_points || []).join("; "),
-                      },
-                    }),
-                  });
+              // Instantly v2 - Add leads in batch (more efficient)
+              const leadsPayload = candidatesWithEmail.map(candidate => ({
+                email: candidate.email,
+                first_name: candidate.first_name,
+                last_name: candidate.last_name,
+                payload: {
+                  icebreaker: candidate.icebreaker || "",
+                  talking_points: (candidate.talking_points || []).join("; "),
+                  specialty: candidate.specialty || "",
+                },
+              }));
 
-                  if (leadRes.ok) {
-                    emailsQueued++;
-                  }
-                } catch (err) {
-                  console.error(`[launch-campaign] Instantly lead add error for ${candidate.email}:`, err);
-                }
-              }
-
-              // Launch the campaign
-              await fetch("https://api.instantly.ai/api/v1/campaign/launch", {
+              // v2 API uses campaign (not campaign_id)
+              const leadAddRes = await fetch("https://api.instantly.ai/api/v2/leads", {
                 method: "POST",
                 headers: {
                   "Content-Type": "application/json",
                   Authorization: `Bearer ${instantlyApiKey}`,
                 },
-                body: JSON.stringify({ campaign_id: instantlyCampaignId }),
+                body: JSON.stringify({
+                  campaign: instantlyCampaignId,
+                  leads: leadsPayload,
+                  skip_if_in_campaign: true,
+                }),
               });
 
-              console.log(`[launch-campaign] Created Instantly campaign ${instantlyCampaignId} with ${emailsQueued} leads`);
+              if (leadAddRes.ok) {
+                emailsQueued = candidatesWithEmail.length;
+                console.log(`[launch-campaign] Added ${emailsQueued} leads to Instantly`);
+              } else {
+                const leadError = await leadAddRes.text();
+                console.error(`[launch-campaign] Instantly lead add error:`, leadError);
+              }
+
+              // Instantly v2 - Activate campaign
+              const activateRes = await fetch(`https://api.instantly.ai/api/v2/campaigns/${instantlyCampaignId}/activate`, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${instantlyApiKey}`,
+                },
+              });
+
+              if (activateRes.ok) {
+                console.log(`[launch-campaign] Activated Instantly campaign ${instantlyCampaignId}`);
+              } else {
+                const activateError = await activateRes.text();
+                console.error(`[launch-campaign] Instantly activation error:`, activateError);
+              }
+
+              console.log(`[launch-campaign] Completed Instantly v2 setup with ${emailsQueued} leads`);
+            } else {
+              const errorText = await campaignCreateRes.text();
+              console.error(`[launch-campaign] Instantly v2 campaign creation failed:`, errorText);
             }
           } catch (err) {
             console.error("[launch-campaign] Instantly API error:", err);
