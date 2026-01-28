@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { 
   Search, Building2, MapPin, DollarSign, ArrowRight, ArrowLeft,
@@ -13,6 +13,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { useCampaignDraft } from "@/hooks/useCampaignDraft";
+import type { SelectedCandidate } from "@/components/campaign-review/types";
 
 interface Job {
   id: string;
@@ -39,6 +41,9 @@ interface MatchedCandidate {
   match_score: number;
   match_reasons: string[];
   tier: number;
+  // Research data that should persist
+  icebreaker?: string;
+  talking_points?: string[];
 }
 
 const WIZARD_STEPS = [
@@ -50,6 +55,16 @@ const WIZARD_STEPS = [
 
 const CampaignCandidates = () => {
   const navigate = useNavigate();
+  
+  // Use unified draft persistence
+  const { 
+    job: draftJob, 
+    candidates: draftCandidates,
+    updateCandidates,
+    lastSaved,
+    isDirty,
+    saveDraft
+  } = useCampaignDraft();
   
   const [job, setJob] = useState<Job | null>(null);
   const [isSearching, setIsSearching] = useState(false);
@@ -66,7 +81,15 @@ const CampaignCandidates = () => {
   // Enrichment loading state
   const [enrichingIds, setEnrichingIds] = useState<Set<string>>(new Set());
 
+  // Load job from draft or sessionStorage
   useEffect(() => {
+    // First try draft job
+    if (draftJob) {
+      setJob(draftJob as Job);
+      return;
+    }
+    
+    // Fallback to sessionStorage
     const jobId = sessionStorage.getItem("campaign_job_id");
     const storedJob = sessionStorage.getItem("campaign_job");
     
@@ -76,7 +99,75 @@ const CampaignCandidates = () => {
     }
     
     setJob(JSON.parse(storedJob));
-  }, [navigate]);
+  }, [navigate, draftJob]);
+
+  // Restore candidates from draft on mount
+  useEffect(() => {
+    if (draftCandidates && draftCandidates.length > 0 && candidates.length === 0) {
+      // Convert draft candidates back to MatchedCandidate format
+      const restoredCandidates: MatchedCandidate[] = draftCandidates.map(c => ({
+        id: c.id,
+        first_name: c.first_name,
+        last_name: c.last_name,
+        specialty: c.specialty || null,
+        city: c.city || null,
+        state: c.state || null,
+        licenses: null,
+        phone: c.phone || null,
+        email: c.email || null,
+        personal_mobile: c.personal_mobile || null,
+        personal_email: c.personal_email || null,
+        match_score: parseInt(c.unified_score || "0") || 0,
+        match_reasons: [],
+        tier: c.tier || 3,
+        icebreaker: c.icebreaker,
+        talking_points: c.talking_points,
+      }));
+      
+      setCandidates(restoredCandidates);
+      setSelectedIds(new Set(restoredCandidates.map(c => c.id)));
+      setHasSearched(true);
+      console.log("[CampaignCandidates] Restored", restoredCandidates.length, "candidates from draft");
+    }
+  }, [draftCandidates]);
+
+  // Auto-save candidates to draft whenever selection changes
+  const syncCandidatesToDraft = useCallback((
+    allCandidates: MatchedCandidate[], 
+    selected: Set<string>
+  ) => {
+    const selectedCandidates = allCandidates.filter(c => selected.has(c.id));
+    
+    // Convert to SelectedCandidate format for draft storage
+    const draftFormat: SelectedCandidate[] = selectedCandidates.map(c => ({
+      id: c.id,
+      first_name: c.first_name || "",
+      last_name: c.last_name || "",
+      email: c.email || undefined,
+      phone: c.phone || undefined,
+      personal_email: c.personal_email || undefined,
+      personal_mobile: c.personal_mobile || undefined,
+      specialty: c.specialty || undefined,
+      city: c.city || undefined,
+      state: c.state || undefined,
+      tier: c.tier,
+      unified_score: String(c.match_score || 0),
+      icebreaker: c.icebreaker,
+      talking_points: c.talking_points,
+    }));
+    
+    updateCandidates(draftFormat);
+  }, [updateCandidates]);
+
+  // Save before component unmounts (navigation away)
+  useEffect(() => {
+    return () => {
+      // Force sync on unmount
+      if (candidates.length > 0) {
+        saveDraft();
+      }
+    };
+  }, [candidates, saveDraft]);
 
   const findCandidates = async () => {
     if (!job) return;
@@ -114,6 +205,9 @@ const CampaignCandidates = () => {
       });
       setSelectedIds(autoSelected);
       
+      // Auto-save to draft
+      syncCandidatesToDraft(matchedCandidates, autoSelected);
+      
       // Ensure C-tier is collapsed by default
       setCTierOpen(false);
       
@@ -134,6 +228,8 @@ const CampaignCandidates = () => {
       } else {
         next.add(id);
       }
+      // Auto-save on every toggle
+      syncCandidatesToDraft(candidates, next);
       return next;
     });
   };
@@ -142,11 +238,15 @@ const CampaignCandidates = () => {
     const abIds = candidates
       .filter(c => c.tier === 1 || c.tier === 2)
       .map(c => c.id);
-    setSelectedIds(new Set(abIds));
+    const newSet = new Set(abIds);
+    setSelectedIds(newSet);
+    syncCandidatesToDraft(candidates, newSet);
   };
 
   const deselectAll = () => {
-    setSelectedIds(new Set());
+    const emptySet = new Set<string>();
+    setSelectedIds(emptySet);
+    syncCandidatesToDraft(candidates, emptySet);
   };
 
   // Toggle show all tiers
@@ -192,9 +292,9 @@ const CampaignCandidates = () => {
       const foundEmail = data.email || data.personal_email;
 
       if (foundPhone || foundEmail) {
-        // Update the candidate in state
-        setCandidates(prev =>
-          prev.map(c =>
+        // Update the candidate in state and sync to draft
+        setCandidates(prev => {
+          const updated = prev.map(c =>
             c.id === candidate.id
               ? {
                   ...c,
@@ -204,8 +304,11 @@ const CampaignCandidates = () => {
                   personal_email: data.personal_email || c.personal_email,
                 }
               : c
-          )
-        );
+          );
+          // Sync enriched data to draft
+          syncCandidatesToDraft(updated, selectedIds);
+          return updated;
+        });
         toast.success(`✅ Found: ${foundPhone || "—"} / ${foundEmail || "—"}`);
       } else {
         toast.warning("⚠️ No contact info found");
@@ -223,6 +326,10 @@ const CampaignCandidates = () => {
   };
 
   const handleNext = () => {
+    // Final save before navigation
+    syncCandidatesToDraft(candidates, selectedIds);
+    saveDraft();
+    
     const selectedCandidates = candidates.filter(c => selectedIds.has(c.id));
     // Save all required data to sessionStorage - sync ALL keys the wizard expects
     sessionStorage.setItem("campaign_candidate_ids", JSON.stringify(Array.from(selectedIds)));
@@ -253,7 +360,7 @@ const CampaignCandidates = () => {
   };
 
   return (
-    <Layout showSteps={false}>
+    <Layout showSteps={false} lastSaved={lastSaved} isDirty={isDirty}>
       <div className="mx-auto max-w-6xl space-y-6 pb-24">
         {/* Step Indicator */}
         <div className="w-full py-6">
