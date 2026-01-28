@@ -411,6 +411,13 @@ export default function CampaignReview() {
     setCandidates(updatedCandidates);
   };
 
+  const handleChannelsChange = (updatedChannels: ChannelConfig) => {
+    setChannels(updatedChannels);
+    updateChannels(updatedChannels);
+    // Also update sessionStorage for backward compatibility
+    sessionStorage.setItem("campaign_channels", JSON.stringify(updatedChannels));
+  };
+
   const handleIntegrationStatusChange = (connected: boolean, details?: IntegrationStatusType[]) => {
     setIntegrationsConnected(connected);
     if (details) setIntegrationDetails(details);
@@ -589,6 +596,7 @@ export default function CampaignReview() {
             channels={channels}
             senderEmail={senderEmail}
             onStatusChange={handleIntegrationStatusChange}
+            onChannelsChange={handleChannelsChange}
           />
         </ReviewStepCard>
 
