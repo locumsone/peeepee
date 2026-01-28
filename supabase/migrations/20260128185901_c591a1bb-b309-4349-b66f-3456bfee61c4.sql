@@ -1,0 +1,1 @@
+DELETE FROM candidate_job_matches WHERE job_id = 'f1cf6cf5-1dcb-468c-99b5-4cd7e0b80427';
