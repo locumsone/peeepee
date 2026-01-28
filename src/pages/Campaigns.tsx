@@ -219,6 +219,11 @@ const Campaigns = () => {
     setQuickViewCampaignName(campaign?.name || null);
   };
 
+  const handleContinueDraft = (campaignId: string) => {
+    // Navigate to review page with the draft campaign ID
+    navigate(`/campaigns/new/review?draft=${campaignId}`);
+  };
+
   const handleStatusChange = async (campaignId: string, newStatus: string) => {
     try {
       const { error } = await supabase
@@ -290,6 +295,7 @@ const Campaigns = () => {
                     onDelete={handleDelete}
                     onDuplicate={handleDuplicate}
                     onViewLeads={handleViewLeads}
+                    onContinueDraft={handleContinueDraft}
                   />
                 ))}
               </div>

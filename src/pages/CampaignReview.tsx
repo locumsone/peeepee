@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { Loader2, RotateCcw, ArrowLeft } from "lucide-react";
@@ -34,6 +34,8 @@ interface Blocker {
 
 export default function CampaignReview() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const draftCampaignId = searchParams.get("draft");
   
   // Use the unified campaign draft hook
   const {
@@ -53,11 +55,13 @@ export default function CampaignReview() {
   } = useCampaignDraft();
 
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingDraftFromDb, setIsLoadingDraftFromDb] = useState(false);
   const [job, setJob] = useState<Job | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
   const [candidates, setCandidates] = useState<SelectedCandidate[]>([]);
   const [channels, setChannels] = useState<ChannelConfig>({});
   const [campaignName, setCampaignName] = useState("");
+  const [existingCampaignId, setExistingCampaignId] = useState<string | null>(null);
   const [senderEmail, setSenderEmail] = useState(senderAccounts[0].emails[0]);
   const [tierStats, setTierStats] = useState<TierStats>({
     tier1: 0, tier2: 0, tier3: 0, readyCount: 0, needsEnrichment: 0,
@@ -163,8 +167,145 @@ export default function CampaignReview() {
     } finally { setIsLoading(false); }
   };
 
-  // Sync draft data to local state when draft loads
+  // Load draft campaign from database
+  const loadDraftFromDatabase = async (campaignId: string) => {
+    setIsLoadingDraftFromDb(true);
+    try {
+      // Load campaign with job
+      const { data: campaignData, error: campaignError } = await supabase
+        .from("campaigns")
+        .select(`
+          *,
+          jobs (*)
+        `)
+        .eq("id", campaignId)
+        .maybeSingle();
+
+      if (campaignError) throw campaignError;
+      if (!campaignData) {
+        toast({ title: "Draft Not Found", description: "The draft campaign could not be found.", variant: "destructive" });
+        navigate("/campaigns");
+        return;
+      }
+
+      // Set campaign and job data
+      setExistingCampaignId(campaignId);
+      setCampaignName(campaignData.name || "");
+      setJobId(campaignData.job_id);
+      
+      if (campaignData.jobs) {
+        const jobData = campaignData.jobs as unknown as Job;
+        setJob(jobData);
+      }
+
+      // Load candidates from campaign_leads_v2
+      const { data: leadsData, error: leadsError } = await supabase
+        .from("campaign_leads_v2")
+        .select("*")
+        .eq("campaign_id", campaignId);
+
+      if (leadsError) throw leadsError;
+
+      if (leadsData && leadsData.length > 0) {
+        // Map leads to SelectedCandidate format
+        const mappedCandidates: SelectedCandidate[] = leadsData.map((lead) => ({
+          id: lead.candidate_id || lead.id,
+          first_name: lead.candidate_name?.split(" ")[0] || "",
+          last_name: lead.candidate_name?.split(" ").slice(1).join(" ") || "",
+          email: lead.candidate_email || undefined,
+          phone: lead.candidate_phone || undefined,
+          specialty: lead.candidate_specialty || undefined,
+          state: lead.candidate_state || undefined,
+          tier: lead.tier || undefined,
+          unified_score: lead.match_score ? `${lead.match_score >= 80 ? "A" : lead.match_score >= 60 ? "B" : "C"}` : undefined,
+        }));
+        setCandidates(mappedCandidates);
+      } else if (campaignData.job_id) {
+        // No leads yet - check for candidates via job matches
+        const { data: matchData } = await supabase
+          .from("candidate_job_matches")
+          .select(`
+            *,
+            candidates (*)
+          `)
+          .eq("job_id", campaignData.job_id)
+          .limit(50);
+
+        if (matchData && matchData.length > 0) {
+          const mappedCandidates: SelectedCandidate[] = matchData
+            .filter((m) => m.candidates)
+            .map((m) => {
+              const c = m.candidates as any;
+              return {
+                id: c.id,
+                first_name: c.first_name || "",
+                last_name: c.last_name || "",
+                email: c.email || c.personal_email || undefined,
+                phone: c.phone || c.personal_mobile || undefined,
+                specialty: c.specialty || undefined,
+                state: c.state || undefined,
+                tier: m.match_score ? (m.match_score >= 80 ? 1 : m.match_score >= 60 ? 2 : 3) : undefined,
+                unified_score: m.match_grade || undefined,
+                icebreaker: m.icebreaker || undefined,
+                talking_points: m.talking_points || undefined,
+              };
+            });
+          setCandidates(mappedCandidates);
+        }
+      }
+
+      // Parse channel from campaign (if stored)
+      if (campaignData.channel) {
+        const channelConfig: ChannelConfig = {};
+        const channelStr = campaignData.channel.toLowerCase();
+        
+        if (channelStr.includes("email") || channelStr.includes("all")) {
+          channelConfig.email = {
+            sender: campaignData.sender_account || senderAccounts[0].emails[0],
+            sequenceLength: 4,
+            gapDays: 3,
+          };
+          if (campaignData.sender_account) {
+            setSenderEmail(campaignData.sender_account);
+          }
+        }
+        if (channelStr.includes("sms") || channelStr.includes("all")) {
+          channelConfig.sms = { fromNumber: "", sequenceLength: 1 };
+        }
+        if (channelStr.includes("call") || channelStr.includes("voice") || channelStr.includes("all")) {
+          channelConfig.aiCall = { fromNumber: "", callDay: 10, transferTo: "" };
+        }
+        
+        setChannels(channelConfig);
+      }
+
+      console.log("[CampaignReview] Loaded draft from database:", {
+        campaignId,
+        name: campaignData.name,
+        jobId: campaignData.job_id,
+        candidatesCount: leadsData?.length || 0,
+      });
+      
+    } catch (error) {
+      console.error("Failed to load draft from database:", error);
+      toast({ title: "Error Loading Draft", description: "Could not load the draft campaign.", variant: "destructive" });
+    } finally {
+      setIsLoadingDraftFromDb(false);
+      setIsLoading(false);
+    }
+  };
+
+  // Load draft from database if ?draft= param is present
   useEffect(() => {
+    if (draftCampaignId) {
+      loadDraftFromDatabase(draftCampaignId);
+    }
+  }, [draftCampaignId]);
+
+  // Sync draft data to local state when draft loads (only if not loading from DB)
+  useEffect(() => {
+    // Skip if loading from database via ?draft= param
+    if (draftCampaignId || isLoadingDraftFromDb) return;
     if (isDraftLoading) return;
     
     // Check if draft has meaningful data
@@ -327,12 +468,14 @@ export default function CampaignReview() {
     return activeChannels.length > 0 ? `${activeChannels.length} channels connected` : "No channels";
   };
 
-  if (isLoading || isDraftLoading) {
+  if (isLoading || isDraftLoading || isLoadingDraftFromDb) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="text-center">
           <Loader2 className="h-12 w-12 animate-spin text-primary mx-auto mb-4" />
-          <p className="text-muted-foreground">Loading campaign data...</p>
+          <p className="text-muted-foreground">
+            {isLoadingDraftFromDb ? "Loading draft campaign..." : "Loading campaign data..."}
+          </p>
         </div>
       </div>
     );
