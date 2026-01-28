@@ -43,14 +43,18 @@ export function StepConnectChannels({
     // Email (Instantly or Gmail/SMTP)
     if (channels.email) {
       const provider = channels.email.provider || 'instantly';
-      const providerLabel = provider === 'gmail' || provider === 'smtp' ? 'Gmail/SMTP' : 'Instantly';
+      const isGmail = provider === 'gmail' || provider === 'smtp';
+      const providerLabel = isGmail ? 'Gmail' : 'Instantly';
+      const providerDetails = isGmail 
+        ? `${senderEmail} (Connected via Google)`
+        : senderEmail;
       statuses.push({
         name: `Email (${providerLabel})`,
         key: "email",
         icon: <Mail className="h-4 w-4" />,
         enabled: true,
-        status: provider === 'gmail' || provider === 'smtp' ? "connected" as const : "checking",
-        details: senderEmail,
+        status: isGmail ? "connected" as const : "checking",
+        details: providerDetails,
       });
     }
 
