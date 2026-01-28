@@ -7,8 +7,10 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
-import { Stethoscope, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { z } from "zod";
+import { GoogleAuthButton } from "@/components/auth/GoogleAuthButton";
+import logoImage from "@/assets/logo.png";
 
 const signupSchema = z.object({
   firstName: z.string().min(1, "First name is required"),
@@ -132,15 +134,30 @@ export default function Signup() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md shadow-card">
-        <CardHeader className="text-center space-y-2">
-          <div className="mx-auto w-16 h-16 rounded-2xl gradient-primary flex items-center justify-center mb-2">
-            <Stethoscope className="h-8 w-8 text-primary-foreground" />
+        <CardHeader className="text-center space-y-3 pb-4">
+          <div className="mx-auto w-14 h-14 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center mb-1">
+            <img src={logoImage} alt="Locums One" className="h-8 w-8" />
           </div>
-          <CardTitle className="text-2xl font-display">Join Locums One</CardTitle>
-          <CardDescription>Create your account to get started</CardDescription>
+          <div>
+            <CardTitle className="text-xl font-bold tracking-tight">Join Locums One</CardTitle>
+            <CardDescription className="mt-1">Create your account to get started</CardDescription>
+          </div>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleSignup} className="space-y-4">
+          <div className="space-y-4">
+            <GoogleAuthButton disabled={loading} className="w-full h-10" />
+            
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t border-border" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-card px-2 text-muted-foreground">Or continue with email</span>
+              </div>
+            </div>
+          </div>
+
+          <form onSubmit={handleSignup} className="space-y-4 mt-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="firstName">First Name</Label>

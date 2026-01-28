@@ -21,10 +21,12 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { format, addDays } from "date-fns";
-import { ArrowLeft, ArrowRight, Mail, MessageSquare, Phone, Linkedin, CalendarIcon, Download, Info } from "lucide-react";
+import { ArrowLeft, ArrowRight, Mail, MessageSquare, Phone, Linkedin, CalendarIcon, Download, Info, CheckCircle2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { cn } from "@/lib/utils";
+import { useGmailAccounts } from "@/hooks/useGmailAccounts";
+import { Badge } from "@/components/ui/badge";
 
 const steps = [
   { number: 1, label: "Job" },
@@ -104,6 +106,7 @@ const timezoneOptions = [
 
 export default function CampaignChannels() {
   const navigate = useNavigate();
+  const { accounts: gmailAccounts, primaryAccount, loading: gmailLoading } = useGmailAccounts();
   const [jobId, setJobId] = useState<string | null>(null);
   const [jobName, setJobName] = useState("");
   const [candidateCount, setCandidateCount] = useState(0);
@@ -132,6 +135,14 @@ export default function CampaignChannels() {
   const [sendWindowEnd, setSendWindowEnd] = useState("5:00 PM");
   const [timezone, setTimezone] = useState("America/Chicago");
   const [weekdaysOnly, setWeekdaysOnly] = useState(true);
+
+  // Auto-populate Gmail sender from connected account
+  useEffect(() => {
+    if (primaryAccount && !gmailSender) {
+      setGmailSender(primaryAccount.email);
+      setGmailSenderName(primaryAccount.display_name || '');
+    }
+  }, [primaryAccount, gmailSender]);
 
   useEffect(() => {
     const storedJobId = sessionStorage.getItem("campaign_job_id");
@@ -315,15 +326,48 @@ export default function CampaignChannels() {
                   {/* Gmail/SMTP Options */}
                   {emailProvider === 'gmail' && (
                     <div className="space-y-4 p-4 bg-muted/30 rounded-lg border border-border">
+                      {/* Connected via Google indicator */}
+                      {gmailAccounts.length > 0 && (
+                        <div className="flex items-center gap-2 p-2 bg-emerald-500/10 rounded-lg border border-emerald-500/20">
+                          <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                          <span className="text-sm text-emerald-600 dark:text-emerald-400">
+                            Connected via Google
+                          </span>
+                          <Badge variant="outline" className="ml-auto text-emerald-500 border-emerald-500/30">
+                            OAuth
+                          </Badge>
+                        </div>
+                      )}
+                      
                       <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
-                          <Label>Your Email</Label>
-                          <Input
-                            type="email"
-                            placeholder="marc@locums.one"
-                            value={gmailSender}
-                            onChange={(e) => setGmailSender(e.target.value)}
-                          />
+                          <Label>Sender Account</Label>
+                          {gmailAccounts.length > 0 ? (
+                            <Select value={gmailSender} onValueChange={setGmailSender}>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select account" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {gmailAccounts.map((account) => (
+                                  <SelectItem key={account.id} value={account.email}>
+                                    <div className="flex items-center gap-2">
+                                      {account.email}
+                                      {account.is_primary && (
+                                        <Badge variant="secondary" className="text-xs">Primary</Badge>
+                                      )}
+                                    </div>
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          ) : (
+                            <Input
+                              type="email"
+                              placeholder="marc@locums.one"
+                              value={gmailSender}
+                              onChange={(e) => setGmailSender(e.target.value)}
+                            />
+                          )}
                         </div>
                         <div className="space-y-2">
                           <Label>Display Name</Label>
@@ -335,12 +379,15 @@ export default function CampaignChannels() {
                           />
                         </div>
                       </div>
-                      <div className="flex items-start gap-2 p-3 bg-amber-500/10 rounded-lg border border-amber-500/20">
-                        <Info className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
-                        <p className="text-xs text-amber-600 dark:text-amber-400">
-                          Uses secure SMTP with Gmail App Password. Rate limit: 2,000 emails/day for Google Workspace.
-                        </p>
-                      </div>
+                      
+                      {gmailAccounts.length === 0 && (
+                        <div className="flex items-start gap-2 p-3 bg-amber-500/10 rounded-lg border border-amber-500/20">
+                          <Info className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
+                          <p className="text-xs text-amber-600 dark:text-amber-400">
+                            Sign in with Google for one-click sender setup. Otherwise, uses Gmail App Password via SMTP.
+                          </p>
+                        </div>
+                      )}
                     </div>
                   )}
 

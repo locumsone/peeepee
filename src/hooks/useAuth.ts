@@ -1,12 +1,15 @@
 import { useState, useEffect, useCallback } from "react";
 import { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
-import { useNavigate } from "react-router-dom";
+import { useGmailAccountSetup } from "./useGmailAccountSetup";
 
 export function useAuth() {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Auto-setup Gmail account for Google OAuth users
+  useGmailAccountSetup(session);
 
   useEffect(() => {
     // Set up auth state listener FIRST

@@ -7,9 +7,10 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/useAuth";
-import { Stethoscope, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { z } from "zod";
 import logoImage from "@/assets/logo.png";
+import { GoogleAuthButton } from "@/components/auth/GoogleAuthButton";
 
 const loginSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
@@ -109,6 +110,19 @@ export default function Login() {
           </div>
         </CardHeader>
         <CardContent>
+          <div className="space-y-4">
+            <GoogleAuthButton disabled={loading} className="w-full h-10" />
+            
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t border-border" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-card px-2 text-muted-foreground">Or continue with email</span>
+              </div>
+            </div>
+          </div>
+
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="email" className="text-sm font-medium">Email</Label>
