@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { useSMSSyncTrigger } from "@/hooks/useSMSSync";
 
 interface NewMessageModalProps {
   open: boolean;
@@ -80,6 +81,7 @@ export const NewMessageModal = ({ open, onOpenChange }: NewMessageModalProps) =>
   const [manualName, setManualName] = useState("");
   
   const queryClient = useQueryClient();
+  const triggerSync = useSMSSyncTrigger();
 
   // Reset state when modal closes
   useEffect(() => {
@@ -230,9 +232,8 @@ export const NewMessageModal = ({ open, onOpenChange }: NewMessageModalProps) =>
       }
 
       toast.success("SMS sent successfully");
-      // Sync with both Communications Hub and Softphone
-      queryClient.invalidateQueries({ queryKey: ["sms-conversations"] });
-      queryClient.invalidateQueries({ queryKey: ["sms-conversations-softphone"] });
+      // Immediately trigger sync across all components
+      triggerSync();
       onOpenChange(false);
     } catch (error) {
       toast.error("Failed to send SMS");
