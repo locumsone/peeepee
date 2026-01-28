@@ -48,6 +48,7 @@ export function StepPrepareCandidates({
   });
   const [enrichmentResults, setEnrichmentResults] = useState<EnrichmentResult[]>([]);
   const [showResults, setShowResults] = useState(false);
+  const [showManualEntryList, setShowManualEntryList] = useState(false);
   const [totalCostSpent, setTotalCostSpent] = useState(0);
   const [searchQuery, setSearchQuery] = useState("");
   
@@ -270,19 +271,25 @@ export function StepPrepareCandidates({
     });
     onCandidatesUpdate(updatedCandidates);
 
-    // Update enrichment results
-    setEnrichmentResults(prev => prev.map(r => {
-      if (r.candidateId === candidateId) {
-        return {
-          ...r,
-          status: 'success' as const,
-          email,
-          phone,
-          source: 'Manual',
-        };
-      }
-      return r;
-    }));
+    // Update enrichment results if showing
+    if (showResults) {
+      setEnrichmentResults(prev => prev.map(r => {
+        if (r.candidateId === candidateId) {
+          return {
+            ...r,
+            status: 'success' as const,
+            email,
+            phone,
+            source: 'Manual',
+          };
+        }
+        return r;
+      }));
+    }
+    
+    // Close manual entry dialog
+    setManualEntryOpen(false);
+    setSelectedCandidate(null);
   };
 
   const filteredResults = enrichmentResults.filter(r => 
@@ -328,10 +335,105 @@ export function StepPrepareCandidates({
     );
   };
 
+  // Handle opening manual entry for any candidate (not just failed enrichment)
+  const handleOpenManualEntryForCandidate = (candidate: SelectedCandidate) => {
+    setSelectedCandidate({
+      id: candidate.id,
+      name: `Dr. ${candidate.first_name} ${candidate.last_name}`,
+      currentEmail: candidate.email || candidate.personal_email,
+      currentPhone: candidate.phone || candidate.personal_mobile,
+    });
+    setManualEntryOpen(true);
+  };
+
+  // Filter candidates missing contact info for manual entry list
+  const candidatesMissingContact = candidates.filter(c => {
+    const hasEmail = c.email || c.personal_email;
+    const hasPhone = c.phone || c.personal_mobile;
+    return !hasEmail && !hasPhone;
+  });
+
   return (
     <div className="space-y-4">
-      {/* Enrichment Results Table */}
-      {showResults && enrichmentResults.length > 0 ? (
+      {/* Manual Entry List View */}
+      {showManualEntryList && !showResults ? (
+        <div className="border border-border rounded-lg overflow-hidden">
+          <div className="bg-muted/50 px-4 py-3 border-b border-border">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Pencil className="h-4 w-4 text-primary" />
+                <h4 className="font-semibold text-foreground">Manual Contact Entry</h4>
+                <Badge variant="outline">{candidatesMissingContact.length} need info</Badge>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => setShowManualEntryList(false)}>
+                Done
+              </Button>
+            </div>
+          </div>
+          
+          {/* Search */}
+          <div className="px-4 py-2 border-b border-border">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search by name..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-9 h-8"
+              />
+            </div>
+          </div>
+          
+          <ScrollArea className="h-[300px]">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Phone</TableHead>
+                  <TableHead className="w-24">Action</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {candidatesMissingContact
+                  .filter(c => 
+                    `${c.first_name} ${c.last_name}`.toLowerCase().includes(searchQuery.toLowerCase())
+                  )
+                  .map((candidate) => (
+                    <TableRow key={candidate.id}>
+                      <TableCell className="font-medium text-foreground">
+                        Dr. {candidate.first_name} {candidate.last_name}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {candidate.email || candidate.personal_email || '--'}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {candidate.phone || candidate.personal_mobile || '--'}
+                      </TableCell>
+                      <TableCell>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleOpenManualEntryForCandidate(candidate)}
+                          className="h-7"
+                        >
+                          <Pencil className="h-3 w-3 mr-1" />
+                          Add
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+              </TableBody>
+            </Table>
+          </ScrollArea>
+          
+          <div className="px-4 py-3 border-t border-border bg-muted/30">
+            <p className="text-xs text-muted-foreground text-center">
+              Click "Add" to enter email/phone for each candidate, or click "Done" to continue with available contacts
+            </p>
+          </div>
+        </div>
+      ) : showResults && enrichmentResults.length > 0 ? (
         <div className="border border-border rounded-lg overflow-hidden">
           <div className="bg-muted/50 px-4 py-3 border-b border-border">
             <div className="flex items-center justify-between flex-wrap gap-2">
@@ -388,17 +490,15 @@ export function StepPrepareCandidates({
                     <TableCell className="text-muted-foreground">{result.phone || '--'}</TableCell>
                     <TableCell>{getSourceBadge(result.source)}</TableCell>
                     <TableCell>
-                      {result.status !== 'success' && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => handleOpenManualEntry(result)}
-                          className="h-7 px-2 text-muted-foreground hover:text-foreground"
-                        >
-                          <Pencil className="h-3 w-3 mr-1" />
-                          Edit
-                        </Button>
-                      )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleOpenManualEntry(result)}
+                        className="h-7 px-2 text-muted-foreground hover:text-foreground"
+                      >
+                        <Pencil className="h-3 w-3 mr-1" />
+                        {result.status === 'success' ? 'Edit' : 'Add'}
+                      </Button>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -488,9 +588,12 @@ export function StepPrepareCandidates({
               </div>
             ) : (
               <>
-                <div className="flex items-center gap-2">
-                  <Sparkles className="h-5 w-5 text-primary" />
-                  <h4 className="font-semibold text-foreground">Contact Enrichment</h4>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="h-5 w-5 text-primary" />
+                    <h4 className="font-semibold text-foreground">Contact Enrichment</h4>
+                  </div>
+                  <Badge variant="outline" className="text-muted-foreground">Optional</Badge>
                 </div>
 
                 <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4 space-y-4">
@@ -501,7 +604,7 @@ export function StepPrepareCandidates({
                         {needsEnrichment} candidates need contact info
                       </p>
                       <p className="text-sm text-muted-foreground mt-1">
-                        We'll search PDL first ($0.05), then Whitepages ($0.30) if needed
+                        Enrich now or skip and launch with {tierStats.readyCount} ready candidates
                       </p>
                     </div>
                   </div>
@@ -523,17 +626,27 @@ export function StepPrepareCandidates({
                       />
                     </div>
                   ) : (
-                    <Button
-                      onClick={handleEnrichAll}
-                      className="w-full bg-gradient-to-r from-primary to-sky-500"
-                    >
-                      <Sparkles className="h-4 w-4 mr-2" />
-                      Enrich All {needsEnrichment} Candidates · ~${estimatedCost}
-                    </Button>
+                    <div className="space-y-2">
+                      <Button
+                        onClick={handleEnrichAll}
+                        className="w-full bg-gradient-to-r from-primary to-sky-500"
+                      >
+                        <Sparkles className="h-4 w-4 mr-2" />
+                        Enrich All {needsEnrichment} Candidates · ~${estimatedCost}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        onClick={() => setShowManualEntryList(true)}
+                        className="w-full"
+                      >
+                        <Pencil className="h-4 w-4 mr-2" />
+                        Enter Contact Info Manually
+                      </Button>
+                    </div>
                   )}
 
-                  <p className="text-xs text-muted-foreground">
-                    Average cost: ~$0.20 per candidate (PDL hit rate ~60%)
+                  <p className="text-xs text-muted-foreground text-center">
+                    You can skip this step - campaigns will only reach candidates with contact info
                   </p>
                 </div>
               </>
