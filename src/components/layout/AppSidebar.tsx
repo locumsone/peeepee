@@ -1,5 +1,6 @@
-import { Home, Briefcase, Users, BarChart3, FilePlus, MessageSquare, Sparkles } from "lucide-react";
+import { Home, Briefcase, Users, BarChart3, FilePlus, MessageSquare, Sparkles, Shield } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
+import { useUserRole } from "@/hooks/useUserRole";
 import {
   Sidebar,
   SidebarContent,
@@ -24,9 +25,15 @@ const navItems = [
   { title: "New Job", url: "/jobs/new", icon: FilePlus },
 ];
 
+// Admin-only nav items
+const adminNavItems = [
+  { title: "Team View", url: "/communications/team", icon: Shield },
+];
+
 export function AppSidebar() {
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
+  const { isAdmin } = useUserRole();
 
   return (
     <Sidebar className="border-r border-sidebar-border bg-sidebar">
@@ -64,6 +71,22 @@ export function AppSidebar() {
                     <NavLink
                       to={item.url}
                       end={item.url === "/dashboard"}
+                      className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-all duration-150 group"
+                      activeClassName="bg-primary/15 text-primary font-medium border-l-2 border-primary rounded-l-none"
+                    >
+                      <item.icon className="h-4 w-4 shrink-0 transition-colors group-hover:text-primary" />
+                      {!collapsed && <span className="text-sm">{item.title}</span>}
+                    </NavLink>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+              
+              {/* Admin-only items */}
+              {isAdmin && adminNavItems.map((item) => (
+                <SidebarMenuItem key={item.title}>
+                  <SidebarMenuButton asChild>
+                    <NavLink
+                      to={item.url}
                       className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-all duration-150 group"
                       activeClassName="bg-primary/15 text-primary font-medium border-l-2 border-primary rounded-l-none"
                     >

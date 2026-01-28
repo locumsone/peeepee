@@ -27,6 +27,7 @@ import SequenceStudio from "./pages/SequenceStudio";
 import CampaignReview from "./pages/CampaignReview";
 import CampaignDetail from "./pages/CampaignDetail";
 import Communications from "./pages/Communications";
+import TeamCommunications from "./pages/TeamCommunications";
 import Enrichment from "./pages/Enrichment";
 import SMSStudio from "./pages/SMSStudio";
 import EmailStudio from "./pages/EmailStudio";
@@ -76,6 +77,7 @@ const App = () => (
           <Route path="/campaigns/new/enrichment" element={<AuthGuard><EnrichmentReview /></AuthGuard>} />
           <Route path="/campaigns/:id" element={<AuthGuard><CampaignDetail /></AuthGuard>} />
           <Route path="/communications" element={<AuthGuard><Communications /></AuthGuard>} />
+          <Route path="/communications/team" element={<AuthGuard><TeamCommunications /></AuthGuard>} />
           <Route path="/sms/studio" element={<AuthGuard><SMSStudio /></AuthGuard>} />
           <Route path="/email/studio" element={<AuthGuard><EmailStudio /></AuthGuard>} />
           <Route path="/playbook" element={<AuthGuard><PlaybookBuilder /></AuthGuard>} />
