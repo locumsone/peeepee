@@ -57,13 +57,14 @@ serve(async (req) => {
     });
 
     // Send the email
+    // Note: Reply-To header not supported by this SMTP library version
+    // The from address will be used for replies
     await client.send({
       from: `${senderName} <${senderEmail}>`,
       to: to,
       subject: subject,
       content: html,
       html: html,
-      replyTo: reply_to || senderEmail,
     });
 
     await client.close();
