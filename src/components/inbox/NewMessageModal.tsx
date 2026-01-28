@@ -138,11 +138,25 @@ export const NewMessageModal = ({ open, onOpenChange }: NewMessageModalProps) =>
   };
 
   const handleSelectChannel = (channel: Channel) => {
-    if (channel === "call") return; // Disabled
     if (channel === "ai_call" && entryMode === "manual") {
       toast.error("AI Call requires an existing contact");
       return;
     }
+    
+    // For call, trigger softphone directly instead of going to step 3
+    if (channel === "call") {
+      const phone = getRecipientPhone();
+      if (phone) {
+        // Dispatch event to open softphone and initiate call
+        window.dispatchEvent(new CustomEvent("softphone:call", { detail: { to: phone } }));
+        toast.success(`Initiating call to ${recipientName}`);
+        onOpenChange(false);
+      } else {
+        toast.error("No valid phone number for this contact");
+      }
+      return;
+    }
+    
     setSelectedChannel(channel);
     setStep(3);
   };
@@ -453,28 +467,25 @@ export const NewMessageModal = ({ open, onOpenChange }: NewMessageModalProps) =>
                 </div>
               </button>
 
-              {/* Call - Disabled */}
-              <TooltipProvider>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      disabled
-                      className="flex items-center gap-4 p-4 rounded-lg border border-border opacity-50 cursor-not-allowed text-left"
-                    >
-                      <div className="p-3 rounded-lg bg-success/20 text-success">
-                        <Phone className="h-6 w-6" />
-                      </div>
-                      <div>
-                        <div className="font-medium text-foreground">Call</div>
-                        <div className="text-sm text-muted-foreground">Make phone call</div>
-                      </div>
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>Coming Soon</p>
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+              {/* Call - Opens Softphone */}
+              <button
+                onClick={() => handleSelectChannel("call")}
+                disabled={!recipientPhone}
+                className={cn(
+                  "flex items-center gap-4 p-4 rounded-lg border border-border text-left transition-colors",
+                  !recipientPhone
+                    ? "opacity-50 cursor-not-allowed"
+                    : "hover:bg-muted"
+                )}
+              >
+                <div className="p-3 rounded-lg bg-success/20 text-success">
+                  <Phone className="h-6 w-6" />
+                </div>
+                <div>
+                  <div className="font-medium text-foreground">Call</div>
+                  <div className="text-sm text-muted-foreground">Make phone call via softphone</div>
+                </div>
+              </button>
 
               {/* AI Call */}
               <TooltipProvider>
