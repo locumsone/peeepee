@@ -78,9 +78,11 @@ export const JobAssignmentDialog = ({
   const fetchUsers = async () => {
     setIsLoading(true);
     try {
+      // Only fetch actual app users (@locums.one), not email sending accounts
       const { data, error } = await supabase
         .from("users")
         .select("id, name, email")
+        .like("email", "%@locums.one")
         .order("name");
 
       if (error) throw error;
