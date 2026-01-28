@@ -44,3 +44,6 @@ verify_jwt = false
 
 [functions.analyze-call]
 verify_jwt = false
+
+[functions.send-email-smtp]
+verify_jwt = false

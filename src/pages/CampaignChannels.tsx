@@ -21,7 +21,9 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { format, addDays } from "date-fns";
-import { ArrowLeft, ArrowRight, Mail, MessageSquare, Phone, Linkedin, CalendarIcon, Download } from "lucide-react";
+import { ArrowLeft, ArrowRight, Mail, MessageSquare, Phone, Linkedin, CalendarIcon, Download, Info } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { cn } from "@/lib/utils";
 
 const steps = [
@@ -108,7 +110,10 @@ export default function CampaignChannels() {
 
   // Channel states
   const [emailEnabled, setEmailEnabled] = useState(true);
+  const [emailProvider, setEmailProvider] = useState<'instantly' | 'gmail'>('gmail');
   const [emailSender, setEmailSender] = useState(senderAccounts[0].emails[0]);
+  const [gmailSender, setGmailSender] = useState('');
+  const [gmailSenderName, setGmailSenderName] = useState('');
   const [emailSequence, setEmailSequence] = useState("4");
   const [emailGap, setEmailGap] = useState("3");
 
@@ -202,7 +207,9 @@ export default function CampaignChannels() {
   const handleNext = () => {
     const config = {
       email: emailEnabled ? {
-        sender: emailSender,
+        provider: emailProvider,
+        sender: emailProvider === 'gmail' ? gmailSender : emailSender,
+        senderName: emailProvider === 'gmail' ? gmailSenderName : undefined,
         sequenceLength: parseInt(emailSequence),
         gapDays: parseInt(emailGap),
       } : null,
@@ -272,7 +279,9 @@ export default function CampaignChannels() {
                     </div>
                     <div>
                       <CardTitle className="text-lg">Email</CardTitle>
-                      <p className="text-sm text-muted-foreground">via Instantly</p>
+                      <p className="text-sm text-muted-foreground">
+                        {emailProvider === 'gmail' ? 'via Gmail/SMTP' : 'via Instantly'}
+                      </p>
                     </div>
                   </div>
                   <Switch checked={emailEnabled} onCheckedChange={setEmailEnabled} />
@@ -280,9 +289,65 @@ export default function CampaignChannels() {
               </CardHeader>
               {emailEnabled && (
                 <CardContent className="space-y-4 animate-in slide-in-from-top-2 duration-200">
-                  <div className="grid grid-cols-2 gap-4">
+                  {/* Provider Selection */}
+                  <div className="space-y-3">
+                    <Label>Email Provider</Label>
+                    <RadioGroup
+                      value={emailProvider}
+                      onValueChange={(v) => setEmailProvider(v as 'instantly' | 'gmail')}
+                      className="flex gap-4"
+                    >
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="gmail" id="gmail" />
+                        <Label htmlFor="gmail" className="font-normal cursor-pointer">
+                          Gmail/SMTP
+                        </Label>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="instantly" id="instantly" />
+                        <Label htmlFor="instantly" className="font-normal cursor-pointer">
+                          Instantly
+                        </Label>
+                      </div>
+                    </RadioGroup>
+                  </div>
+
+                  {/* Gmail/SMTP Options */}
+                  {emailProvider === 'gmail' && (
+                    <div className="space-y-4 p-4 bg-muted/30 rounded-lg border border-border">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="space-y-2">
+                          <Label>Your Email</Label>
+                          <Input
+                            type="email"
+                            placeholder="marc@locums.one"
+                            value={gmailSender}
+                            onChange={(e) => setGmailSender(e.target.value)}
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Display Name</Label>
+                          <Input
+                            type="text"
+                            placeholder="Marc - Locums One"
+                            value={gmailSenderName}
+                            onChange={(e) => setGmailSenderName(e.target.value)}
+                          />
+                        </div>
+                      </div>
+                      <div className="flex items-start gap-2 p-3 bg-amber-500/10 rounded-lg border border-amber-500/20">
+                        <Info className="h-4 w-4 text-amber-500 mt-0.5 shrink-0" />
+                        <p className="text-xs text-amber-600 dark:text-amber-400">
+                          Uses secure SMTP with Gmail App Password. Rate limit: 2,000 emails/day for Google Workspace.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Instantly Options */}
+                  {emailProvider === 'instantly' && (
                     <div className="space-y-2">
-                      <Label>Sender</Label>
+                      <Label>Sender Account</Label>
                       <Select value={emailSender} onValueChange={setEmailSender}>
                         <SelectTrigger>
                           <SelectValue />
@@ -299,6 +364,10 @@ export default function CampaignChannels() {
                         </SelectContent>
                       </Select>
                     </div>
+                  )}
+
+                  {/* Sequence Settings */}
+                  <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label>Sequence Length</Label>
                       <Select value={emailSequence} onValueChange={setEmailSequence}>
@@ -312,21 +381,22 @@ export default function CampaignChannels() {
                         </SelectContent>
                       </Select>
                     </div>
+                    <div className="space-y-2">
+                      <Label>Days Between Emails</Label>
+                      <Select value={emailGap} onValueChange={setEmailGap}>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="2">2 days</SelectItem>
+                          <SelectItem value="3">3 days</SelectItem>
+                          <SelectItem value="5">5 days</SelectItem>
+                          <SelectItem value="7">7 days</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label>Days Between Emails</Label>
-                    <Select value={emailGap} onValueChange={setEmailGap}>
-                      <SelectTrigger className="w-48">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="2">2 days</SelectItem>
-                        <SelectItem value="3">3 days</SelectItem>
-                        <SelectItem value="5">5 days</SelectItem>
-                        <SelectItem value="7">7 days</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+
                   <p className="text-sm text-muted-foreground flex items-center gap-1">
                     Emails personalized by Sherlock Meowmes 🐱
                   </p>
