@@ -27,6 +27,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { cn } from "@/lib/utils";
 import { useGmailAccounts } from "@/hooks/useGmailAccounts";
 import { Badge } from "@/components/ui/badge";
+import { useCampaignDraft } from "@/hooks/useCampaignDraft";
 
 const steps = [
   { number: 1, label: "Job" },
@@ -107,6 +108,19 @@ const timezoneOptions = [
 export default function CampaignChannels() {
   const navigate = useNavigate();
   const { accounts: gmailAccounts, primaryAccount, loading: gmailLoading } = useGmailAccounts();
+  
+  // Use unified campaign draft hook
+  const {
+    draft,
+    isLoading: isDraftLoading,
+    updateChannels,
+    saveDraft,
+    jobId: draftJobId,
+    job: draftJob,
+    candidates: draftCandidates,
+    channels: draftChannels,
+  } = useCampaignDraft();
+
   const [jobId, setJobId] = useState<string | null>(null);
   const [jobName, setJobName] = useState("");
   const [candidateCount, setCandidateCount] = useState(0);
@@ -144,7 +158,75 @@ export default function CampaignChannels() {
     }
   }, [primaryAccount, gmailSender]);
 
+  // Load from draft first, then fallback to sessionStorage
   useEffect(() => {
+    if (isDraftLoading) return;
+
+    // Priority 1: Use draft data if available
+    if (draftJobId && draftCandidates.length > 0) {
+      console.log("[CampaignChannels] Loading from draft:", {
+        jobId: draftJobId,
+        candidatesCount: draftCandidates.length,
+        hasChannels: Object.keys(draftChannels).length > 0,
+      });
+      
+      setJobId(draftJobId);
+      setCandidateCount(draftCandidates.length);
+      
+      if (draftJob) {
+        setJobName(draftJob.job_name || draftJob.specialty || draftJob.facility_name || "Untitled Job");
+      }
+      
+      // Restore channel settings from draft
+      if (draftChannels && Object.keys(draftChannels).length > 0) {
+        setEmailEnabled(!!draftChannels.email);
+        if (draftChannels.email) {
+          const provider = draftChannels.email.provider;
+          // Only set if it's a valid provider type for this page
+          if (provider === 'gmail' || provider === 'instantly') {
+            setEmailProvider(provider);
+          }
+          if (provider === 'gmail' || !provider) {
+            setGmailSender(draftChannels.email.sender || '');
+            setGmailSenderName(draftChannels.email.senderName || '');
+          } else {
+            setEmailSender(draftChannels.email.sender || senderAccounts[0].emails[0]);
+          }
+          setEmailSequence(String(draftChannels.email.sequenceLength || 4));
+          setEmailGap(String(draftChannels.email.gapDays || 3));
+        }
+        setSmsEnabled(!!draftChannels.sms);
+        if (draftChannels.sms) {
+          setSmsSequence(String(draftChannels.sms.sequenceLength || 2));
+        }
+        setAiCallEnabled(!!draftChannels.aiCall);
+        if (draftChannels.aiCall) {
+          setCallTiming(String(draftChannels.aiCall.callDay || 1));
+          setTransferTo(draftChannels.aiCall.transferTo || "rainey");
+        }
+        setLinkedinEnabled(!!draftChannels.linkedin);
+        if (draftChannels.schedule) {
+          if (draftChannels.schedule.startDate) {
+            setStartDate(new Date(draftChannels.schedule.startDate));
+          }
+          if (draftChannels.schedule.sendWindowStart) {
+            setSendWindowStart(draftChannels.schedule.sendWindowStart);
+          }
+          if (draftChannels.schedule.sendWindowEnd) {
+            setSendWindowEnd(draftChannels.schedule.sendWindowEnd);
+          }
+          if (draftChannels.schedule.timezone) {
+            setTimezone(draftChannels.schedule.timezone);
+          }
+          if (draftChannels.schedule.weekdaysOnly !== undefined) {
+            setWeekdaysOnly(draftChannels.schedule.weekdaysOnly);
+          }
+        }
+      }
+      return;
+    }
+
+    // Fallback: Check sessionStorage
     const storedJobId = sessionStorage.getItem("campaign_job_id");
     const storedCandidates = sessionStorage.getItem("campaign_candidates");
 
@@ -171,7 +253,7 @@ export default function CampaignChannels() {
     };
 
     fetchJob();
-  }, [navigate]);
+  }, [isDraftLoading, draftJobId, draftCandidates, draftChannels, draftJob, navigate]);
 
   const hasChannelEnabled = emailEnabled || smsEnabled || aiCallEnabled || linkedinEnabled;
 
@@ -223,16 +305,16 @@ export default function CampaignChannels() {
         senderName: emailProvider === 'gmail' ? gmailSenderName : undefined,
         sequenceLength: parseInt(emailSequence),
         gapDays: parseInt(emailGap),
-      } : null,
+      } : undefined,
       sms: smsEnabled ? {
         fromNumber: "+12185628671",
         sequenceLength: parseInt(smsSequence),
-      } : null,
+      } : undefined,
       aiCall: aiCallEnabled ? {
         fromNumber: "+13055634142",
         callDay: parseInt(callTiming),
         transferTo,
-      } : null,
+      } : undefined,
       linkedin: linkedinEnabled,
       schedule: {
         startDate: startDate.toISOString(),
@@ -243,7 +325,11 @@ export default function CampaignChannels() {
       },
     };
 
-    // Save channel config in both formats for compatibility
+    // Save to unified draft system (this persists to both sessionStorage and localStorage)
+    updateChannels(config);
+    saveDraft();
+
+    // Also save to legacy keys for backward compatibility
     sessionStorage.setItem("campaign_channels", JSON.stringify(config));
     sessionStorage.setItem("channelConfig", JSON.stringify({
       email: { enabled: emailEnabled, sender: emailSender, sequenceCount: parseInt(emailSequence) },
@@ -258,6 +344,7 @@ export default function CampaignChannels() {
         weekdaysOnly 
       }
     }));
+    
     navigate("/campaigns/new/review");
   };
 
