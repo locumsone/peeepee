@@ -4,8 +4,10 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Loader2, Flame, Users, TrendingUp, Calendar, Target } from "lucide-react";
+import { Plus, Loader2, Flame, Users, TrendingUp, Calendar, Target, UserCircle } from "lucide-react";
 import { ExpandableJobRow } from "@/components/jobs";
+import { useJobAssignments } from "@/hooks/useJobAssignments";
+import { useAuth } from "@/hooks/useAuth";
 
 interface Job {
   id: string;
@@ -34,14 +36,26 @@ interface JobStats {
 
 export default function Jobs() {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [jobStats, setJobStats] = useState<Record<string, JobStats>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [filter, setFilter] = useState("all");
 
+  // Fetch job assignments
+  const jobIds = jobs.map(j => j.id);
+  const { assignments, isLoading: assignmentsLoading, refetch: refetchAssignments, isAssignedToJob } = useJobAssignments(jobIds);
+
   useEffect(() => {
     fetchJobsWithStats();
   }, []);
+
+  // Refetch assignments when jobs change
+  useEffect(() => {
+    if (jobIds.length > 0) {
+      refetchAssignments();
+    }
+  }, [jobIds.join(",")]);
 
   const fetchJobsWithStats = async () => {
     setIsLoading(true);
@@ -199,6 +213,9 @@ export default function Jobs() {
 
   const filteredJobs = jobs.filter((job) => {
     if (filter === "all") return true;
+    if (filter === "mine") {
+      return isAssignedToJob(job.id);
+    }
     if (filter === "hot") {
       const stats = jobStats[job.id];
       return stats && stats.hotLeads > 0;
@@ -219,6 +236,7 @@ export default function Jobs() {
   const totalHotLeads = Object.values(jobStats).reduce((sum, s) => sum + s.hotLeads, 0);
   const totalCandidates = Object.values(jobStats).reduce((sum, s) => sum + s.totalCandidates, 0);
   const totalMatched = Object.values(jobStats).reduce((sum, s) => sum + s.matchedCandidates, 0);
+  const myJobsCount = user ? jobs.filter(j => isAssignedToJob(j.id)).length : 0;
 
   return (
     <div className="min-h-screen bg-background">
@@ -243,6 +261,20 @@ export default function Jobs() {
           <Card className="bg-card border-border">
             <CardContent className="pt-4">
               <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-lg bg-primary/20 flex items-center justify-center">
+                  <UserCircle className="h-5 w-5 text-primary" />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold text-foreground">{myJobsCount}</p>
+                  <p className="text-xs text-muted-foreground">My Jobs</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-card border-border">
+            <CardContent className="pt-4">
+              <div className="flex items-center gap-3">
                 <div className="h-10 w-10 rounded-lg bg-success/20 flex items-center justify-center">
                   <TrendingUp className="h-5 w-5 text-success" />
                 </div>
@@ -257,26 +289,12 @@ export default function Jobs() {
           <Card className="bg-card border-border">
             <CardContent className="pt-4">
               <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-lg bg-primary/20 flex items-center justify-center">
-                  <Target className="h-5 w-5 text-primary" />
+                <div className="h-10 w-10 rounded-lg bg-blue-500/20 flex items-center justify-center">
+                  <Target className="h-5 w-5 text-blue-400" />
                 </div>
                 <div>
                   <p className="text-2xl font-bold text-foreground">{totalMatched}</p>
                   <p className="text-xs text-muted-foreground">Matched</p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-card border-border">
-            <CardContent className="pt-4">
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-lg bg-blue-500/20 flex items-center justify-center">
-                  <Users className="h-5 w-5 text-blue-400" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-foreground">{totalCandidates}</p>
-                  <p className="text-xs text-muted-foreground">In Pipeline</p>
                 </div>
               </div>
             </CardContent>
@@ -300,11 +318,11 @@ export default function Jobs() {
             <CardContent className="pt-4">
               <div className="flex items-center gap-3">
                 <div className="h-10 w-10 rounded-lg bg-purple-500/20 flex items-center justify-center">
-                  <Calendar className="h-5 w-5 text-purple-400" />
+                  <Users className="h-5 w-5 text-purple-400" />
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-foreground">{jobs.length}</p>
-                  <p className="text-xs text-muted-foreground">Total Jobs</p>
+                  <p className="text-2xl font-bold text-foreground">{totalCandidates}</p>
+                  <p className="text-xs text-muted-foreground">In Pipeline</p>
                 </div>
               </div>
             </CardContent>
@@ -315,6 +333,15 @@ export default function Jobs() {
         <Tabs value={filter} onValueChange={setFilter} className="mb-6">
           <TabsList className="bg-muted/50">
             <TabsTrigger value="all">All</TabsTrigger>
+            <TabsTrigger value="mine" className="flex items-center gap-1">
+              <UserCircle className="h-3 w-3" />
+              My Jobs
+              {myJobsCount > 0 && (
+                <span className="ml-1 text-[10px] bg-primary/20 text-primary rounded-full px-1.5">
+                  {myJobsCount}
+                </span>
+              )}
+            </TabsTrigger>
             <TabsTrigger value="active">Active</TabsTrigger>
             <TabsTrigger value="hot" className="flex items-center gap-1">
               <Flame className="h-3 w-3" />
@@ -347,7 +374,9 @@ export default function Jobs() {
               <ExpandableJobRow 
                 key={job.id} 
                 job={job} 
-                stats={jobStats[job.id]} 
+                stats={jobStats[job.id]}
+                assignments={assignments[job.id] || []}
+                onAssignmentsUpdated={refetchAssignments}
               />
             ))}
           </div>

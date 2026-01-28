@@ -13,3 +13,5 @@ export { JobDetailSidebar } from "./JobDetailSidebar";
 export { JobHealthIndicator } from "./JobHealthIndicator";
 export { JobScorecard } from "./JobScorecard";
 export { JobNotesPanel } from "./JobNotesPanel";
+export { TeamMemberAvatars } from "./TeamMemberAvatars";
+export { JobAssignmentDialog } from "./JobAssignmentDialog";
