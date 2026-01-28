@@ -38,12 +38,13 @@ import {
   ArrowLeft, ArrowRight, Sparkles, RefreshCw, Edit2, Check, X,
   Users, Target, Search, CheckCircle2, AlertTriangle, Lightbulb, Cat,
   FileText, ExternalLink, Mail, MessageSquare, Eye, Copy, BookOpen,
-  DollarSign, MapPin, Phone, Calendar, ChevronDown, Download
+  DollarSign, MapPin, Phone, Calendar, ChevronDown, Download, Wand2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { PlaybookCacheCard, StructuredPlaybookCache } from "@/components/playbook/PlaybookCacheCard";
 import { useUserSignature } from "@/hooks/useUserSignature";
 import { MessageRefiner } from "@/components/personalization/MessageRefiner";
+import { BulkMessageRefiner } from "@/components/personalization/BulkMessageRefiner";
 
 const steps = [
   { number: 1, label: "Job" },
@@ -161,6 +162,7 @@ export default function PersonalizationStudio() {
   const [editingCandidate, setEditingCandidate] = useState<Candidate | null>(null);
   const [editingField, setEditingField] = useState<'email' | 'sms' | null>(null);
   const [showRefiner, setShowRefiner] = useState(false);
+  const [showBulkRefiner, setShowBulkRefiner] = useState(false);
   
   // Compute pay rate
   const payRate = useMemo(() => {
@@ -1185,12 +1187,24 @@ Locums One`;
                 <CardHeader className="pb-2">
                   <div className="flex items-center justify-between">
                     <CardTitle className="text-lg">Personalized Messages</CardTitle>
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Mail className="h-4 w-4" />
-                      <span>Email</span>
-                      <span className="mx-2">+</span>
-                      <MessageSquare className="h-4 w-4" />
-                      <span>SMS</span>
+                    <div className="flex items-center gap-3">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setShowBulkRefiner(true)}
+                        disabled={generatedCount === 0}
+                        className="gap-1.5"
+                      >
+                        <Wand2 className="h-4 w-4" />
+                        Bulk AI Edit
+                      </Button>
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Mail className="h-4 w-4" />
+                        <span>Email</span>
+                        <span className="mx-2">+</span>
+                        <MessageSquare className="h-4 w-4" />
+                        <span>SMS</span>
+                      </div>
                     </div>
                   </div>
                   <CardDescription>
@@ -1245,24 +1259,39 @@ Locums One`;
                             </td>
                             <td className="p-3 text-center">
                               <div className="flex items-center justify-center gap-1">
-                                {candidate.email_body ? (
+                                {(candidate.email_body || candidate.sms_message) ? (
                                   <>
                                     <Button
                                       size="icon"
                                       variant="ghost"
                                       className="h-7 w-7"
                                       onClick={() => handlePreview(candidate)}
+                                      title="Preview"
                                     >
                                       <Eye className="h-3 w-3" />
                                     </Button>
-                                    <Button
-                                      size="icon"
-                                      variant="ghost"
-                                      className="h-7 w-7"
-                                      onClick={() => handleOpenRefiner(candidate, 'email')}
-                                    >
-                                      <Edit2 className="h-3 w-3" />
-                                    </Button>
+                                    {candidate.email_body && (
+                                      <Button
+                                        size="icon"
+                                        variant="ghost"
+                                        className="h-7 w-7"
+                                        onClick={() => handleOpenRefiner(candidate, 'email')}
+                                        title="Edit Email with AI"
+                                      >
+                                        <Mail className="h-3 w-3" />
+                                      </Button>
+                                    )}
+                                    {candidate.sms_message && (
+                                      <Button
+                                        size="icon"
+                                        variant="ghost"
+                                        className="h-7 w-7"
+                                        onClick={() => handleOpenRefiner(candidate, 'sms')}
+                                        title="Edit SMS with AI"
+                                      >
+                                        <MessageSquare className="h-3 w-3" />
+                                      </Button>
+                                    )}
                                   </>
                                 ) : (
                                   <CheckCircle2 className="h-4 w-4 text-muted-foreground/30" />
@@ -1401,6 +1430,30 @@ Locums One`;
               }}
             />
           )}
+        </SheetContent>
+      </Sheet>
+      
+      {/* Bulk AI Message Refiner Sheet */}
+      <Sheet open={showBulkRefiner} onOpenChange={setShowBulkRefiner}>
+        <SheetContent side="right" className="w-[450px] sm:w-[500px] p-0">
+          <BulkMessageRefiner
+            candidates={candidates}
+            messageType="both"
+            jobContext={{
+              rate: `$${payRate}`,
+              location: `${job?.city || ''}, ${job?.state || ''}`,
+              call_status: isStructuredCache(cachedPlaybook) ? cachedPlaybook.clinical?.call_status || '' : '',
+              facility_name: job?.facility_name || '',
+            }}
+            playbookData={isStructuredCache(cachedPlaybook) ? cachedPlaybook : undefined}
+            onApply={(updatedCandidates) => {
+              setCandidates(updatedCandidates);
+              setShowBulkRefiner(false);
+              // Persist to session storage
+              sessionStorage.setItem("campaign_candidates", JSON.stringify(updatedCandidates));
+            }}
+            onClose={() => setShowBulkRefiner(false)}
+          />
         </SheetContent>
       </Sheet>
     </Layout>
