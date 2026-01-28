@@ -1,133 +1,176 @@
 
-# Job Detail Page - Full Implementation Plan
+# Job Scorecard Enhancement and Matched Candidates UX Improvements
 
-## Problem Summary
-The Job Detail page for "IR Middletown" shows **52 matched candidates** in the job list, but when you navigate to the job detail page:
-1. **No candidates are displayed** because the page only shows candidates from `campaign_leads_v2` (requires a campaign to be created)
-2. The **matched candidates** from `candidate_job_matches` are completely hidden
-3. The **Notes panel uses mock/demo data** instead of real database data
-4. There's no way to see or work with matched candidates until a campaign is created
+## Issues Identified
 
-## Root Cause Analysis
+### 1. Scorecard Scroll Not Working
+The `ScrollArea` component in `JobScorecard.tsx` has a `max-h-[500px]` but no explicit height set on the viewport, which can cause scrolling issues. Additionally, using a `<table>` inside `ScrollArea` with sticky headers can break the scroll behavior.
 
-| Issue | Current State | Fix Required |
-|-------|---------------|--------------|
-| Matched candidates not shown | Only fetches from `campaign_leads_v2` (campaign leads) | Add a "Matched Candidates" tab showing `candidate_job_matches` data |
-| Notes use demo data | `JobNotesPanel.tsx` uses `MOCK_NOTES` array | Create `job_notes` table and connect to database |
-| No job_notes table | Table doesn't exist | Create migration |
-| Candidate tab empty | Only shows campaign leads, not matched candidates | Display both matched candidates and pipeline leads |
+### 2. Console Warning: Tooltip Ref Issue
+The console shows: "Function components cannot be given refs". This is because `<Tooltip>` is being used as a wrapper in the `<th>` table header without proper ref forwarding for `TooltipTrigger`.
+
+### 3. No Pop-Out/Detail View for Scorecard
+Currently, the scorecard is embedded in the tab content with no way to expand it for more detail or see additional candidate information.
+
+### 4. No Ability to Remove Matched Candidates
+Users cannot remove candidates from the `candidate_job_matches` table when they are no longer suitable for a job.
+
+---
 
 ## Implementation Plan
 
-### Phase 1: Database Changes
+### Phase 1: Fix Scorecard Scroll and Tooltip Issues
 
-**1.1 Create `job_notes` table**
+**1.1 Fix Tooltip Warning**
+- Wrap `<span>` in `<TooltipTrigger asChild>` with a proper `<button>` element that can accept refs
+- Change from `<span className="cursor-help">` to `<button type="button" className="cursor-help">`
+
+**1.2 Fix ScrollArea for Table**
+- Replace `ScrollArea` with a native `<div>` with `overflow-auto` for better table scrolling compatibility
+- Add explicit height constraints that work with table layouts
+- Use `overflow-x-auto` for horizontal scroll on smaller screens
+
+---
+
+### Phase 2: Create Scorecard Pop-Out Dialog
+
+**2.1 Create `ScorecardDetailDialog.tsx`**
+A full-screen or large dialog component that provides:
+- Expanded candidate view with all profile details
+- Full scorecard with more detailed criteria
+- Match score breakdown
+- Match concerns and reasons
+- Notes input for each candidate
+- Quick actions (Call, SMS, Add to Campaign, Remove)
+
+**2.2 Add Expand Button to Scorecard**
+- Add "Expand" button in the scorecard header
+- Clicking a candidate row opens their detail in the dialog
+
+---
+
+### Phase 3: Implement Remove Matched Candidates
+
+**3.1 Add Remove Functionality to MatchedCandidateCard**
+- Add a "Remove Match" button (X icon) that appears on hover
+- Confirmation dialog before removal
+- Call `supabase.from("candidate_job_matches").delete()` on confirmation
+
+**3.2 Add Bulk Remove to MatchedCandidatesGrid**
+- Add checkbox selection for bulk operations
+- "Remove Selected" action in toolbar
+- Update state after removal
+
+---
+
+### Phase 4: UI/UX Quality of Life Improvements
+
+**4.1 MatchedCandidateCard Enhancements**
+- Show match concerns as warning badges
+- Add keyboard navigation support
+- Improve hover states with subtle animations
+- Always show actions (not just on hover) on mobile
+
+**4.2 MatchedCandidatesGrid Improvements**
+- Add selection mode with checkboxes
+- Show selected count in toolbar
+- Add filter by "Has Required License" toggle
+- Add "Select All Local" quick action
+
+**4.3 Scorecard Improvements**
+- Add keyboard navigation between cells
+- Show candidate photo/avatar if available
+- Add "Reset Scores" button per candidate
+- Show last evaluated date
+- Persist scores to database (create `candidate_scorecard_ratings` table)
+
+---
+
+## Database Changes
+
+**Create `candidate_scorecard_ratings` table:**
 ```text
-+------------------+
-|    job_notes     |
-+------------------+
-| id (uuid, PK)    |
-| job_id (FK)      |
-| content (text)   |
-| created_by (FK)  |
-| is_pinned (bool) |
-| created_at       |
-| updated_at       |
-+------------------+
++---------------------------+
+| candidate_scorecard_ratings |
++---------------------------+
+| id (uuid, PK)              |
+| job_id (FK -> jobs)        |
+| candidate_id (FK)          |
+| attribute_id (text)        |
+| value (jsonb)              |
+| evaluated_by (FK -> users) |
+| created_at                 |
+| updated_at                 |
++---------------------------+
 ```
 
-- Add RLS policies for team visibility
-- Index on job_id for performance
+This allows scorecard ratings to persist across sessions.
 
-### Phase 2: Job Detail Page Enhancements
+---
 
-**2.1 Modify JobDetail.tsx**
-- Add new state for matched candidates (from `candidate_job_matches` + `candidates` join)
-- Create "Matched" vs "Pipeline" toggle in candidates tab
-- Fetch matched candidates with their full profile data
-- Show matched candidates even when no campaigns exist
+## Technical Details
 
-**2.2 Update Candidates Tab Structure**
-
-Current flow (broken):
-```text
-Candidates Tab --> campaign_leads_v2 --> Empty if no campaigns
+### Fix for Tooltip Warning
+Current (problematic):
+```tsx
+<Tooltip>
+  <TooltipTrigger asChild>
+    <span className="cursor-help">...</span>
+  </TooltipTrigger>
+</Tooltip>
 ```
 
-New flow:
-```text
-Candidates Tab
-  |
-  +-- [Matched] --> candidate_job_matches + candidates join (52 candidates)
-  |
-  +-- [In Pipeline] --> campaign_leads_v2 (campaign activity)
+Fixed:
+```tsx
+<Tooltip>
+  <TooltipTrigger asChild>
+    <button type="button" className="cursor-help inline-flex items-center gap-1">
+      ...
+    </button>
+  </TooltipTrigger>
+</Tooltip>
 ```
 
-**2.3 Create `MatchedCandidateCard.tsx`**
-- New card component for displaying matched candidates (not yet in a campaign)
-- Shows: Name, specialty, state, licenses, match score
-- Quick actions: Add to Campaign, View Profile, Call, SMS
+### Remove Match Function
+```typescript
+const handleRemoveMatch = async (candidateId: string) => {
+  const { error } = await supabase
+    .from("candidate_job_matches")
+    .delete()
+    .eq("job_id", jobId)
+    .eq("candidate_id", candidateId);
+  
+  if (!error) {
+    setMatchedCandidates(prev => prev.filter(c => c.id !== candidateId));
+    setMatchedCount(prev => prev - 1);
+    toast({ title: "Candidate removed from matches" });
+  }
+};
+```
 
-### Phase 3: Update JobNotesPanel.tsx
-
-**3.1 Remove demo data**
-- Delete `MOCK_NOTES` array
-- Implement real database queries
-- Add note creation with `supabase.from("job_notes").insert()`
-- Add note fetching with real-time updates
-- Store `created_by` as actual user ID
-
-### Phase 4: Additional Improvements
-
-**4.1 Activity Feed Enhancement**
-- Ensure JobActivityFeed shows activity even for jobs without campaigns
-- Add call logs that link by candidate phone matching matched candidates
-
-**4.2 Scorecard Integration**
-- Pass matched candidates to scorecard when no pipeline leads exist
-- Auto-evaluate based on job requirements vs candidate profile
-
-**4.3 Quick Stats Accuracy**
-- Ensure "Matched" count links to the matched candidates tab
-- Add click-through from stats to filtered view
+---
 
 ## Files to Create/Modify
 
 | File | Action | Description |
 |------|--------|-------------|
-| `supabase/migrations/xxx_create_job_notes.sql` | Create | New table for job notes |
-| `src/pages/JobDetail.tsx` | Modify | Add matched candidates fetch and toggle |
-| `src/components/jobs/JobNotesPanel.tsx` | Modify | Connect to database, remove mock data |
-| `src/components/jobs/MatchedCandidateCard.tsx` | Create | New card for matched candidates |
-| `src/components/jobs/MatchedCandidatesGrid.tsx` | Create | Grid view for matched candidates |
-| `src/components/jobs/JobScorecard.tsx` | Modify | Accept matched candidates as fallback |
-| `src/integrations/supabase/types.ts` | Auto-update | Add job_notes types |
+| `supabase/migrations/xxx_create_scorecard_ratings.sql` | Create | Table for persisting scorecard ratings |
+| `src/components/jobs/JobScorecard.tsx` | Modify | Fix scroll, tooltip, add expand button |
+| `src/components/jobs/ScorecardDetailDialog.tsx` | Create | Full-screen scorecard dialog |
+| `src/components/jobs/MatchedCandidateCard.tsx` | Modify | Add remove button, improve hover states |
+| `src/components/jobs/MatchedCandidatesGrid.tsx` | Modify | Add selection, bulk remove, filters |
+| `src/pages/JobDetail.tsx` | Modify | Handle remove matched, pass callbacks |
+| `src/hooks/useScorecardRatings.ts` | Create | Hook for persisting/loading scorecard data |
+| `src/integrations/supabase/types.ts` | Auto-update | Add new table types |
 
-## Technical Details
+---
 
-### Matched Candidates Query
-```sql
-SELECT 
-  c.id, c.first_name, c.last_name, c.email, c.phone,
-  c.specialty, c.state, c.licenses, c.board_certified,
-  cjm.match_score, cjm.created_at as matched_at
-FROM candidate_job_matches cjm
-JOIN candidates c ON c.id = cjm.candidate_id
-WHERE cjm.job_id = :jobId
-ORDER BY cjm.match_score DESC NULLS LAST
-```
+## User Experience After Implementation
 
-### Notes Table RLS
-- All authenticated users can read notes for jobs they can access
-- Users can only update/delete their own notes
-- Admins can manage all notes
-
-## User Experience Flow (After Fix)
-
-1. Click on "IR Middletown" job (52 matched)
-2. Job Detail loads with Quick Stats: **52 Matched** | 0 In Pipeline | 0 Replies
-3. Candidates tab shows two sub-tabs: **Matched (52)** | Pipeline (0)
-4. Matched tab displays all 52 candidates with their profiles
-5. User can select candidates and "Add to Campaign"
-6. Notes tab shows real internal notes from database
-7. Scorecard evaluates matched candidates against job requirements
+1. **Scorecard Tab** scrolls smoothly with no console warnings
+2. **Expand Button** opens full-detail dialog with all candidate info
+3. **Remove Match** button (X) on each matched candidate card
+4. **Bulk Selection** with checkboxes in matched candidates grid
+5. **Confirmation Dialog** before removing to prevent accidents
+6. **Persisted Scores** that survive page refresh
+7. **Mobile-friendly** actions always visible on touch devices
