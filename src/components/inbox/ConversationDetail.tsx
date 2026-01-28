@@ -634,7 +634,10 @@ export const ConversationDetail = ({ conversation }: ConversationDetailProps) =>
       if (error) throw error;
       toast.success("Message sent");
       setMessageText("");
+      // Refresh messages and sync with softphone
       queryClient.invalidateQueries({ queryKey: ["sms-messages", conversation.id] });
+      queryClient.invalidateQueries({ queryKey: ["sms-conversations"] });
+      queryClient.invalidateQueries({ queryKey: ["sms-conversations-softphone"] });
     } catch {
       queryClient.setQueryData(
         ["sms-messages", conversation.id],

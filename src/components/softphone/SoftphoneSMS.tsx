@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useState, useEffect } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -18,10 +18,11 @@ export const SoftphoneSMS = ({ unreadCount = 0 }: SoftphoneSMSProps) => {
   const [phoneNumber, setPhoneNumber] = useState('');
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
+  const queryClient = useQueryClient();
 
-  // Fetch recent conversations
+  // Fetch recent conversations - uses same base query key as Communications Hub
   const { data: recentConversations = [], refetch } = useQuery({
-    queryKey: ['recent-sms-conversations'],
+    queryKey: ['sms-conversations-softphone'],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('sms_conversations')
@@ -33,6 +34,44 @@ export const SoftphoneSMS = ({ unreadCount = 0 }: SoftphoneSMSProps) => {
       return data || [];
     },
   });
+
+  // Real-time subscription to sync with Communications Hub
+  useEffect(() => {
+    const channel = supabase
+      .channel("softphone-sms-sync")
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "sms_conversations",
+        },
+        () => {
+          console.log("[Softphone] Conversation update - syncing");
+          refetch();
+          // Also invalidate the main Communications Hub queries
+          queryClient.invalidateQueries({ queryKey: ['sms-conversations'] });
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "sms_messages",
+        },
+        () => {
+          console.log("[Softphone] New message - syncing");
+          refetch();
+          queryClient.invalidateQueries({ queryKey: ['sms-conversations'] });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [refetch, queryClient]);
 
   const handleSend = async () => {
     if (!phoneNumber || !message) {
@@ -57,7 +96,10 @@ export const SoftphoneSMS = ({ unreadCount = 0 }: SoftphoneSMSProps) => {
       toast.success('SMS sent successfully');
       setPhoneNumber('');
       setMessage('');
-      refetch(); // Refresh conversations
+      
+      // Refresh both softphone and Communications Hub queries
+      refetch();
+      queryClient.invalidateQueries({ queryKey: ['sms-conversations'] });
     } catch (error) {
       console.error('Error sending SMS:', error);
       toast.error('Failed to send SMS');
