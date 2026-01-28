@@ -13,6 +13,7 @@ import {
   MapPin,
   DollarSign,
   Inbox,
+  Edit,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -34,6 +35,7 @@ interface CampaignCardProps {
   onDelete: (id: string) => void;
   onDuplicate: (id: string) => void;
   onViewLeads: (id: string) => void;
+  onContinueDraft?: (id: string) => void;
 }
 
 export const CampaignCard = ({
@@ -42,6 +44,7 @@ export const CampaignCard = ({
   onDelete,
   onDuplicate,
   onViewLeads,
+  onContinueDraft,
 }: CampaignCardProps) => {
   const navigate = useNavigate();
 
@@ -55,6 +58,7 @@ export const CampaignCard = ({
   const replyRate = sent > 0 ? (replied / sent) * 100 : 0;
 
   const health = calculateHealth(sent, opened, bounced);
+  const isDraft = !campaign.status || campaign.status === "draft";
 
   const getStatusBadge = (status: string | null) => {
     switch (status) {
@@ -145,25 +149,33 @@ export const CampaignCard = ({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
+              {isDraft && onContinueDraft && (
+                <DropdownMenuItem onClick={() => onContinueDraft(campaign.id)}>
+                  <Edit className="h-4 w-4 mr-2" />
+                  Continue Draft
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem onClick={() => navigate(`/campaigns/${campaign.id}`)}>
                 <Eye className="h-4 w-4 mr-2" />
                 View Details
               </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => onPauseResume(campaign.id, campaign.status || "")}
-              >
-                {campaign.status === "active" ? (
-                  <>
-                    <Pause className="h-4 w-4 mr-2" />
-                    Pause
-                  </>
-                ) : (
-                  <>
-                    <Play className="h-4 w-4 mr-2" />
-                    Resume
-                  </>
-                )}
-              </DropdownMenuItem>
+              {!isDraft && (
+                <DropdownMenuItem
+                  onClick={() => onPauseResume(campaign.id, campaign.status || "")}
+                >
+                  {campaign.status === "active" ? (
+                    <>
+                      <Pause className="h-4 w-4 mr-2" />
+                      Pause
+                    </>
+                  ) : (
+                    <>
+                      <Play className="h-4 w-4 mr-2" />
+                      Resume
+                    </>
+                  )}
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem onClick={() => onDuplicate(campaign.id)}>
                 <Copy className="h-4 w-4 mr-2" />
                 Duplicate
@@ -232,27 +244,42 @@ export const CampaignCard = ({
 
       {/* Quick Actions */}
       <div className="px-4 py-3 bg-secondary/30 border-t border-border flex items-center gap-2">
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-7 text-xs flex-1"
-          onClick={(e) => {
-            e.stopPropagation();
-            onPauseResume(campaign.id, campaign.status || "");
-          }}
-        >
-          {campaign.status === "active" ? (
-            <>
-              <Pause className="h-3 w-3 mr-1" />
-              Pause
-            </>
-          ) : (
-            <>
-              <Play className="h-3 w-3 mr-1" />
-              Resume
-            </>
-          )}
-        </Button>
+        {isDraft && onContinueDraft ? (
+          <Button
+            variant="default"
+            size="sm"
+            className="h-7 text-xs flex-1"
+            onClick={(e) => {
+              e.stopPropagation();
+              onContinueDraft(campaign.id);
+            }}
+          >
+            <Edit className="h-3 w-3 mr-1" />
+            Continue Draft
+          </Button>
+        ) : (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 text-xs flex-1"
+            onClick={(e) => {
+              e.stopPropagation();
+              onPauseResume(campaign.id, campaign.status || "");
+            }}
+          >
+            {campaign.status === "active" ? (
+              <>
+                <Pause className="h-3 w-3 mr-1" />
+                Pause
+              </>
+            ) : (
+              <>
+                <Play className="h-3 w-3 mr-1" />
+                Resume
+              </>
+            )}
+          </Button>
+        )}
         <Button
           variant="ghost"
           size="sm"
