@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
@@ -6,7 +6,7 @@ import Layout from "@/components/layout/Layout";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Plus, Inbox as InboxIcon, Flame, MessageSquare, Phone, Star, Clock, Mail, Zap } from "lucide-react";
+import { Plus, Inbox as InboxIcon, Flame, MessageSquare, Phone, Star, Clock, Mail, Zap, RefreshCw } from "lucide-react";
 import { formatPhoneNumber } from "@/lib/formatPhone";
 import { ConversationList } from "@/components/inbox/ConversationList";
 import { ConversationDetail } from "@/components/inbox/ConversationDetail";
@@ -55,6 +55,36 @@ const Communications = () => {
   
   // Centralized SMS sync - handles all real-time updates
   useSMSSync();
+
+  // Force refresh all data
+  const refreshAllData = useCallback(() => {
+    console.log("[Communications] Manual refresh triggered");
+    queryClient.invalidateQueries({ queryKey: ["sms-conversations"] });
+    queryClient.invalidateQueries({ queryKey: ["ai-call-logs"] });
+  }, [queryClient]);
+
+  // Real-time subscription for call logs
+  useEffect(() => {
+    console.log("[Communications] Setting up call logs real-time subscription");
+    const channel = supabase
+      .channel("call-logs-sync")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "ai_call_logs" },
+        (payload) => {
+          console.log("[Communications] Call log change:", payload.eventType);
+          queryClient.invalidateQueries({ queryKey: ["ai-call-logs"] });
+        }
+      )
+      .subscribe((status) => {
+        console.log("[Communications] Call logs subscription status:", status);
+      });
+
+    return () => {
+      console.log("[Communications] Cleaning up call logs subscription");
+      supabase.removeChannel(channel);
+    };
+  }, [queryClient]);
 
   // Fetch SMS conversations - RLS automatically filters by current user's recruiter_id
   // Uses consistent query key without user?.id to ensure proper cache sharing
@@ -113,9 +143,10 @@ const Communications = () => {
   });
 
   // Fetch AI call logs - RLS automatically filters by current user's recruiter_id
-  const { data: aiCallLogs = [], isLoading: callsLoading } = useQuery({
-    queryKey: ["ai-call-logs", user?.id],
+  const { data: aiCallLogs = [], isLoading: callsLoading, refetch: refetchCalls } = useQuery({
+    queryKey: ["ai-call-logs"],
     queryFn: async () => {
+      console.log("[Communications] Fetching AI call logs...");
       const { data, error } = await supabase
         .from("ai_call_logs")
         .select(`
@@ -146,8 +177,11 @@ const Communications = () => {
         return true;
       });
       
+      console.log("[Communications] Fetched", filtered.length, "call logs");
       return filtered;
     },
+    refetchInterval: 5000,
+    staleTime: 2000,
     enabled: !!user,
   });
 
@@ -308,10 +342,11 @@ const Communications = () => {
       return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
     });
 
-  // Calculate counts
-  const totalUnread = conversations.reduce((sum, c) => sum + c.unreadCount, 0);
-  const urgentCount = conversations.filter((c) => c.priorityLevel === "urgent").length;
-  const remindersCount = conversations.filter((c) => c.reminderAt || c.snoozedUntil).length;
+  // Calculate counts - these update reactively when conversations change
+  const totalUnread = useMemo(() => conversations.reduce((sum, c) => sum + c.unreadCount, 0), [conversations]);
+  const urgentCount = useMemo(() => conversations.filter((c) => c.priorityLevel === "urgent").length, [conversations]);
+  const hotCount = useMemo(() => conversations.filter((c) => c.priorityLevel === "hot" || c.priorityLevel === "urgent").length, [conversations]);
+  const remindersCount = useMemo(() => conversations.filter((c) => c.reminderAt || c.snoozedUntil).length, [conversations]);
 
   // Keyboard navigation
   const handleKeyNavigation = useCallback((e: KeyboardEvent) => {
@@ -441,15 +476,26 @@ const Communications = () => {
               </TabsList>
             </Tabs>
 
-            {/* Right: New message button */}
-            <Button
-              onClick={() => setIsNewMessageOpen(true)}
-              size="sm"
-              className="gradient-primary h-8"
-            >
-              <Plus className="h-4 w-4 mr-1" />
-              <span className="hidden sm:inline">New</span>
-            </Button>
+            {/* Right: Refresh and New message buttons */}
+            <div className="flex items-center gap-2">
+              <Button
+                onClick={refreshAllData}
+                size="sm"
+                variant="outline"
+                className="h-8"
+                title="Refresh all data"
+              >
+                <RefreshCw className="h-4 w-4" />
+              </Button>
+              <Button
+                onClick={() => setIsNewMessageOpen(true)}
+                size="sm"
+                className="gradient-primary h-8"
+              >
+                <Plus className="h-4 w-4 mr-1" />
+                <span className="hidden sm:inline">New</span>
+              </Button>
+            </div>
           </div>
         </div>
 
