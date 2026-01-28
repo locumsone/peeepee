@@ -90,8 +90,20 @@ const Communications = () => {
         .limit(100);
       
       if (error) throw error;
-      console.log("[Communications] Fetched", data?.length || 0, "conversations");
-      return data || [];
+      
+      // Filter out test/demo data (555 numbers, test messages)
+      const filtered = (data || []).filter((conv: any) => {
+        const phone = conv.candidate_phone || "";
+        const preview = (conv.last_message_preview || "").toLowerCase();
+        // Exclude 555 test numbers
+        if (phone.includes("555")) return false;
+        // Exclude test messages
+        if (preview.includes("test sms") || preview.includes("test message")) return false;
+        return true;
+      });
+      
+      console.log("[Communications] Fetched", filtered.length, "conversations (filtered from", data?.length || 0, ")");
+      return filtered;
     },
     // Fast polling as backup for real-time
     refetchInterval: 5000,
@@ -118,11 +130,23 @@ const Communications = () => {
           call_type,
           recruiter_id
         `)
+        // Filter out empty phone numbers at the database level
+        .not("phone_number", "is", null)
+        .neq("phone_number", "")
         .order("created_at", { ascending: false })
         .limit(100);
 
       if (error) throw error;
-      return data || [];
+      
+      // Additional client-side filtering for test data
+      const filtered = (data || []).filter((call: any) => {
+        const phone = call.phone_number || "";
+        // Exclude 555 test numbers
+        if (phone.includes("555")) return false;
+        return true;
+      });
+      
+      return filtered;
     },
     enabled: !!user,
   });
