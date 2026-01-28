@@ -1,188 +1,120 @@
 
+# Add Gmail/SMTP Email Sending as Alternative to Instantly
 
-# Job Detail Page Redesign - Enterprise ATS Standards
+## Overview
 
-## Research Summary
+Add the ability to send campaign emails directly via Gmail (or other SMTP providers) as an alternative to Instantly. This lets Marc and other users send email outreach using their Gmail accounts (`marc@locums.one`) while Instantly is being set up.
 
-Based on analysis of leading ATS platforms (Bullhorn, Greenhouse, JobDiva, Lever, Workday), the following are critical patterns for an optimal job detail page:
-
-### Industry Best Practices Discovered
-
-| ATS Platform | Key Features |
-|-------------|--------------|
-| **Bullhorn** | Multi-section layout (Information, Compensation, Requirements, Internal Notes, Status), Match button for instant candidate matching, Action buttons (Edit, Delete, Clone) |
-| **Greenhouse** | Visual candidate pipeline, Interview scorecards, Collaboration tools (@mentions), Job-specific analytics, Stage-based automation alerts |
-| **Lever** | Interview scorecard system, Stage-based candidate tracking, Feedback forms integrated into job view |
-| **Workday** | Requisition-centric view, Approval workflows visible, Hiring team panel, Multi-opening tracking |
-
-### Current Gaps in Locums One Job Detail Page
-
-1. **Missing Quick Stats Panel** - No at-a-glance metrics in header
-2. **No Hiring Team Section** - Can't see who's working this job
-3. **Limited Quick Actions** - Buried in tabs instead of prominent
-4. **No Job Health Score** - No visual indicator of job performance
-5. **Missing Time Metrics** - Days open, time-to-fill estimates not shown
-6. **No Scorecard/Notes** - No quick notes or scoring for candidates inline
-7. **Activity is Tab-Gated** - Recent activity should be visible immediately
-
----
-
-## Proposed Redesign
-
-### New Layout Architecture
+## How It Will Work
 
 ```text
-+------------------------------------------------------------------+
-|  HEADER BAR                                                       |
-|  [Back] IR - Middletown Regional | $185/hr | ACTIVE | URGENT     |
-|  Facility Name, NY | REQ #12345 | 2 Openings                     |
-+------------------------------------------------------------------+
-|                                                                   |
-|  QUICK STATS ROW (new)                                           |
-|  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐     |
-|  │ 47      │ │ 12      │ │ 5       │ │ 23 days │ │ 78%     │     |
-|  │ Matched │ │ Active  │ │ Replies │ │ Open    │ │ Health  │     |
-|  └─────────┘ └─────────┘ └─────────┘ └─────────┘ └─────────┘     |
-|                                                                   |
-|  QUICK ACTIONS (new - always visible)                            |
-|  [Find Candidates] [Create Campaign] [Edit Job] [Clone] [Share]  |
-|                                                                   |
-+------------------------------------------------------------------+
-|                                                                   |
-|  PIPELINE (existing, enhanced)                                   |
-|  Visual bar + Stage cards with click-to-filter                   |
-|                                                                   |
-+------------------------------------------------------------------+
-|  LEFT COLUMN (60%)          |  RIGHT COLUMN (40%)                |
-|  ┌────────────────────────┐ | ┌────────────────────────────────┐ |
-|  │ TABS                   │ | │ JOB DETAILS CARD (new sidebar) │ |
-|  │ Candidates | Activity  │ | │ • Specialty: IR                │ |
-|  │ Outreach | Scorecards  │ | │ • Schedule: 7on/7off           │ |
-|  │                        │ | │ • Start: Mar 15, 2026          │ |
-|  │ [Tab Content Area]     │ | │ • Requirements: TX license...  │ |
-|  │                        │ | ├────────────────────────────────┤ |
-|  │                        │ | │ PAY BREAKDOWN                  │ |
-|  │                        │ | │ Bill: $250 | Pay: $185 | 73%   │ |
-|  │                        │ | ├────────────────────────────────┤ |
-|  │                        │ | │ HIRING TEAM (new)              │ |
-|  │                        │ | │ 👤 John Smith (Owner)          │ |
-|  │                        │ | │ 👤 Jane Doe (Recruiter)        │ |
-|  │                        │ | ├────────────────────────────────┤ |
-|  │                        │ | │ RECENT ACTIVITY (3 items)      │ |
-|  │                        │ | │ • Dr. Smith replied (2h ago)   │ |
-|  │                        │ | │ • SMS sent to Dr. Jones        │ |
-|  │                        │ | │ [View All Activity]            │ |
-|  └────────────────────────┘ | └────────────────────────────────┘ |
-+------------------------------------------------------------------+
+┌────────────────────────────────────────────────────────────┐
+│  STEP 3: CHANNELS                                          │
+│                                                            │
+│  📧 Email                                                  │
+│  ┌────────────────────────────────────────────────────┐   │
+│  │  Provider:  [▼ Gmail/SMTP ]  [▼ Instantly (Pro)]   │   │
+│  │                                                    │   │
+│  │  ─────────── Gmail/SMTP Selected ───────────      │   │
+│  │  Sender Email: [marc@locums.one        ]          │   │
+│  │  Display Name: [Marc - Locums One      ]          │   │
+│  │                                                    │   │
+│  │  ⚠️ Requires SMTP credentials configured          │   │
+│  └────────────────────────────────────────────────────┘   │
+│                                                            │
+│  📱 SMS (Twilio)    ☎️ AI Calls (ARIA)    🔗 LinkedIn     │
+└────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Detailed Component Changes
+## Technical Approach
 
-### Component 1: JobDetailHeader (New)
+### Option A: Gmail SMTP with App Password (Recommended)
 
-**Purpose:** Compact, information-dense header with all critical job info visible immediately
+Uses Gmail's SMTP server with an App Password for authentication. This is the simplest approach that works immediately without OAuth complexity.
 
-**Features:**
-- Job name + facility + location on one line
-- Status badges (Active, Urgent, On Hold)
-- Pay rate prominently displayed
-- Requisition ID as copyable badge
-- Number of openings indicator
+**Requirements:**
+- Gmail account with 2FA enabled
+- App Password generated at: https://myaccount.google.com/apppasswords
+- Store as Supabase secrets: `GMAIL_USER` and `GMAIL_APP_PASSWORD`
 
-### Component 2: JobQuickStats (New)
+**SMTP Settings:**
+- Host: `smtp.gmail.com`
+- Port: `465` (SSL) or `587` (TLS)
+- Secure: true
 
-**Purpose:** At-a-glance metrics row below header
+### Option B: Google OAuth (More Complex)
 
-**Metrics to Display:**
-- **Matched**: Total candidates matched to this job (from `candidate_job_matches`)
-- **In Pipeline**: Active candidates in campaigns
-- **Replies**: Total responses received (email + SMS + calls)
-- **Days Open**: Calculated from job creation date
-- **Health Score**: Composite score based on activity, response rate, pipeline movement
+Requires OAuth2 token management, refresh tokens, and Google Cloud setup. More enterprise-grade but significantly more complex to implement.
 
-**Implementation:**
+---
+
+## Implementation Plan
+
+### 1. Add New Edge Function: `send-email-smtp`
+
+Create a new edge function that sends emails via SMTP (Gmail or any provider).
+
 ```typescript
-interface QuickStatsProps {
-  matchedCount: number;
-  pipelineCount: number;
-  totalReplies: number;
-  daysOpen: number;
-  healthScore: number; // 0-100
+// supabase/functions/send-email-smtp/index.ts
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { SMTPClient } from "https://deno.land/x/denomailer@1.6.0/mod.ts";
+
+interface EmailRequest {
+  to: string;
+  subject: string;
+  html: string;
+  from_email?: string;
+  from_name?: string;
+  reply_to?: string;
+}
+
+serve(async (req) => {
+  // Authenticate request
+  // Get GMAIL credentials from secrets
+  // Send via SMTP
+  // Return success/failure
+});
+```
+
+### 2. Update Channel Configuration
+
+Modify `CampaignChannels.tsx` to allow choosing between:
+- **Instantly** (existing - for power users)
+- **Gmail/SMTP** (new - for immediate use)
+
+Add UI to:
+- Select email provider
+- Enter sender email for SMTP
+- Enter display name
+
+### 3. Update `launch-campaign` Edge Function
+
+Modify the email sending logic to check which provider is configured:
+
+```typescript
+// In launch-campaign/index.ts
+if (channels.email) {
+  if (channels.email.provider === 'gmail' || channels.email.provider === 'smtp') {
+    // Use send-email-smtp function
+    await supabase.functions.invoke('send-email-smtp', {
+      body: { to, subject, html, from_email, from_name }
+    });
+  } else {
+    // Use Instantly (existing flow)
+  }
 }
 ```
 
-### Component 3: JobQuickActions (New)
+### 4. Add Secrets for Gmail
 
-**Purpose:** Prominent action buttons always visible (not hidden in tabs)
+Required secrets to add:
+- `GMAIL_USER` - The Gmail address (e.g., `marc@locums.one`)
+- `GMAIL_APP_PASSWORD` - App password from Google
 
-**Actions:**
-- Find Candidates (navigates to search)
-- Create Campaign (navigates to matching)
-- Edit Job (inline edit or modal)
-- Clone Job (duplicate for similar positions)
-- Share Job (copy link or send to team member)
-- Archive/Close (with confirmation)
-
-### Component 4: JobDetailSidebar (New)
-
-**Purpose:** Right-side panel with job details, pay breakdown, team, and recent activity
-
-**Sections:**
-1. **Job Requirements Card**
-   - Specialty, schedule, dates, requirements text
-   - Click to expand full requirements
-   
-2. **Pay Breakdown Card**
-   - Bill rate, pay rate, margin, percentage breakdown
-   - Visual comparison bar
-   
-3. **Hiring Team Card** (new concept)
-   - Job owner/creator
-   - Assigned recruiters
-   - Quick @mention capability
-   
-4. **Recent Activity Mini-Feed**
-   - Last 3-5 activity items
-   - "View All" link to Activity tab
-
-### Component 5: Enhanced Tabs
-
-**Current Tabs:** Candidates, Activity, Outreach, Settings
-
-**Proposed Tabs:**
-1. **Candidates** - Keep Kanban/List view (existing)
-2. **Activity** - Full activity timeline (existing)
-3. **Outreach** - Channel performance stats (existing)
-4. **Scorecards** (NEW) - Candidate ratings and interview notes
-5. **Notes** (NEW) - Internal job notes and updates
-
-### Component 6: JobScorecard (New Tab Content)
-
-**Purpose:** Greenhouse-style scorecard for rating candidates against job requirements
-
-**Features:**
-- Define 3-5 key attributes for this job (e.g., "State License", "Fellowship", "Years Experience")
-- Rate each candidate on each attribute (1-5 stars or Yes/No)
-- Quick visual of which candidates meet criteria
-- Sorting/filtering by scorecard completion
-
-### Component 7: JobHealthIndicator (New)
-
-**Purpose:** Visual health score with drill-down explanations
-
-**Calculation Factors:**
-- Days open (older = lower score)
-- Pipeline movement (stagnant = lower)
-- Response rate vs benchmark
-- Time since last activity
-- Candidate quality (tier distribution)
-
-**Visual Treatment:**
-- Circular progress indicator with percentage
-- Color coding (green > 70%, yellow 40-70%, red < 40%)
-- Hover tooltip with breakdown
+Or for custom SMTP:
+- `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`
 
 ---
 
@@ -190,94 +122,104 @@ interface QuickStatsProps {
 
 | File | Purpose |
 |------|---------|
-| `src/components/jobs/JobDetailHeader.tsx` | Enhanced header with all critical info |
-| `src/components/jobs/JobQuickStats.tsx` | At-a-glance metrics row |
-| `src/components/jobs/JobQuickActions.tsx` | Prominent action buttons |
-| `src/components/jobs/JobDetailSidebar.tsx` | Right-side info panel |
-| `src/components/jobs/JobHealthIndicator.tsx` | Visual health score |
-| `src/components/jobs/JobScorecard.tsx` | Candidate rating system |
-| `src/components/jobs/JobNotesPanel.tsx` | Internal notes section |
-| `src/components/jobs/JobTeamCard.tsx` | Hiring team display |
+| `supabase/functions/send-email-smtp/index.ts` | SMTP email sender using Deno |
 
 ## Files to Modify
 
 | File | Changes |
 |------|---------|
-| `src/pages/JobDetail.tsx` | Complete restructure with new layout, fetch additional data |
-| `src/components/jobs/index.ts` | Export new components |
-| `src/components/jobs/JobPipeline.tsx` | Add stage filtering callback |
+| `src/pages/CampaignChannels.tsx` | Add provider selector (Gmail vs Instantly) |
+| `supabase/functions/launch-campaign/index.ts` | Route emails to correct provider |
+| `src/components/campaign-review/StepConnectChannels.tsx` | Show Gmail status check |
+| `supabase/config.toml` | Register new function |
 
 ---
 
-## Database Queries Needed
+## Database Changes
 
-### New Aggregations for Quick Stats
-
+Add to `ChannelConfig` type:
 ```typescript
-// Matched candidates count
-const { count: matchedCount } = await supabase
-  .from("candidate_job_matches")
-  .select("*", { count: "exact", head: true })
-  .eq("job_id", jobId);
-
-// Days open calculation
-const daysOpen = differenceInDays(new Date(), new Date(job.created_at));
-
-// Health score calculation
-const healthScore = calculateHealthScore({
-  daysOpen,
-  pipelineMovementRate,
-  responseRate,
-  lastActivityDate,
-});
+email?: {
+  provider: 'instantly' | 'gmail' | 'smtp';  // NEW
+  sender: string;
+  senderName?: string;  // NEW
+  sequenceLength: number;
+  gapDays: number;
+} | null;
 ```
 
 ---
 
-## Visual Design Notes
+## UI Changes
 
-Following the "Corporate Xbox Console" aesthetic:
-- Quick Stats cards: Rounded square tiles with subtle glow on hover
-- Health indicator: Ring/donut chart with Electric Blue (#0EA5E9) accent
-- Sidebar cards: Deep surface (#16191D) with border-border
-- Action buttons: Primary uses success color for positive actions (Create Campaign)
-- Scorecard: Table layout with star ratings or checkbox indicators
+### Email Channel Card (Updated)
 
----
-
-## Implementation Order
-
-1. **Phase 1: Layout Restructure**
-   - Create two-column layout (60/40 split)
-   - Move job details to sidebar
-   - Add Quick Stats row
-
-2. **Phase 2: New Components**
-   - JobQuickStats
-   - JobDetailSidebar
-   - JobHealthIndicator
-   - JobQuickActions
-
-3. **Phase 3: New Features**
-   - Scorecards tab
-   - Notes tab
-   - Team card
-
-4. **Phase 4: Data Integration**
-   - Fetch `candidate_job_matches` count
-   - Calculate health score
-   - Add days open tracking
+```text
+┌─────────────────────────────────────────────┐
+│ 📧 Email                          [Toggle] │
+│                                             │
+│  Provider                                   │
+│  ┌─────────────────────────────────────┐   │
+│  │ ○ Gmail/SMTP   ● Instantly          │   │
+│  └─────────────────────────────────────┘   │
+│                                             │
+│  If Gmail selected:                         │
+│  ┌─────────────────────────────────────┐   │
+│  │ Your Email: [marc@locums.one    ]   │   │
+│  │ Display As: [Marc - Locums One  ]   │   │
+│  └─────────────────────────────────────┘   │
+│  ⓘ Uses your Gmail via secure SMTP         │
+│                                             │
+│  Sequence: [4 emails ▼]  Gap: [3 days ▼]   │
+└─────────────────────────────────────────────┘
+```
 
 ---
 
-## Success Criteria
+## Setup Steps for Marc
 
 After implementation:
-1. All critical job info visible without scrolling
-2. Quick actions always accessible (not buried in tabs)
-3. Health score provides instant job status assessment
-4. Hiring team visible for collaboration
-5. Recent activity shown without clicking Activity tab
-6. Scorecard system enables structured candidate evaluation
-7. Layout matches enterprise ATS standards (Bullhorn, Greenhouse quality)
 
+1. **Enable 2FA on Gmail** (if not already)
+   - Go to: https://myaccount.google.com/security
+   
+2. **Generate App Password**
+   - Go to: https://myaccount.google.com/apppasswords
+   - Select "Mail" and generate a 16-character password
+   
+3. **Add Secrets in Supabase**
+   - Add `GMAIL_USER` = `marc@locums.one`
+   - Add `GMAIL_APP_PASSWORD` = `[16-char app password]`
+
+4. **Use in Campaign**
+   - Select "Gmail/SMTP" as email provider
+   - Enter sending email address
+   - Launch campaign!
+
+---
+
+## Rate Limits & Considerations
+
+Gmail has sending limits:
+- **Free Gmail**: 500 emails/day
+- **Google Workspace**: 2,000 emails/day
+
+For large campaigns, Instantly is still recommended. Gmail/SMTP is ideal for:
+- Small test campaigns
+- Quick outreach to 10-50 candidates
+- While Instantly is being configured
+
+---
+
+## Security Notes
+
+- App passwords are stored securely in Supabase secrets
+- Credentials never exposed to frontend
+- All emails sent server-side via edge function
+- Supports reply-to for tracking responses
+
+---
+
+## Summary
+
+This plan adds Gmail as an alternative email provider for campaign outreach. It uses Gmail's SMTP with App Passwords for simple setup, requires no OAuth complexity, and can be live within one implementation session.
