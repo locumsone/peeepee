@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
 import Layout from "@/components/layout/Layout";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Plus, Inbox as InboxIcon, Flame, MessageSquare, Phone, Star, Clock, Mail, Zap } from "lucide-react";
+import { Plus, Inbox as InboxIcon, Flame, MessageSquare, Phone, Star, Clock, Mail, Zap, Users } from "lucide-react";
 import { formatPhoneNumber } from "@/lib/formatPhone";
 import { ConversationList } from "@/components/inbox/ConversationList";
 import { ConversationDetail } from "@/components/inbox/ConversationDetail";
@@ -13,6 +14,8 @@ import { NewMessageModal } from "@/components/inbox/NewMessageModal";
 import { CampaignFilter } from "@/components/inbox/CampaignFilter";
 import { RemindersList } from "@/components/inbox/RemindersList";
 import { calculatePriorityLevel, type PriorityLevel } from "@/components/inbox/PriorityBadge";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 
 export type ChannelFilter = "all" | "urgent" | "hot" | "sms" | "calls" | "reminders";
 
@@ -41,19 +44,21 @@ export interface ConversationItem {
 }
 
 const Communications = () => {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<ChannelFilter>("all");
   const [selectedConversation, setSelectedConversation] = useState<ConversationItem | null>(null);
   const [selectedIndex, setSelectedIndex] = useState<number>(0);
   const [isNewMessageOpen, setIsNewMessageOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
+  const [showAllTeam, setShowAllTeam] = useState(false);
   const queryClient = useQueryClient();
 
-  // Fetch SMS conversations
+  // Fetch SMS conversations - filtered by current user's recruiter_id
   const { data: smsConversations = [], isLoading: smsLoading, refetch: refetchConversations } = useQuery({
-    queryKey: ["sms-conversations"],
+    queryKey: ["sms-conversations", user?.id, showAllTeam],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let query = supabase
         .from("sms_conversations")
         .select(`
           id,
@@ -69,6 +74,7 @@ const Communications = () => {
           reminder_at,
           reminder_note,
           snoozed_until,
+          recruiter_id,
           candidates (
             id,
             first_name,
@@ -79,10 +85,18 @@ const Communications = () => {
         .order("last_message_at", { ascending: false })
         .limit(100);
       
+      // Filter by user's ID unless showing all team
+      if (!showAllTeam && user?.id) {
+        query = query.or(`recruiter_id.eq.${user.id},recruiter_id.is.null`);
+      }
+
+      const { data, error } = await query;
+      
       if (error) throw error;
       return data || [];
     },
     refetchInterval: 10000,
+    enabled: !!user,
   });
 
   // Real-time subscription for conversation updates
@@ -120,11 +134,11 @@ const Communications = () => {
     };
   }, [refetchConversations]);
 
-  // Fetch AI call logs
+  // Fetch AI call logs - filtered by current user's recruiter_id
   const { data: aiCallLogs = [], isLoading: callsLoading } = useQuery({
-    queryKey: ["ai-call-logs"],
+    queryKey: ["ai-call-logs", user?.id, showAllTeam],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let query = supabase
         .from("ai_call_logs")
         .select(`
           id,
@@ -135,14 +149,23 @@ const Communications = () => {
           created_at,
           status,
           duration_seconds,
-          call_type
+          call_type,
+          recruiter_id
         `)
         .order("created_at", { ascending: false })
         .limit(100);
+
+      // Filter by user's ID unless showing all team
+      if (!showAllTeam && user?.id) {
+        query = query.or(`recruiter_id.eq.${user.id},recruiter_id.is.null`);
+      }
+      
+      const { data, error } = await query;
       
       if (error) throw error;
       return data || [];
     },
+    enabled: !!user,
   });
 
   // Get outcome display text
@@ -386,6 +409,19 @@ const Communications = () => {
                   selectedCampaignId={selectedCampaignId}
                   onSelectCampaign={setSelectedCampaignId}
                 />
+              </div>
+
+              {/* Team toggle */}
+              <div className="hidden lg:flex items-center gap-2 ml-2 pl-2 border-l border-border">
+                <Switch
+                  id="show-team"
+                  checked={showAllTeam}
+                  onCheckedChange={setShowAllTeam}
+                />
+                <Label htmlFor="show-team" className="text-xs text-muted-foreground flex items-center gap-1 cursor-pointer">
+                  <Users className="h-3 w-3" />
+                  Team
+                </Label>
               </div>
             </div>
 

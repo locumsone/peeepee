@@ -9,12 +9,14 @@ import {
   Users,
   Search,
   Mail,
-  BarChart3
+  BarChart3,
+  UserCircle
 } from "lucide-react";
 import Layout from "@/components/layout/Layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
 import { 
   DashboardStats, 
   DashboardJobCard, 
@@ -34,13 +36,20 @@ interface Job {
   created_at: string | null;
 }
 
+interface JobAssignment {
+  job_id: string;
+  role: string;
+}
+
 const Dashboard = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [myJobIds, setMyJobIds] = useState<Set<string>>(new Set());
   const [jobsNeedingAttention, setJobsNeedingAttention] = useState(0);
   const [loading, setLoading] = useState(true);
 
-  const userName = "Recruiter";
+  const userName = user?.user_metadata?.name || user?.email?.split("@")[0] || "Recruiter";
   const greeting = getGreeting();
 
   function getGreeting() {
@@ -52,29 +61,48 @@ const Dashboard = () => {
 
   useEffect(() => {
     fetchDashboardData();
-  }, []);
+  }, [user]);
 
   const fetchDashboardData = async () => {
+    if (!user) return;
     setLoading(true);
 
     try {
-      // Fetch recent active jobs
-      const { data: jobsData } = await supabase
+      // Fetch user's job assignments
+      const { data: assignments } = await supabase
+        .from("job_assignments")
+        .select("job_id, role")
+        .eq("user_id", user.id);
+
+      const assignedJobIds = new Set((assignments || []).map(a => a.job_id));
+      setMyJobIds(assignedJobIds);
+
+      // Fetch jobs - prioritize assigned jobs
+      let jobsQuery = supabase
         .from("jobs")
         .select("*")
         .in("status", ["active", "open"])
         .order("created_at", { ascending: false })
         .limit(6);
 
-      setJobs(jobsData || []);
+      // If user has assigned jobs, prioritize those
+      if (assignedJobIds.size > 0) {
+        const { data: assignedJobs } = await supabase
+          .from("jobs")
+          .select("*")
+          .in("id", Array.from(assignedJobIds))
+          .in("status", ["active", "open"])
+          .order("created_at", { ascending: false })
+          .limit(6);
 
-      // Count jobs without campaigns
-      const { count } = await supabase
-        .from("jobs")
-        .select("id", { count: "exact", head: true })
-        .in("status", ["active", "open"]);
+        setJobs(assignedJobs || []);
+      } else {
+        const { data: jobsData } = await jobsQuery;
+        setJobs(jobsData || []);
+      }
 
-      setJobsNeedingAttention(count || 0);
+      // Count jobs assigned to user
+      setJobsNeedingAttention(assignedJobIds.size);
     } catch (error) {
       console.error("Error fetching dashboard data:", error);
     } finally {
@@ -100,9 +128,9 @@ const Dashboard = () => {
             </h1>
             <p className="text-sm text-muted-foreground mt-0.5">
               {format(new Date(), "EEEE, MMMM d, yyyy")}
-              {jobsNeedingAttention > 0 && (
+              {myJobIds.size > 0 && (
                 <span className="ml-2 text-primary">
-                  • {jobsNeedingAttention} active job{jobsNeedingAttention !== 1 ? "s" : ""} need candidates
+                  • {myJobIds.size} job{myJobIds.size !== 1 ? "s" : ""} assigned to you
                 </span>
               )}
             </p>
@@ -144,8 +172,8 @@ const Dashboard = () => {
           <Card className="lg:col-span-2">
             <CardHeader className="pb-3 flex flex-row items-center justify-between">
               <CardTitle className="text-base font-semibold flex items-center gap-2">
-                <Briefcase className="h-4 w-4 text-primary" />
-                Your Active Jobs
+                <UserCircle className="h-4 w-4 text-primary" />
+                {myJobIds.size > 0 ? "Your Assigned Jobs" : "Recent Active Jobs"}
               </CardTitle>
               <Button variant="ghost" size="sm" asChild>
                 <Link to="/jobs">
@@ -162,15 +190,15 @@ const Dashboard = () => {
               ) : jobs.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-[200px] text-muted-foreground">
                   <Briefcase className="h-8 w-8 mb-2 opacity-40" />
-                  <p className="text-sm">No active jobs</p>
+                  <p className="text-sm">No jobs assigned to you yet</p>
                   <Button 
                     variant="outline" 
                     size="sm" 
                     className="mt-3"
-                    onClick={() => navigate("/jobs/new")}
+                    onClick={() => navigate("/jobs")}
                   >
                     <Plus className="h-3 w-3 mr-1" />
-                    Create Your First Job
+                    Browse Jobs
                   </Button>
                 </div>
               ) : (
@@ -186,7 +214,7 @@ const Dashboard = () => {
           {/* Activity Feed */}
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base font-semibold">Recent Activity</CardTitle>
+              <CardTitle className="text-base font-semibold">Your Recent Activity</CardTitle>
             </CardHeader>
             <CardContent>
               <DashboardActivityFeed />

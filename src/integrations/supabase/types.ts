@@ -2456,6 +2456,44 @@ export type Database = {
           },
         ]
       }
+      job_assignments: {
+        Row: {
+          assigned_at: string
+          assigned_by: string | null
+          created_at: string
+          id: string
+          job_id: string
+          role: Database["public"]["Enums"]["job_assignment_role"]
+          user_id: string
+        }
+        Insert: {
+          assigned_at?: string
+          assigned_by?: string | null
+          created_at?: string
+          id?: string
+          job_id: string
+          role?: Database["public"]["Enums"]["job_assignment_role"]
+          user_id: string
+        }
+        Update: {
+          assigned_at?: string
+          assigned_by?: string | null
+          created_at?: string
+          id?: string
+          job_id?: string
+          role?: Database["public"]["Enums"]["job_assignment_role"]
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "job_assignments_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       jobs: {
         Row: {
           bill_rate: number | null
@@ -4052,7 +4090,7 @@ export type Database = {
       }
     }
     Enums: {
-      [_ in never]: never
+      job_assignment_role: "primary" | "support"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -4179,6 +4217,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      job_assignment_role: ["primary", "support"],
+    },
   },
 } as const
