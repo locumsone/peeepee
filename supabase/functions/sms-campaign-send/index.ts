@@ -72,13 +72,11 @@ serve(async (req) => {
       }
 
       // If no existing number, try to get one from the pool with smart rotation
-      // Only use numbers that are confirmed Twilio numbers (start with verified prefix)
       if (!selectedNumber || selectedNumber === fallbackNumber) {
         const { data: availableNumbers, error: numError } = await supabase
           .from("telnyx_numbers") // Table stores Twilio numbers despite legacy name
           .select("id, phone_number, messages_sent_today, daily_limit")
           .eq("status", "active")
-          .like("phone_number", "+1218%") // Only use verified Twilio numbers
           .lt("messages_sent_today", 200) // Under daily limit
           .order("messages_sent_today", { ascending: true })
           .order("last_used_at", { ascending: true, nullsFirst: true })

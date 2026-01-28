@@ -83,12 +83,11 @@ serve(async (req) => {
 
     console.log(`Processing ${pendingMessages.length} messages (batch size: ${batchSize})`);
 
-    // Get available sender numbers
+    // Get available sender numbers (from any active Twilio number in the pool)
     const { data: availableNumbers } = await supabase
       .from("telnyx_numbers")
       .select("id, phone_number, messages_sent_today, daily_limit")
       .eq("status", "active")
-      .like("phone_number", "+1218%")
       .lt("messages_sent_today", 200)
       .order("messages_sent_today", { ascending: true });
 
