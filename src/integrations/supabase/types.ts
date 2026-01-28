@@ -1028,6 +1028,9 @@ export type Database = {
           playbook_synced_at: string | null
           sender_account: string | null
           sms_delivered: number | null
+          sms_failed: number | null
+          sms_processing: number | null
+          sms_queued: number | null
           sms_replied: number | null
           sms_sent: number | null
           status: string | null
@@ -1054,6 +1057,9 @@ export type Database = {
           playbook_synced_at?: string | null
           sender_account?: string | null
           sms_delivered?: number | null
+          sms_failed?: number | null
+          sms_processing?: number | null
+          sms_queued?: number | null
           sms_replied?: number | null
           sms_sent?: number | null
           status?: string | null
@@ -1080,6 +1086,9 @@ export type Database = {
           playbook_synced_at?: string | null
           sender_account?: string | null
           sms_delivered?: number | null
+          sms_failed?: number | null
+          sms_processing?: number | null
+          sms_queued?: number | null
           sms_replied?: number | null
           sms_sent?: number | null
           status?: string | null
@@ -3294,10 +3303,13 @@ export type Database = {
           attempts: number | null
           campaign_id: string | null
           candidate_id: string | null
+          contact_name: string | null
           created_at: string | null
+          from_number: string | null
           id: string
           job_id: string | null
           last_error: string | null
+          max_attempts: number | null
           message_body: string
           personalization_data: Json | null
           phone_to: string
@@ -3305,17 +3317,22 @@ export type Database = {
           processed_at: string | null
           recruiter_id: string | null
           scheduled_for: string | null
+          sent_at: string | null
           status: string | null
           template_id: string | null
+          twilio_sid: string | null
         }
         Insert: {
           attempts?: number | null
           campaign_id?: string | null
           candidate_id?: string | null
+          contact_name?: string | null
           created_at?: string | null
+          from_number?: string | null
           id?: string
           job_id?: string | null
           last_error?: string | null
+          max_attempts?: number | null
           message_body: string
           personalization_data?: Json | null
           phone_to: string
@@ -3323,17 +3340,22 @@ export type Database = {
           processed_at?: string | null
           recruiter_id?: string | null
           scheduled_for?: string | null
+          sent_at?: string | null
           status?: string | null
           template_id?: string | null
+          twilio_sid?: string | null
         }
         Update: {
           attempts?: number | null
           campaign_id?: string | null
           candidate_id?: string | null
+          contact_name?: string | null
           created_at?: string | null
+          from_number?: string | null
           id?: string
           job_id?: string | null
           last_error?: string | null
+          max_attempts?: number | null
           message_body?: string
           personalization_data?: Json | null
           phone_to?: string
@@ -3341,8 +3363,10 @@ export type Database = {
           processed_at?: string | null
           recruiter_id?: string | null
           scheduled_for?: string | null
+          sent_at?: string | null
           status?: string | null
           template_id?: string | null
+          twilio_sid?: string | null
         }
         Relationships: [
           {
@@ -3395,6 +3419,45 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      sms_send_settings: {
+        Row: {
+          batch_size: number
+          delay_between_batches_seconds: number
+          delay_between_messages_ms: number
+          enabled: boolean
+          id: string
+          messages_per_day: number
+          messages_per_hour: number
+          messages_per_minute: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          batch_size?: number
+          delay_between_batches_seconds?: number
+          delay_between_messages_ms?: number
+          enabled?: boolean
+          id?: string
+          messages_per_day?: number
+          messages_per_hour?: number
+          messages_per_minute?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          batch_size?: number
+          delay_between_batches_seconds?: number
+          delay_between_messages_ms?: number
+          enabled?: boolean
+          id?: string
+          messages_per_day?: number
+          messages_per_hour?: number
+          messages_per_minute?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
       }
       sms_templates: {
         Row: {

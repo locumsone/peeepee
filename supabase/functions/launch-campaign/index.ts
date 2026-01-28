@@ -134,39 +134,59 @@ serve(async (req) => {
     let emailsQueued = 0;
     let callsQueued = 0;
 
-    // 3. Queue SMS messages for Day 1 (if SMS channel enabled)
+    // 3. Queue SMS messages for batch sending (rate-limited to avoid carrier spam)
+    // Best practices: 1 msg/sec per number, spread over time, use multiple numbers
     if (channels.sms) {
       const candidatesWithPhone = candidates.filter((c) => c.phone);
-      console.log(`[launch-campaign] SMS enabled, ${candidatesWithPhone.length} candidates with phone`);
+      console.log(`[launch-campaign] SMS enabled, queueing ${candidatesWithPhone.length} messages for batch send`);
 
-      for (const candidate of candidatesWithPhone) {
-        try {
-          // Use the custom SMS message if available, otherwise use a template
-          const smsBody =
-            candidate.sms_message ||
-            `Hi Dr. ${candidate.last_name}, I'm reaching out about a locums opportunity that matches your profile. Would you be available for a quick call? - Sent via LocumsOne`;
+      // Calculate staggered send times (spread messages over time)
+      const now = new Date();
+      const messagesPerMinute = 30; // Conservative rate
+      const delayBetweenMessages = 60000 / messagesPerMinute; // ms between each message
 
-          const { error: smsError } = await supabase.functions.invoke("sms-campaign-send", {
-            body: {
-              to: candidate.phone,
-              body: smsBody,
-              campaign_id: campaign.id,
-              candidate_id: candidate.id,
-              candidate_name: `${candidate.first_name} ${candidate.last_name}`,
-              job_id,
-            },
-          });
+      const smsQueueItems = candidatesWithPhone.map((candidate, index) => {
+        const smsBody =
+          candidate.sms_message ||
+          `Hi Dr. ${candidate.last_name}, I'm reaching out about a locums opportunity that matches your profile. Would you be available for a quick call? - Sent via LocumsOne`;
 
-          if (!smsError) {
-            smsQueued++;
-          } else {
-            console.error(`[launch-campaign] SMS send failed for ${candidate.first_name}:`, smsError);
-          }
-        } catch (err) {
-          console.error(`[launch-campaign] SMS error for ${candidate.first_name}:`, err);
-        }
+        // Stagger send times: first batch immediate, then spread out
+        const scheduledTime = new Date(now.getTime() + index * delayBetweenMessages);
+
+        return {
+          campaign_id: campaign.id,
+          job_id,
+          candidate_id: candidate.id,
+          phone_to: candidate.phone,
+          message_body: smsBody,
+          contact_name: `${candidate.first_name} ${candidate.last_name}`,
+          status: "pending",
+          priority: candidate.tier === 1 ? 10 : candidate.tier === 2 ? 5 : 1,
+          scheduled_for: scheduledTime.toISOString(),
+          attempts: 0,
+          max_attempts: 3,
+          personalization_data: {
+            icebreaker: candidate.icebreaker,
+            talking_points: candidate.talking_points,
+          },
+        };
+      });
+
+      // Batch insert into queue
+      const { error: queueError } = await supabase.from("sms_queue").insert(smsQueueItems);
+
+      if (!queueError) {
+        smsQueued = smsQueueItems.length;
+        console.log(`[launch-campaign] Queued ${smsQueued} SMS messages for batch processing`);
+
+        // Update campaign with queue count
+        await supabase
+          .from("campaigns")
+          .update({ sms_queued: smsQueued })
+          .eq("id", campaign.id);
+      } else {
+        console.error("[launch-campaign] Failed to queue SMS:", queueError);
       }
-      console.log(`[launch-campaign] Queued ${smsQueued} SMS messages`);
     }
 
     // 4. Queue AI Calls (if AI Call channel enabled)
