@@ -116,10 +116,10 @@ export default function CampaignChannels() {
         if (error) throw error;
         
         if (data?.accounts && data.accounts.length > 0) {
-          // Filter to only show kristin and marc accounts
+          // Filter to only show kristin (golocumsone.com) and marc (locumsonedocs.com) accounts
           const allowedAccounts = data.accounts.filter((acc: InstantlyAccount) => {
             const email = acc.email.toLowerCase();
-            return email.includes('kristin') || email.includes('marc');
+            return email.endsWith('@golocumsone.com') || email.endsWith('@locumsonedocs.com');
           });
           
           setInstantlyAccounts(allowedAccounts);
