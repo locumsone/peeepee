@@ -1,59 +1,63 @@
 import { useState } from "react";
-import { Plus, FileText, Clock } from "lucide-react";
+import { Plus, FileText, Clock, Pin, Trash2, Edit2, X, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import { formatDistanceToNow, format } from "date-fns";
-
-interface JobNote {
-  id: string;
-  content: string;
-  createdAt: string;
-  createdBy: string;
-  isPinned?: boolean;
-}
+import { useJobNotes } from "@/hooks/useJobNotes";
+import { cn } from "@/lib/utils";
 
 interface JobNotesPanelProps {
   jobId: string;
 }
 
-// Mock notes for now - would connect to database in production
-const MOCK_NOTES: JobNote[] = [
-  {
-    id: "1",
-    content: "Client prefers candidates with fellowship training. Must have at least 2 years of locums experience.",
-    createdAt: new Date(Date.now() - 86400000 * 2).toISOString(),
-    createdBy: "John Smith",
-    isPinned: true,
-  },
-  {
-    id: "2",
-    content: "Spoke with facility - they are flexible on start date if right candidate is found.",
-    createdAt: new Date(Date.now() - 86400000).toISOString(),
-    createdBy: "Jane Doe",
-  },
-];
-
 export const JobNotesPanel = ({ jobId }: JobNotesPanelProps) => {
-  const [notes, setNotes] = useState<JobNote[]>(MOCK_NOTES);
+  const { notes, isLoading, addNote, updateNote, deleteNote, togglePin, currentUserId } = useJobNotes(jobId);
   const [newNote, setNewNote] = useState("");
   const [isAdding, setIsAdding] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editContent, setEditContent] = useState("");
 
-  const handleAddNote = () => {
+  const handleAddNote = async () => {
     if (!newNote.trim()) return;
     
-    const note: JobNote = {
-      id: Date.now().toString(),
-      content: newNote.trim(),
-      createdAt: new Date().toISOString(),
-      createdBy: "Current User", // Would use actual user
-    };
-    
-    setNotes([note, ...notes]);
-    setNewNote("");
-    setIsAdding(false);
+    const success = await addNote(newNote.trim());
+    if (success) {
+      setNewNote("");
+      setIsAdding(false);
+    }
   };
+
+  const handleStartEdit = (noteId: string, content: string) => {
+    setEditingId(noteId);
+    setEditContent(content);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingId || !editContent.trim()) return;
+    
+    const success = await updateNote(editingId, editContent.trim());
+    if (success) {
+      setEditingId(null);
+      setEditContent("");
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <Skeleton className="h-6 w-32" />
+          <Skeleton className="h-9 w-24" />
+        </div>
+        {[1, 2, 3].map((i) => (
+          <Skeleton key={i} className="h-24 w-full rounded-xl" />
+        ))}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -117,32 +121,110 @@ export const JobNotesPanel = ({ jobId }: JobNotesPanelProps) => {
       ) : (
         <ScrollArea className="h-[400px]">
           <div className="space-y-3 pr-4">
-            {notes.map(note => (
-              <div
-                key={note.id}
-                className="rounded-xl border border-border bg-card p-4 space-y-2 hover:border-primary/30 transition-colors"
-              >
-                {note.isPinned && (
-                  <Badge variant="secondary" className="text-xs">
-                    📌 Pinned
-                  </Badge>
-                )}
-                <p className="text-sm text-foreground whitespace-pre-wrap">
-                  {note.content}
-                </p>
-                <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                  <span className="font-medium">{note.createdBy}</span>
-                  <span>•</span>
-                  <span 
-                    className="flex items-center gap-1"
-                    title={format(new Date(note.createdAt), "PPpp")}
-                  >
-                    <Clock className="h-3 w-3" />
-                    {formatDistanceToNow(new Date(note.createdAt), { addSuffix: true })}
-                  </span>
+            {notes.map(note => {
+              const isOwner = note.created_by === currentUserId;
+              const isEditing = editingId === note.id;
+
+              return (
+                <div
+                  key={note.id}
+                  className={cn(
+                    "rounded-xl border border-border bg-card p-4 space-y-2 hover:border-primary/30 transition-colors",
+                    note.is_pinned && "border-warning/30 bg-warning/5"
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    {note.is_pinned && (
+                      <Badge variant="secondary" className="text-xs shrink-0">
+                        <Pin className="h-3 w-3 mr-1" />
+                        Pinned
+                      </Badge>
+                    )}
+                    
+                    {/* Actions */}
+                    <div className="flex items-center gap-1 ml-auto">
+                      {isOwner && (
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={() => togglePin(note.id)}
+                          >
+                            <Pin className={cn(
+                              "h-3 w-3",
+                              note.is_pinned && "text-warning"
+                            )} />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7"
+                            onClick={() => handleStartEdit(note.id, note.content)}
+                          >
+                            <Edit2 className="h-3 w-3" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-destructive hover:text-destructive"
+                            onClick={() => deleteNote(note.id)}
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Content */}
+                  {isEditing ? (
+                    <div className="space-y-2">
+                      <Textarea
+                        value={editContent}
+                        onChange={(e) => setEditContent(e.target.value)}
+                        className="min-h-[80px] resize-none"
+                        autoFocus
+                      />
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setEditingId(null);
+                            setEditContent("");
+                          }}
+                        >
+                          <X className="h-3 w-3 mr-1" />
+                          Cancel
+                        </Button>
+                        <Button size="sm" onClick={handleSaveEdit}>
+                          <Check className="h-3 w-3 mr-1" />
+                          Save
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-foreground whitespace-pre-wrap">
+                      {note.content}
+                    </p>
+                  )}
+
+                  {/* Meta */}
+                  <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                    <span className="font-medium">{note.created_by_name || "Unknown"}</span>
+                    <span>•</span>
+                    <span 
+                      className="flex items-center gap-1"
+                      title={format(new Date(note.created_at), "PPpp")}
+                    >
+                      <Clock className="h-3 w-3" />
+                      {formatDistanceToNow(new Date(note.created_at), { addSuffix: true })}
+                    </span>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </ScrollArea>
       )}

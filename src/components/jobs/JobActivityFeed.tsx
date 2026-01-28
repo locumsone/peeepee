@@ -40,49 +40,45 @@ export const JobActivityFeed = ({
   }, [jobId, campaignIds, candidateIds]);
 
   const fetchActivities = async () => {
-    if (campaignIds.length === 0) {
-      setActivities([]);
-      setIsLoading(false);
-      return;
-    }
-
     setIsLoading(true);
     const allActivities: ActivityItem[] = [];
 
     try {
-      // Fetch SMS messages via conversations linked to campaigns
-      const { data: smsData } = await supabase
-        .from("sms_messages")
-        .select(`
-          id,
-          body,
-          direction,
-          created_at,
-          status,
-          from_number,
-          to_number,
-          conversation:sms_conversations!inner(
-            campaign_id,
-            contact_name
-          )
-        `)
-        .in("conversation.campaign_id", campaignIds)
-        .order("created_at", { ascending: false })
-        .limit(limit);
+      // Fetch SMS messages via conversations linked to campaigns (only if campaigns exist)
+      if (campaignIds.length > 0) {
+        const { data: smsData } = await supabase
+          .from("sms_messages")
+          .select(`
+            id,
+            body,
+            direction,
+            created_at,
+            status,
+            from_number,
+            to_number,
+            conversation:sms_conversations!inner(
+              campaign_id,
+              contact_name
+            )
+          `)
+          .in("conversation.campaign_id", campaignIds)
+          .order("created_at", { ascending: false })
+          .limit(limit);
 
-      if (smsData) {
-        smsData.forEach((msg: any) => {
-          allActivities.push({
-            id: `sms-${msg.id}`,
-            type: "sms",
-            direction: msg.direction === "inbound" ? "inbound" : "outbound",
-            content: msg.body || "",
-            candidateName: msg.conversation?.contact_name || null,
-            phone: msg.direction === "inbound" ? msg.from_number : msg.to_number,
-            createdAt: msg.created_at,
-            status: msg.status,
+        if (smsData) {
+          smsData.forEach((msg: any) => {
+            allActivities.push({
+              id: `sms-${msg.id}`,
+              type: "sms",
+              direction: msg.direction === "inbound" ? "inbound" : "outbound",
+              content: msg.body || "",
+              candidateName: msg.conversation?.contact_name || null,
+              phone: msg.direction === "inbound" ? msg.from_number : msg.to_number,
+              createdAt: msg.created_at,
+              status: msg.status,
+            });
           });
-        });
+        }
       }
 
       // Fetch AI call logs

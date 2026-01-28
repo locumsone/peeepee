@@ -15,3 +15,5 @@ export { JobScorecard } from "./JobScorecard";
 export { JobNotesPanel } from "./JobNotesPanel";
 export { TeamMemberAvatars } from "./TeamMemberAvatars";
 export { JobAssignmentDialog } from "./JobAssignmentDialog";
+export { MatchedCandidateCard } from "./MatchedCandidateCard";
+export { MatchedCandidatesGrid } from "./MatchedCandidatesGrid";

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { Users, Activity, BarChart3, Star, FileText, LayoutGrid, List } from "lucide-react";
+import { Users, Activity, BarChart3, Star, FileText, LayoutGrid, List, UserCheck, GitBranch } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import Layout from "@/components/layout/Layout";
 import { Button } from "@/components/ui/button";
@@ -21,7 +21,9 @@ import {
   JobDetailSidebar,
   JobScorecard,
   JobNotesPanel,
+  MatchedCandidatesGrid,
 } from "@/components/jobs";
+import { MatchedCandidate } from "@/components/jobs/MatchedCandidateCard";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface Job {
@@ -76,11 +78,16 @@ const JobDetail = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("candidates");
   const [viewMode, setViewMode] = useState<"kanban" | "list">("kanban");
+  const [candidateView, setCandidateView] = useState<"matched" | "pipeline">("matched");
   
   // Pipeline data
   const [campaignIds, setCampaignIds] = useState<string[]>([]);
   const [leads, setLeads] = useState<CampaignLead[]>([]);
   const [pipelineCounts, setPipelineCounts] = useState<Record<string, number>>({});
+  
+  // Matched candidates data
+  const [matchedCandidates, setMatchedCandidates] = useState<MatchedCandidate[]>([]);
+  const [isLoadingMatched, setIsLoadingMatched] = useState(false);
   
   // Stats for quick view
   const [matchedCount, setMatchedCount] = useState(0);
@@ -166,6 +173,9 @@ const JobDetail = () => {
           setMetrics(m);
         }
       }
+
+      // Auto-load matched candidates
+      await fetchMatchedCandidates(id);
     } catch (err) {
       console.error("Error fetching job:", err);
       toast({
@@ -175,6 +185,62 @@ const JobDetail = () => {
       });
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const fetchMatchedCandidates = async (jobId: string) => {
+    setIsLoadingMatched(true);
+    try {
+      // Fetch matched candidates with their full profile data
+      const { data: matches, error } = await supabase
+        .from("candidate_job_matches")
+        .select(`
+          match_score,
+          match_reasons,
+          match_concerns,
+          created_at,
+          candidate_id,
+          candidates (
+            id,
+            first_name,
+            last_name,
+            email,
+            phone,
+            specialty,
+            state,
+            licenses,
+            board_certified
+          )
+        `)
+        .eq("job_id", jobId)
+        .order("match_score", { ascending: false, nullsFirst: false });
+
+      if (error) throw error;
+
+      // Transform the data
+      const transformedCandidates: MatchedCandidate[] = (matches || [])
+        .filter((m: any) => m.candidates)
+        .map((m: any) => ({
+          id: m.candidates.id,
+          first_name: m.candidates.first_name,
+          last_name: m.candidates.last_name,
+          email: m.candidates.email,
+          phone: m.candidates.phone,
+          specialty: m.candidates.specialty,
+          state: m.candidates.state,
+          licenses: m.candidates.licenses,
+          board_certified: m.candidates.board_certified,
+          match_score: m.match_score,
+          match_reasons: m.match_reasons,
+          match_concerns: m.match_concerns,
+          matched_at: m.created_at,
+        }));
+
+      setMatchedCandidates(transformedCandidates);
+    } catch (err) {
+      console.error("Error fetching matched candidates:", err);
+    } finally {
+      setIsLoadingMatched(false);
     }
   };
 
@@ -195,6 +261,11 @@ const JobDetail = () => {
     });
   }, [leads]);
 
+  const handleAddToCampaign = (candidateId: string) => {
+    // Navigate to campaign builder with this candidate pre-selected
+    navigate(`/candidates/matching?jobId=${id}&candidateId=${candidateId}`);
+  };
+
   // Calculate health score
   const calculateHealthScore = (): number => {
     if (!job) return 0;
@@ -212,7 +283,7 @@ const JobDetail = () => {
     if (daysOpen > 60) score -= 20;
     
     // Deduct for no activity
-    if (metrics.totalLeads === 0) score -= 20;
+    if (metrics.totalLeads === 0 && matchedCount === 0) score -= 20;
     
     // Boost for responses
     const totalReplies = metrics.emailsReplied + metrics.smsReplied;
@@ -223,6 +294,10 @@ const JobDetail = () => {
     const interested = pipelineCounts.interested || 0;
     if (interested > 0) score += 10;
     if (interested > 3) score += 10;
+
+    // Boost for matched candidates
+    if (matchedCount > 10) score += 5;
+    if (matchedCount > 30) score += 5;
     
     return Math.max(0, Math.min(100, score));
   };
@@ -233,6 +308,19 @@ const JobDetail = () => {
     
   const totalReplies = metrics.emailsReplied + metrics.smsReplied;
   const healthScore = calculateHealthScore();
+
+  // Prepare scorecard candidates - use matched if no pipeline leads
+  const scorecardCandidates = leads.length > 0 
+    ? leads 
+    : matchedCandidates.map(c => ({
+        id: c.id,
+        candidate_id: c.id,
+        candidate_name: `${c.first_name || ""} ${c.last_name || ""}`.trim() || null,
+        candidate_specialty: c.specialty,
+        candidate_state: c.state,
+        status: null,
+        tier: null,
+      }));
 
   if (isLoading) {
     return (
@@ -287,6 +375,7 @@ const JobDetail = () => {
             counts={pipelineCounts} 
             onStageClick={(stageId) => {
               setActiveTab("candidates");
+              setCandidateView("pipeline");
             }}
           />
         </div>
@@ -301,7 +390,9 @@ const JobDetail = () => {
                   <TabsTrigger value="candidates" className="flex items-center gap-2">
                     <Users className="h-4 w-4" />
                     Candidates
-                    <Badge variant="secondary" className="ml-1">{leads.length}</Badge>
+                    <Badge variant="secondary" className="ml-1">
+                      {matchedCount + leads.length}
+                    </Badge>
                   </TabsTrigger>
                   <TabsTrigger value="activity" className="flex items-center gap-2">
                     <Activity className="h-4 w-4" />
@@ -321,7 +412,7 @@ const JobDetail = () => {
                   </TabsTrigger>
                 </TabsList>
 
-                {activeTab === "candidates" && (
+                {activeTab === "candidates" && candidateView === "pipeline" && leads.length > 0 && (
                   <div className="flex items-center gap-2">
                     <Button
                       variant={viewMode === "kanban" ? "default" : "outline"}
@@ -343,15 +434,48 @@ const JobDetail = () => {
 
               {/* Candidates Tab */}
               <TabsContent value="candidates" className="mt-4">
-                {leads.length === 0 ? (
+                {/* Sub-tabs for Matched vs Pipeline */}
+                <div className="flex items-center gap-2 mb-4">
+                  <Button
+                    variant={candidateView === "matched" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setCandidateView("matched")}
+                    className="flex items-center gap-2"
+                  >
+                    <UserCheck className="h-4 w-4" />
+                    Matched
+                    <Badge variant="secondary" className="ml-1">{matchedCount}</Badge>
+                  </Button>
+                  <Button
+                    variant={candidateView === "pipeline" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setCandidateView("pipeline")}
+                    className="flex items-center gap-2"
+                  >
+                    <GitBranch className="h-4 w-4" />
+                    In Pipeline
+                    <Badge variant="secondary" className="ml-1">{leads.length}</Badge>
+                  </Button>
+                </div>
+
+                {candidateView === "matched" ? (
+                  <MatchedCandidatesGrid
+                    candidates={matchedCandidates}
+                    requiredState={job.state}
+                    onAddToCampaign={handleAddToCampaign}
+                    isLoading={isLoadingMatched}
+                  />
+                ) : leads.length === 0 ? (
                   <div className="text-center py-16 rounded-xl border border-dashed border-border bg-card">
                     <Users className="h-12 w-12 mx-auto mb-4 text-muted-foreground/30" />
-                    <h3 className="text-lg font-medium text-foreground mb-2">No candidates yet</h3>
+                    <h3 className="text-lg font-medium text-foreground mb-2">No candidates in pipeline</h3>
                     <p className="text-muted-foreground mb-4">
-                      Create a campaign to start adding candidates to this job
+                      {matchedCount > 0 
+                        ? "Add matched candidates to a campaign to start outreach"
+                        : "Create a campaign to start adding candidates to this job"}
                     </p>
                     <Button onClick={() => navigate(`/candidates/matching?jobId=${id}`)}>
-                      Create Campaign
+                      {matchedCount > 0 ? "Create Campaign" : "Find Candidates"}
                     </Button>
                   </div>
                 ) : viewMode === "kanban" ? (
@@ -383,7 +507,10 @@ const JobDetail = () => {
                   <JobActivityFeed
                     jobId={id || ""}
                     campaignIds={campaignIds}
-                    candidateIds={leads.map(l => l.candidate_id).filter(Boolean) as string[]}
+                    candidateIds={[
+                      ...leads.map(l => l.candidate_id).filter(Boolean) as string[],
+                      ...matchedCandidates.map(c => c.id)
+                    ]}
                   />
                 </div>
               </TabsContent>
@@ -398,7 +525,7 @@ const JobDetail = () => {
                 <div className="rounded-xl border border-border bg-card p-6">
                   <JobScorecard
                     jobId={id || ""}
-                    leads={leads}
+                    leads={scorecardCandidates}
                     requiredState={job.state}
                     requiredSpecialty={job.specialty}
                   />
