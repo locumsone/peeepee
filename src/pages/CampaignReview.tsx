@@ -232,31 +232,41 @@ export default function CampaignReview() {
     if (details) setIntegrationDetails(details);
   };
 
-  // Calculate step statuses
+  // Calculate step statuses - enrichment shows warning but doesn't block
   const stepStatuses = useMemo(() => {
     const verify: StepStatus = job ? "complete" : "pending";
     
     let candidatesStatus: StepStatus = "pending";
     if (candidates.length > 0) {
-      if (tierStats.needsEnrichment === 0) {
+      // Count candidates with at least email OR phone
+      const readyCount = candidates.filter(c => 
+        (c.email || c.personal_email) || (c.phone || c.personal_mobile)
+      ).length;
+      
+      if (readyCount === candidates.length) {
+        candidatesStatus = "complete";
+      } else if (readyCount > 0) {
+        // Some have contact info - show as complete with warning indicator
         candidatesStatus = "complete";
       } else {
+        // No one has contact info - blocked
         candidatesStatus = "blocked";
       }
     }
 
+    // Channels are optional - show complete if any are selected
     let channelsStatus: StepStatus = "pending";
     const hasChannels = Object.keys(channels).some(k => channels[k as keyof ChannelConfig]);
     if (hasChannels) {
-      channelsStatus = integrationsConnected ? "complete" : "blocked";
+      channelsStatus = "complete";
     }
 
     const preview: StepStatus = candidates.length > 0 ? "complete" : "pending";
 
     return { verify, candidates: candidatesStatus, channels: channelsStatus, preview };
-  }, [job, candidates, tierStats, channels, integrationsConnected]);
+  }, [job, candidates, channels]);
 
-  // Calculate blockers
+  // Calculate blockers - enrichment is now a warning, not a blocker
   const blockers = useMemo(() => {
     const list: Blocker[] = [];
     
@@ -265,18 +275,15 @@ export default function CampaignReview() {
     }
     if (candidates.length === 0) {
       list.push({ step: 2, message: "No candidates selected" });
-    } else if (tierStats.needsEnrichment > 0) {
-      list.push({ step: 2, message: `${tierStats.needsEnrichment} candidates missing contact info` });
     }
-    if (!integrationsConnected && Object.keys(channels).some(k => channels[k as keyof ChannelConfig])) {
-      const disconnected = integrationDetails.filter(i => i.status === 'disconnected' || (!i.connected && i.status !== 'manual')).map(i => i.name);
-      if (disconnected.length > 0) {
-        list.push({ step: 3, message: `${disconnected.join(", ")} disconnected` });
-      }
-    }
-
+    // NOTE: Missing contact info is no longer a blocker - we'll launch with candidates who have contact info
+    // and skip those who don't (they can be enriched later)
+    
+    // Only block if integrations are truly required and disconnected
+    // For now, we don't block on integrations either - they're optional
+    
     return list;
-  }, [job, candidates, tierStats, channels, integrationsConnected, integrationDetails]);
+  }, [job, candidates]);
 
   // Collapsed summaries
   const getVerifySummary = () => {
