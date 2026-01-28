@@ -216,7 +216,9 @@ export const NewMessageModal = ({ open, onOpenChange }: NewMessageModalProps) =>
       }
 
       toast.success("SMS sent successfully");
+      // Sync with both Communications Hub and Softphone
       queryClient.invalidateQueries({ queryKey: ["sms-conversations"] });
+      queryClient.invalidateQueries({ queryKey: ["sms-conversations-softphone"] });
       onOpenChange(false);
     } catch (error) {
       toast.error("Failed to send SMS");
