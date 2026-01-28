@@ -20,6 +20,7 @@ import { InlineAISuggestions } from "./InlineAISuggestions";
 import { SnoozePopover } from "./SnoozePopover";
 import { CandidateActivityTimeline } from "./CandidateActivityTimeline";
 import { useSoftphoneActions } from "@/hooks/useSoftphoneActions";
+import { useSMSSyncTrigger } from "@/hooks/useSMSSync";
 
 interface AIAnalysis {
   sentiment: "positive" | "neutral" | "negative";
@@ -513,6 +514,7 @@ export const ConversationDetail = ({ conversation }: ConversationDetailProps) =>
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const queryClient = useQueryClient();
   const { initiateCall } = useSoftphoneActions();
+  const triggerSync = useSMSSyncTrigger();
 
   const handleCallFromSMS = useCallback(() => {
     if (conversation?.candidatePhone) {
@@ -634,10 +636,9 @@ export const ConversationDetail = ({ conversation }: ConversationDetailProps) =>
       if (error) throw error;
       toast.success("Message sent");
       setMessageText("");
-      // Refresh messages and sync with softphone
+      // Immediately sync all SMS components
       queryClient.invalidateQueries({ queryKey: ["sms-messages", conversation.id] });
-      queryClient.invalidateQueries({ queryKey: ["sms-conversations"] });
-      queryClient.invalidateQueries({ queryKey: ["sms-conversations-softphone"] });
+      triggerSync();
     } catch {
       queryClient.setQueryData(
         ["sms-messages", conversation.id],

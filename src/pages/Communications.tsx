@@ -14,6 +14,7 @@ import { NewMessageModal } from "@/components/inbox/NewMessageModal";
 import { CampaignFilter } from "@/components/inbox/CampaignFilter";
 import { RemindersList } from "@/components/inbox/RemindersList";
 import { calculatePriorityLevel, type PriorityLevel } from "@/components/inbox/PriorityBadge";
+import { useSMSSync } from "@/hooks/useSMSSync";
 
 export type ChannelFilter = "all" | "urgent" | "hot" | "sms" | "calls" | "reminders";
 
@@ -51,12 +52,17 @@ const Communications = () => {
   const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
   // Note: RLS policies enforce user-specific data - users only see their own conversations
   const queryClient = useQueryClient();
+  
+  // Centralized SMS sync - handles all real-time updates
+  useSMSSync();
 
   // Fetch SMS conversations - RLS automatically filters by current user's recruiter_id
-  const { data: smsConversations = [], isLoading: smsLoading, refetch: refetchConversations } = useQuery({
-    queryKey: ["sms-conversations", user?.id],
+  // Uses consistent query key without user?.id to ensure proper cache sharing
+  const { data: smsConversations = [], isLoading: smsLoading } = useQuery({
+    queryKey: ["sms-conversations"],
     queryFn: async () => {
-      let query = supabase
+      console.log("[Communications] Fetching SMS conversations...");
+      const { data, error } = await supabase
         .from("sms_conversations")
         .select(`
           id,
@@ -83,51 +89,16 @@ const Communications = () => {
         .order("last_message_at", { ascending: false })
         .limit(100);
       
-      // RLS handles filtering - no need for manual filter
-
-      const { data, error } = await query;
-      
       if (error) throw error;
+      console.log("[Communications] Fetched", data?.length || 0, "conversations");
       return data || [];
     },
-    refetchInterval: 10000,
+    // Fast polling as backup for real-time
+    refetchInterval: 5000,
+    // Reduce stale time to ensure fresh data
+    staleTime: 2000,
     enabled: !!user,
   });
-
-  // Real-time subscription for conversation updates
-  useEffect(() => {
-    const channel = supabase
-      .channel("sms-conversations-realtime")
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "sms_conversations",
-        },
-        () => {
-          console.log("Conversation update received via realtime");
-          refetchConversations();
-        }
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "sms_messages",
-        },
-        () => {
-          console.log("New message received via realtime - refreshing conversations");
-          refetchConversations();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [refetchConversations]);
 
   // Fetch AI call logs - RLS automatically filters by current user's recruiter_id
   const { data: aiCallLogs = [], isLoading: callsLoading } = useQuery({
