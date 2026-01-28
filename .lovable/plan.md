@@ -1,229 +1,133 @@
 
-# Multi-User Data Ownership & Job Assignment Plan
+# Job Detail Page - Full Implementation Plan
 
-## Overview
+## Problem Summary
+The Job Detail page for "IR Middletown" shows **52 matched candidates** in the job list, but when you navigate to the job detail page:
+1. **No candidates are displayed** because the page only shows candidates from `campaign_leads_v2` (requires a campaign to be created)
+2. The **matched candidates** from `candidate_job_matches` are completely hidden
+3. The **Notes panel uses mock/demo data** instead of real database data
+4. There's no way to see or work with matched candidates until a campaign is created
 
-This plan implements user-specific data separation for communications while maintaining shared access to jobs across the team. Each recruiter will see only their own SMS/call conversations, but jobs will be visible to everyone with clear indicators showing who is working on each job.
+## Root Cause Analysis
 
----
+| Issue | Current State | Fix Required |
+|-------|---------------|--------------|
+| Matched candidates not shown | Only fetches from `campaign_leads_v2` (campaign leads) | Add a "Matched Candidates" tab showing `candidate_job_matches` data |
+| Notes use demo data | `JobNotesPanel.tsx` uses `MOCK_NOTES` array | Create `job_notes` table and connect to database |
+| No job_notes table | Table doesn't exist | Create migration |
+| Candidate tab empty | Only shows campaign leads, not matched candidates | Display both matched candidates and pipeline leads |
 
-## Database Changes
+## Implementation Plan
 
-### 1. Create `job_assignments` Table
+### Phase 1: Database Changes
 
-A new table to track which recruiters are working on which jobs:
-
+**1.1 Create `job_notes` table**
 ```text
-job_assignments
-├── id (uuid, primary key)
-├── job_id (uuid, foreign key to jobs.id)
-├── user_id (uuid, foreign key to auth.users)
-├── role (text: 'primary' | 'support')
-├── assigned_at (timestamp with time zone)
-├── assigned_by (uuid, nullable)
-└── created_at (timestamp with time zone)
-
-Unique constraint: (job_id, user_id)
++------------------+
+|    job_notes     |
++------------------+
+| id (uuid, PK)    |
+| job_id (FK)      |
+| content (text)   |
+| created_by (FK)  |
+| is_pinned (bool) |
+| created_at       |
+| updated_at       |
++------------------+
 ```
 
-### 2. Update RLS Policies
+- Add RLS policies for team visibility
+- Index on job_id for performance
 
-**SMS Conversations**: Update existing policy to filter by `recruiter_id = auth.uid()`
+### Phase 2: Job Detail Page Enhancements
 
-**AI Call Logs**: Update existing policy to filter by `recruiter_id = auth.uid()`
+**2.1 Modify JobDetail.tsx**
+- Add new state for matched candidates (from `candidate_job_matches` + `candidates` join)
+- Create "Matched" vs "Pipeline" toggle in candidates tab
+- Fetch matched candidates with their full profile data
+- Show matched candidates even when no campaigns exist
 
-**Jobs**: Keep public read access (team-wide visibility)
+**2.2 Update Candidates Tab Structure**
 
-**Job Assignments**: All authenticated users can view, users can only manage their own assignments
-
----
-
-## Frontend Changes
-
-### 1. Communications Hub - User-Specific Data
-
-**File: `src/pages/Communications.tsx`**
-
-Update the queries to filter by current user ID:
-- SMS conversations: Add `.eq('recruiter_id', userId)` filter
-- AI call logs: Add `.eq('recruiter_id', userId)` filter
-
-The current user ID comes from `useAuth()` hook.
-
-### 2. Job Cards - Show Assigned Recruiters
-
-**File: `src/components/jobs/ExpandableJobRow.tsx`**
-
-Add a section showing assigned team members:
-- Display avatar circles for each assigned recruiter
-- Show primary vs support distinction
-- Add "Assign" button to claim/join a job
-
-**File: `src/pages/Jobs.tsx`**
-
-- Fetch job assignments alongside jobs
-- Pass assignment data to job cards
-- Add filter option: "My Jobs" vs "All Jobs"
-
-### 3. Job Detail Page - Assignment Management
-
-**File: `src/pages/JobDetail.tsx`**
-
-Add assignment management in the sidebar:
-- Show current assignees with their roles
-- Allow assigning/unassigning team members
-- Display "Join this job" button for unassigned users
-
-### 4. Dashboard - User Context
-
-**File: `src/pages/Dashboard.tsx`**
-
-Update to show:
-- "My Jobs" (jobs assigned to current user)
-- User's personal activity feed
-- User's communication stats
-
-### 5. New Component: `TeamMemberAvatars.tsx`
-
-A reusable component to display team member avatars:
-- Stacked avatar circles
-- Tooltip showing names and roles
-- Color coding by role (primary = green border, support = blue border)
-
-### 6. New Component: `JobAssignmentDialog.tsx`
-
-Modal for managing job assignments:
-- List of team members with checkboxes
-- Role selector (primary/support)
-- Save/cancel actions
-
----
-
-## Data Flow
-
+Current flow (broken):
 ```text
-User logs in
-    │
-    ▼
-useAuth() provides user.id
-    │
-    ├──▶ Communications: Filter conversations by recruiter_id
-    │
-    ├──▶ Dashboard: Show user's jobs & personal stats
-    │
-    └──▶ Jobs List: Show all jobs with assignment indicators
-              │
-              ▼
-         User clicks "Assign" or "Join"
-              │
-              ▼
-         job_assignments table updated
-              │
-              ▼
-         UI refreshes to show new assignment
+Candidates Tab --> campaign_leads_v2 --> Empty if no campaigns
 ```
 
----
-
-## Technical Details
-
-### Query Updates
-
-**Communications - SMS Query:**
+New flow:
 ```text
-supabase
-  .from("sms_conversations")
-  .select(...)
-  .eq("recruiter_id", user.id)  // Add this filter
+Candidates Tab
+  |
+  +-- [Matched] --> candidate_job_matches + candidates join (52 candidates)
+  |
+  +-- [In Pipeline] --> campaign_leads_v2 (campaign activity)
 ```
 
-**Jobs with Assignments:**
-```text
-supabase
-  .from("jobs")
-  .select(`
-    *,
-    job_assignments (
-      id,
-      role,
-      user_id,
-      users (
-        id,
-        name,
-        email
-      )
-    )
-  `)
-```
+**2.3 Create `MatchedCandidateCard.tsx`**
+- New card component for displaying matched candidates (not yet in a campaign)
+- Shows: Name, specialty, state, licenses, match score
+- Quick actions: Add to Campaign, View Profile, Call, SMS
 
-### Auto-Assignment Logic
+### Phase 3: Update JobNotesPanel.tsx
 
-When a user sends the first SMS or makes a call to a candidate on a job:
-1. Check if job_assignment exists for this user + job
-2. If not, create assignment with role='support'
-3. This ensures the job appears in "My Jobs" after interaction
+**3.1 Remove demo data**
+- Delete `MOCK_NOTES` array
+- Implement real database queries
+- Add note creation with `supabase.from("job_notes").insert()`
+- Add note fetching with real-time updates
+- Store `created_by` as actual user ID
 
-### RLS Policy Examples
+### Phase 4: Additional Improvements
 
-```text
--- SMS conversations: Users see only their own
-CREATE POLICY "Users view own sms_conversations"
-ON sms_conversations FOR SELECT
-USING (recruiter_id = auth.uid());
+**4.1 Activity Feed Enhancement**
+- Ensure JobActivityFeed shows activity even for jobs without campaigns
+- Add call logs that link by candidate phone matching matched candidates
 
--- Job assignments: All authenticated users can view
-CREATE POLICY "View all job assignments"
-ON job_assignments FOR SELECT
-TO authenticated
-USING (true);
+**4.2 Scorecard Integration**
+- Pass matched candidates to scorecard when no pipeline leads exist
+- Auto-evaluate based on job requirements vs candidate profile
 
--- Job assignments: Users manage own assignments
-CREATE POLICY "Users manage own assignments"
-ON job_assignments FOR INSERT
-TO authenticated
-WITH CHECK (user_id = auth.uid());
-```
-
----
+**4.3 Quick Stats Accuracy**
+- Ensure "Matched" count links to the matched candidates tab
+- Add click-through from stats to filtered view
 
 ## Files to Create/Modify
 
-| File | Action | Purpose |
-|------|--------|---------|
-| `src/components/jobs/TeamMemberAvatars.tsx` | Create | Display assigned recruiters |
-| `src/components/jobs/JobAssignmentDialog.tsx` | Create | Manage job assignments |
-| `src/pages/Communications.tsx` | Modify | Add user_id filtering |
-| `src/pages/Jobs.tsx` | Modify | Fetch/display assignments |
-| `src/components/jobs/ExpandableJobRow.tsx` | Modify | Show assigned members |
-| `src/pages/JobDetail.tsx` | Modify | Add assignment management |
-| `src/pages/Dashboard.tsx` | Modify | Show user's jobs/stats |
-| Database migration | Create | Add job_assignments table + RLS |
+| File | Action | Description |
+|------|--------|-------------|
+| `supabase/migrations/xxx_create_job_notes.sql` | Create | New table for job notes |
+| `src/pages/JobDetail.tsx` | Modify | Add matched candidates fetch and toggle |
+| `src/components/jobs/JobNotesPanel.tsx` | Modify | Connect to database, remove mock data |
+| `src/components/jobs/MatchedCandidateCard.tsx` | Create | New card for matched candidates |
+| `src/components/jobs/MatchedCandidatesGrid.tsx` | Create | Grid view for matched candidates |
+| `src/components/jobs/JobScorecard.tsx` | Modify | Accept matched candidates as fallback |
+| `src/integrations/supabase/types.ts` | Auto-update | Add job_notes types |
 
----
+## Technical Details
 
-## User Experience
+### Matched Candidates Query
+```sql
+SELECT 
+  c.id, c.first_name, c.last_name, c.email, c.phone,
+  c.specialty, c.state, c.licenses, c.board_certified,
+  cjm.match_score, cjm.created_at as matched_at
+FROM candidate_job_matches cjm
+JOIN candidates c ON c.id = cjm.candidate_id
+WHERE cjm.job_id = :jobId
+ORDER BY cjm.match_score DESC NULLS LAST
+```
 
-### Before
-- All users see all communications (mixed together)
-- No indication of who is working on each job
-- Jobs appear identical for all team members
+### Notes Table RLS
+- All authenticated users can read notes for jobs they can access
+- Users can only update/delete their own notes
+- Admins can manage all notes
 
-### After
-- Each user sees only their own SMS/call conversations
-- Job cards show avatars of assigned recruiters
-- "My Jobs" filter to focus on personal workload
-- Clear ownership with ability to join or leave jobs
-- Dashboard reflects individual recruiter performance
+## User Experience Flow (After Fix)
 
----
-
-## Migration Considerations
-
-1. **Existing SMS conversations** - Will need to populate `recruiter_id` based on who sent messages (or leave null for shared access initially)
-
-2. **Existing AI calls** - Already have `recruiter_id`, should work immediately
-
-3. **Job assignments** - Initially empty; users will need to claim their jobs
-
-4. **Gradual rollout** - Add a "Show All Communications" toggle for admins to see team-wide view
-
+1. Click on "IR Middletown" job (52 matched)
+2. Job Detail loads with Quick Stats: **52 Matched** | 0 In Pipeline | 0 Replies
+3. Candidates tab shows two sub-tabs: **Matched (52)** | Pipeline (0)
+4. Matched tab displays all 52 candidates with their profiles
+5. User can select candidates and "Add to Campaign"
+6. Notes tab shows real internal notes from database
+7. Scorecard evaluates matched candidates against job requirements
