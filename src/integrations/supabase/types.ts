@@ -1581,6 +1581,68 @@ export type Database = {
           },
         ]
       }
+      candidate_scorecard_ratings: {
+        Row: {
+          attribute_id: string
+          candidate_id: string
+          created_at: string
+          evaluated_by: string | null
+          id: string
+          job_id: string
+          updated_at: string
+          value: Json
+        }
+        Insert: {
+          attribute_id: string
+          candidate_id: string
+          created_at?: string
+          evaluated_by?: string | null
+          id?: string
+          job_id: string
+          updated_at?: string
+          value: Json
+        }
+        Update: {
+          attribute_id?: string
+          candidate_id?: string
+          created_at?: string
+          evaluated_by?: string | null
+          id?: string
+          job_id?: string
+          updated_at?: string
+          value?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "candidate_scorecard_ratings_candidate_id_fkey"
+            columns: ["candidate_id"]
+            isOneToOne: false
+            referencedRelation: "candidates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "candidate_scorecard_ratings_candidate_id_fkey"
+            columns: ["candidate_id"]
+            isOneToOne: false
+            referencedRelation: "mv_available_now"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "candidate_scorecard_ratings_candidate_id_fkey"
+            columns: ["candidate_id"]
+            isOneToOne: false
+            referencedRelation: "mv_platinum_tier"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "candidate_scorecard_ratings_job_id_fkey"
+            columns: ["job_id"]
+            isOneToOne: false
+            referencedRelation: "jobs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       candidate_tags: {
         Row: {
           category: string | null
