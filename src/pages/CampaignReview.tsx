@@ -165,7 +165,12 @@ export default function CampaignReview() {
 
   // Sync draft data to local state when draft loads
   useEffect(() => {
-    if (!isDraftLoading && draft.jobId) {
+    if (isDraftLoading) return;
+    
+    // Check if draft has meaningful data
+    const hasDraftData = draft.jobId && draft.candidates.length > 0;
+    
+    if (hasDraftData) {
       console.log("[CampaignReview] Loading from draft:", {
         jobId: draft.jobId,
         candidatesCount: draft.candidates.length,
@@ -180,10 +185,31 @@ export default function CampaignReview() {
         setSenderEmail(draft.channels.email.sender);
       }
       setIsLoading(false);
-    } else if (!isDraftLoading) {
-      // Fall back to legacy loading
-      console.log("[CampaignReview] No draft found, falling back to legacy session loading");
-      loadSessionData();
+    } else {
+      // Fall back to legacy loading - but try to get data from sessionStorage first
+      console.log("[CampaignReview] No complete draft found, checking sessionStorage...");
+      
+      // Check if sessionStorage has data that draft might have missed
+      const storedJobId = sessionStorage.getItem("campaign_job_id");
+      const storedCandidates = sessionStorage.getItem("campaign_candidates");
+      
+      if (storedJobId && storedCandidates) {
+        console.log("[CampaignReview] Found sessionStorage data, loading...");
+        loadSessionData();
+      } else if (draft.jobId) {
+        // Draft has job but no candidates - partial data
+        console.log("[CampaignReview] Draft has partial data, loading what's available");
+        setJobId(draft.jobId);
+        setJob(draft.job);
+        setCandidates(draft.candidates);
+        setChannels(draft.channels);
+        setCampaignName(draft.campaignName || "");
+        setIsLoading(false);
+      } else {
+        // No data anywhere
+        console.log("[CampaignReview] No data found anywhere");
+        setIsLoading(false);
+      }
     }
   }, [isDraftLoading, draft]);
 
