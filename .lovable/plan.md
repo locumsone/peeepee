@@ -1,225 +1,192 @@
 
-# Campaign Launch Bug Fix and Personalization Engine Verification
 
-## Issues Identified
+## Plan: Add CSV Export/Re-upload for Unenriched Contacts on Campaign Review
 
-### Bug 1: "No Channels" Error on Review Page
-**Root Cause**: The routing has changed but the data flow is inconsistent.
-
-Looking at the route configuration:
-- `/campaigns/new/channels` → `SequenceStudio.tsx` (NOT `CampaignChannels.tsx`)
-- `/campaigns/new/sequence` → `SequenceStudio.tsx`
-
-But `CampaignReview.tsx` has a "Back" button that navigates to `/campaigns/new/channels`, and it expects data from `CampaignChannels.tsx` format.
-
-The `SequenceStudio.tsx` saves channel config with this structure:
-```javascript
-{
-  email: { sender: "...", steps: [...] },  // Note: uses "steps" array
-  sms: { fromNumber: "...", steps: [...] },
-  aiCall: { fromNumber: "...", steps: [...] },
-  ...
-}
-```
-
-But `CampaignReview.tsx` and `StepConnectChannels.tsx` expect:
-```javascript
-{
-  email: { sender: "...", sequenceLength: 4, gapDays: 3 },  // Note: expects sequenceLength
-  sms: { fromNumber: "...", sequenceLength: 2 },
-  ...
-}
-```
-
-The `StepConnectChannels` component checks `if (channels.email)` but because the format is different, the channel status logic fails to properly detect enabled channels.
-
-### Bug 2: Emails Not Showing on Review Page
-**Root Cause**: `SequenceStudio.tsx` saves candidates with `email_body` and `email_subject` to sessionStorage, but when `CampaignReview.tsx` loads data via `useCampaignDraft`, the draft data may be stale or the sessionStorage data isn't being properly synchronized.
-
-The `useCampaignDraft` hook has complex priority logic between sessionStorage and localStorage that can cause data to be missed:
-1. It checks both session and local storage
-2. It compares timestamps to determine which is "fresher"
-3. But `SequenceStudio.tsx` saves directly to sessionStorage without updating the unified draft
-
-### Bug 3: Personalization Engine Context
-**Confirmation**: Yes, the personalization engine (`generate-email` edge function) **does read deep research and playbook** data:
-
-1. **Deep Research**: The function fetches from `candidate_job_matches` table for `talking_points`, `icebreaker`, and `match_reasons` (line 262-267)
-2. **Playbook**: It accepts `playbook_data` in the request body (priority 1) or fetches from campaign's `playbook_data` column (priority 2)
-3. **Connection**: The `connection` object from `personalization-research` is used to build the "CONNECTION-FIRST" structure
+This plan adds the ability to download candidates who couldn't be automatically enriched as a CSV file, and then re-upload the CSV with manually-sourced contact info (email/phone) to update those candidates.
 
 ---
 
-## Technical Fix Plan
+### Overview
 
-### Fix 1: Normalize Channel Config Format in CampaignReview
+On the Campaign Review page's "Step 2: Prepare Candidates" section, we will add:
+1. **Download Button** - Export unenriched candidates (those missing contact info) as a CSV template
+2. **Upload Button** - Re-import the filled-out CSV to update candidate records with the external contact data
 
-**File**: `src/pages/CampaignReview.tsx`
+This allows recruiters to use external data sources (LinkedIn, paid services, manual lookup) to find contact info, then easily bring it back into the system.
 
-Update the `loadSessionData` function to handle both the old format (from `CampaignChannels.tsx`) and the new format (from `SequenceStudio.tsx`):
+---
 
-```typescript
-// When loading campaign_channels from sessionStorage
-if (storedCampaignChannels) {
-  const parsed = JSON.parse(storedCampaignChannels);
-  
-  // Normalize: if email has "steps" array, convert to expected format
-  if (parsed.email?.steps) {
-    channelConfig.email = {
-      provider: parsed.email.provider,
-      sender: parsed.email.sender,
-      sequenceLength: parsed.email.steps?.length || 4,
-      gapDays: 3,
-    };
-  }
-  if (parsed.sms?.steps) {
-    channelConfig.sms = {
-      fromNumber: parsed.sms.fromNumber || "",
-      sequenceLength: parsed.sms.steps?.length || 1,
-    };
-  }
-  // ... etc
-}
-```
+### User Flow
 
-### Fix 2: Ensure SequenceStudio Syncs to useCampaignDraft
-
-**File**: `src/pages/SequenceStudio.tsx`
-
-Import and use the `useCampaignDraft` hook to sync data properly:
-
-```typescript
-import { useCampaignDraft } from "@/hooks/useCampaignDraft";
-
-// In component:
-const { updateCandidates, updateChannels, saveDraft } = useCampaignDraft();
-
-// In handleNext:
-const handleNext = () => {
-  // ... existing validation ...
-  
-  // Sync to unified draft system
-  updateCandidates(candidates);
-  updateChannels(normalizedConfig);
-  saveDraft();
-  
-  // Also save to legacy sessionStorage
-  sessionStorage.setItem("campaign_candidates", JSON.stringify(candidates));
-  sessionStorage.setItem("campaign_channels", JSON.stringify(config));
-  
-  navigate("/campaigns/new/review");
-};
-```
-
-### Fix 3: Update StepConnectChannels to Handle Both Formats
-
-**File**: `src/components/campaign-review/StepConnectChannels.tsx`
-
-Update the channel detection logic to handle both formats:
-
-```typescript
-// Check if email is enabled - handle both formats
-if (channels.email) {
-  const isGmail = channels.email.provider === 'gmail' || channels.email.provider === 'smtp';
-  const hasSender = channels.email.sender || (Array.isArray(channels.email.steps) && channels.email.steps.length > 0);
-  
-  if (hasSender) {
-    statuses.push({
-      name: `Email (${isGmail ? 'Gmail' : 'Instantly'})`,
-      key: "email",
-      icon: <Mail className="h-4 w-4" />,
-      enabled: true,
-      status: isGmail ? "connected" : "checking",
-      details: channels.email.sender || senderEmail,
-    });
-  }
-}
-```
-
-### Fix 4: Fix ChannelConfig Type to Support Both Formats
-
-**File**: `src/components/campaign-review/types.ts`
-
-Update the type to be more flexible:
-
-```typescript
-export interface ChannelConfig {
-  email?: {
-    provider?: 'instantly' | 'gmail' | 'smtp';
-    sender: string;
-    senderName?: string;
-    sequenceLength?: number;  // Optional - may not exist in new format
-    gapDays?: number;
-    steps?: Array<{ id: string; day: number; content: string }>;  // New format
-  } | null;
-  // ... similar for sms, aiCall
-}
-```
-
-### Fix 5: Add Debug Logging to Track Data Flow
-
-Add console logs at key points to help debug future issues:
-
-```typescript
-// In CampaignReview.tsx loadSessionData:
-console.log("[CampaignReview] Loading channels from sessionStorage:", storedCampaignChannels);
-console.log("[CampaignReview] Normalized channelConfig:", channelConfig);
-
-// In SequenceStudio.tsx handleNext:
-console.log("[SequenceStudio] Saving config:", config);
-console.log("[SequenceStudio] Saving candidates:", candidates.length);
+```text
+1. User reaches Step 2: Prepare Candidates on Campaign Review
+2. User sees "X candidates need enrichment"
+3. User clicks "Download for External Enrichment" button
+   → CSV downloads with columns: candidate_id, first_name, last_name, specialty, city, state, email (blank), phone (blank)
+4. User fills in email/phone columns externally (Excel, Google Sheets, etc.)
+5. User clicks "Upload Enriched CSV" button
+   → System parses CSV
+   → Matches rows by candidate_id
+   → Updates candidates with the new email/phone values
+   → Shows success summary
+6. Updated candidates now appear as "Ready to Contact"
 ```
 
 ---
 
-## Files to Modify
+### Technical Approach
+
+#### 1. Update StepPrepareCandidates.tsx
+
+Add two new buttons in the enrichment panel section:
+- **Download Template** - Exports unenriched candidates to CSV
+- **Upload CSV** - Opens file picker, parses uploaded CSV, updates records
+
+**CSV Download Format:**
+| candidate_id | first_name | last_name | specialty | city | state | personal_email | personal_phone |
+|--------------|------------|-----------|-----------|------|-------|----------------|----------------|
+| uuid-1       | John       | Smith     | Cardiology| Atlanta | GA | (fill in) | (fill in) |
+
+**CSV Upload Parsing:**
+- Read file using FileReader API
+- Parse CSV (handle quotes, commas in values)
+- Match rows by `candidate_id`
+- Validate email format and phone format
+- Batch update candidates table via Supabase
+- Update local state with new values
+
+#### 2. New Component: CSVUploadDialog.tsx
+
+A dialog component that handles:
+- File selection (accepts `.csv` files only)
+- CSV parsing with error handling
+- Preview of matched records before saving
+- Progress indicator during save
+- Summary of updated/skipped records
+
+---
+
+### Files to Create
+
+| File | Purpose |
+|------|---------|
+| `src/components/campaign-review/CSVUploadDialog.tsx` | Dialog for uploading and processing enriched CSV |
+
+### Files to Modify
 
 | File | Changes |
 |------|---------|
-| `src/pages/CampaignReview.tsx` | Add channel format normalization in `loadSessionData` |
-| `src/pages/SequenceStudio.tsx` | Import and use `useCampaignDraft` to sync data |
-| `src/components/campaign-review/StepConnectChannels.tsx` | Handle both channel formats |
-| `src/components/campaign-review/types.ts` | Update `ChannelConfig` interface |
-| `src/hooks/useCampaignDraft.ts` | Minor fix to ensure sessionStorage takes priority over stale localStorage |
+| `src/components/campaign-review/StepPrepareCandidates.tsx` | Add download and upload buttons, integrate CSVUploadDialog |
 
 ---
 
-## Summary of Personalization Engine Context Usage
+### Technical Details
 
-The personalization engine **correctly reads**:
+**CSV Download Function:**
+```typescript
+const handleDownloadForEnrichment = () => {
+  // Filter candidates missing both email AND phone
+  const needsEnrichment = candidates.filter(c => {
+    const hasEmail = c.email || c.personal_email;
+    const hasPhone = c.phone || c.personal_mobile;
+    return !hasEmail && !hasPhone;
+  });
 
-1. **Playbook Data** (from request body or campaign record):
-   - Compensation rates (hourly, daily, weekly)
-   - Clinical scope (procedures, call status, schedule)
-   - Positioning guidance (selling points, differentiators, messaging tone)
-   - Credentialing info
+  const headers = ["candidate_id", "first_name", "last_name", "specialty", "city", "state", "personal_email", "personal_phone"];
+  const rows = needsEnrichment.map(c => [
+    c.id,
+    c.first_name,
+    c.last_name,
+    c.specialty || "",
+    c.city || "",
+    c.state || "",
+    "", // empty for user to fill
+    ""  // empty for user to fill
+  ]);
+  
+  // Create CSV blob and download
+  const csv = [headers.join(","), ...rows.map(r => r.join(","))].join("\n");
+  const blob = new Blob([csv], { type: "text/csv" });
+  // ... download logic
+};
+```
 
-2. **Deep Research** (from `candidate_job_matches` table):
-   - `icebreaker` - AI-generated opening line
-   - `talking_points` - Array of discussion points
-   - `match_reasons` - Why this candidate fits
+**CSV Upload + Parse Flow:**
+1. User selects file via `<input type="file" accept=".csv">`
+2. FileReader reads file as text
+3. Parse CSV rows, handling:
+   - Header row detection
+   - Quoted values containing commas
+   - Empty values
+4. Match each row's `candidate_id` to existing candidates
+5. Update via Supabase batch update
+6. Refresh local candidate state
 
-3. **Connection Object** (from `personalization-research`):
-   - Priority ranking (1-8)
-   - Fact about candidate
-   - Benefit of the role
-   - Pre-written connection line for email
-   - SMS-friendly hook
+**Phone Normalization:**
+- Strip non-digits
+- Convert 10-digit to +1XXXXXXXXXX format
+- Validate length
 
-The AI prompt explicitly requires the connection line to appear in sentence 1 or 2 of the email body, ensuring personalization is front-and-center rather than buried in the message.
+**Error Handling:**
+- File format validation
+- Missing required columns
+- Invalid candidate IDs
+- Malformed email/phone values
+- Report skipped rows with reasons
 
 ---
 
-## Testing Checklist
+### UI Design
 
-After implementing fixes:
+The enrichment panel will show (when candidates need enrichment):
 
-1. Start new campaign from Job Detail page
-2. Select candidates, proceed to Personalize step
-3. Generate emails, verify content has playbook data
-4. Proceed to Sequence step
-5. Configure sequence, proceed to Review
-6. Verify channels show as connected
-7. Verify email previews show generated content
-8. Launch campaign successfully
+```text
+┌─────────────────────────────────────────────────────┐
+│ 💎 Contact Enrichment                    [Optional] │
+├─────────────────────────────────────────────────────┤
+│ → 15 candidates need contact info                   │
+│   Enrich now or skip and launch with 45 ready       │
+│                                                     │
+│ ┌─────────────────────────────────────────────────┐ │
+│ │ ✨ Enrich All 15 Candidates · ~$3.00            │ │
+│ └─────────────────────────────────────────────────┘ │
+│ ┌─────────────────────────────────────────────────┐ │
+│ │ ✏️ Enter Contact Info Manually                  │ │
+│ └─────────────────────────────────────────────────┘ │
+│                                                     │
+│ ─────────── OR ENRICH EXTERNALLY ───────────        │
+│                                                     │
+│ ┌───────────────────┐  ┌───────────────────┐        │
+│ │ 📥 Download CSV   │  │ 📤 Upload CSV     │        │
+│ └───────────────────┘  └───────────────────┘        │
+│                                                     │
+│ Download candidates as CSV, add contact info        │
+│ externally, then re-upload to continue.             │
+└─────────────────────────────────────────────────────┘
+```
+
+---
+
+### Implementation Steps
+
+1. **Create CSVUploadDialog component**
+   - File input with drag-and-drop support
+   - CSV parsing logic with error handling  
+   - Preview table showing matched candidates
+   - Batch update to Supabase
+   - Success/failure summary
+
+2. **Add download function to StepPrepareCandidates**
+   - Export unenriched candidates with blank email/phone columns
+   - Use proper CSV escaping for names with commas
+
+3. **Add upload button and integrate dialog**
+   - Wire up state management
+   - Handle successful upload by refreshing candidates
+   - Update tier stats after upload
+
+4. **Polish and edge cases**
+   - Handle re-upload (update existing values)
+   - Skip rows where user didn't fill in any data
+   - Show warning if candidate_id doesn't match
 
