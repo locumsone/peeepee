@@ -462,7 +462,12 @@ const JobDetail = () => {
                   <MatchedCandidatesGrid
                     candidates={matchedCandidates}
                     requiredState={job.state}
+                    jobId={id || ""}
                     onAddToCampaign={handleAddToCampaign}
+                    onCandidatesRemoved={(removedIds) => {
+                      setMatchedCandidates(prev => prev.filter(c => !removedIds.includes(c.id)));
+                      setMatchedCount(prev => prev - removedIds.length);
+                    }}
                     isLoading={isLoadingMatched}
                   />
                 ) : leads.length === 0 ? (
@@ -528,6 +533,10 @@ const JobDetail = () => {
                     leads={scorecardCandidates}
                     requiredState={job.state}
                     requiredSpecialty={job.specialty}
+                    onRemoveCandidate={(candidateId) => {
+                      setMatchedCandidates(prev => prev.filter(c => c.id !== candidateId));
+                      setMatchedCount(prev => prev - 1);
+                    }}
                   />
                 </div>
               </TabsContent>
