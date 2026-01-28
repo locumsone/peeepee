@@ -40,46 +40,64 @@ export function StepConnectChannels({
     
     const statuses: ChannelStatus[] = [];
 
-    // Email (Instantly or Gmail/SMTP)
+    // Email (Instantly or Gmail/SMTP) - handle both old and new formats
     if (channels.email) {
       const provider = channels.email.provider || 'instantly';
       const isGmail = provider === 'gmail' || provider === 'smtp';
       const providerLabel = isGmail ? 'Gmail' : 'Instantly';
-      const providerDetails = isGmail 
-        ? `${senderEmail} (Connected via Google)`
-        : senderEmail;
-      statuses.push({
-        name: `Email (${providerLabel})`,
-        key: "email",
-        icon: <Mail className="h-4 w-4" />,
-        enabled: true,
-        status: isGmail ? "connected" as const : "checking",
-        details: providerDetails,
-      });
+      
+      // Check for sender in both formats
+      const hasSender = channels.email.sender || 
+        (Array.isArray(channels.email.steps) && channels.email.steps.length > 0);
+      
+      if (hasSender) {
+        const providerDetails = isGmail 
+          ? `${channels.email.sender || senderEmail} (Connected via Google)`
+          : channels.email.sender || senderEmail;
+        
+        statuses.push({
+          name: `Email (${providerLabel})`,
+          key: "email",
+          icon: <Mail className="h-4 w-4" />,
+          enabled: true,
+          status: isGmail ? "connected" as const : "checking",
+          details: providerDetails,
+        });
+      }
     }
 
-    // SMS (Twilio)
+    // SMS (Twilio) - handle both old and new formats
     if (channels.sms) {
-      statuses.push({
-        name: "SMS (Twilio)",
-        key: "sms",
-        icon: <MessageSquare className="h-4 w-4" />,
-        enabled: true,
-        status: "checking",
-        details: channels.sms.fromNumber || "Default number",
-      });
+      const hasSmsConfig = channels.sms.fromNumber || 
+        (Array.isArray(channels.sms.steps) && channels.sms.steps.length > 0);
+      
+      if (hasSmsConfig) {
+        statuses.push({
+          name: "SMS (Twilio)",
+          key: "sms",
+          icon: <MessageSquare className="h-4 w-4" />,
+          enabled: true,
+          status: "checking",
+          details: channels.sms.fromNumber || "Default number",
+        });
+      }
     }
 
-    // AI Calls (ARIA/Retell)
+    // AI Calls (ARIA/Retell) - handle both old and new formats
     if (channels.aiCall) {
-      statuses.push({
-        name: "AI Calls (ARIA)",
-        key: "aiCall",
-        icon: <Phone className="h-4 w-4" />,
-        enabled: true,
-        status: "checking",
-        details: "Voice AI",
-      });
+      const hasAiCallConfig = channels.aiCall.fromNumber || 
+        (Array.isArray(channels.aiCall.steps) && channels.aiCall.steps.length > 0);
+      
+      if (hasAiCallConfig) {
+        statuses.push({
+          name: "AI Calls (ARIA)",
+          key: "aiCall",
+          icon: <Phone className="h-4 w-4" />,
+          enabled: true,
+          status: "checking",
+          details: "Voice AI",
+        });
+      }
     }
 
     // LinkedIn (Manual)

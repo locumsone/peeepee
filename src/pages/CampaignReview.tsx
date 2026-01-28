@@ -115,37 +115,54 @@ export default function CampaignReview() {
 
       setCandidates(parsedCandidates);
 
-      // Load channel config
+      // Load channel config - normalize from various formats
       const storedCampaignChannels = sessionStorage.getItem("campaign_channels");
       const storedChannels = sessionStorage.getItem("channelConfig");
       const legacyChannels = sessionStorage.getItem("channels");
       let channelConfig: ChannelConfig = {};
 
+      console.log("[CampaignReview] Loading channels from sessionStorage:", storedCampaignChannels);
+
       if (storedCampaignChannels) {
         try { 
-          const modern = JSON.parse(storedCampaignChannels);
-          if (modern.email) {
+          const parsed = JSON.parse(storedCampaignChannels);
+          
+          // Normalize email - handle both "steps" array and "sequenceLength" formats
+          if (parsed.email) {
             channelConfig.email = { 
-              sender: modern.email.sender || senderAccounts[0].emails[0], 
-              sequenceLength: modern.email.steps?.length || 4, 
-              gapDays: 3 
+              provider: parsed.email.provider,
+              sender: parsed.email.sender || senderAccounts[0].emails[0], 
+              senderName: parsed.email.senderName,
+              sequenceLength: parsed.email.steps?.length || parsed.email.sequenceLength || 4, 
+              gapDays: parsed.email.gapDays || 3,
+              steps: parsed.email.steps, // Preserve steps array for launch
             };
           }
-          if (modern.sms) {
+          
+          // Normalize SMS - handle both formats
+          if (parsed.sms) {
             channelConfig.sms = { 
-              fromNumber: modern.sms.fromNumber || "", 
-              sequenceLength: modern.sms.steps?.length || 1 
+              fromNumber: parsed.sms.fromNumber || "+12185628671", 
+              sequenceLength: parsed.sms.steps?.length || parsed.sms.sequenceLength || 1,
+              steps: parsed.sms.steps, // Preserve steps array for launch
             };
           }
-          if (modern.aiCall) {
+          
+          // Normalize AI Calls - handle both formats
+          if (parsed.aiCall) {
             channelConfig.aiCall = { 
-              fromNumber: modern.aiCall.fromNumber || "", 
-              callDay: 10, 
-              transferTo: "" 
+              fromNumber: parsed.aiCall.fromNumber || "", 
+              callDay: parsed.aiCall.callDay || 10, 
+              transferTo: parsed.aiCall.transferTo || "",
+              steps: parsed.aiCall.steps, // Preserve steps array
             };
           }
-          channelConfig.linkedin = modern.linkedin || false;
-          channelConfig.schedule = modern.schedule;
+          
+          channelConfig.linkedin = parsed.linkedin || false;
+          channelConfig.schedule = parsed.schedule;
+          channelConfig.sequenceSteps = parsed.sequenceSteps; // Preserve full sequence
+          
+          console.log("[CampaignReview] Normalized channelConfig:", channelConfig);
         } catch (e) { console.error("Failed to parse campaign channels:", e); }
       } else if (storedChannels) {
         try { channelConfig = JSON.parse(storedChannels); } catch (e) { console.error("Failed to parse channel config:", e); }
