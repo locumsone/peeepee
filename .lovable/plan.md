@@ -1,259 +1,229 @@
 
-# Instantly v2 Email Sequence Personalization Plan
+# Multi-User Data Ownership & Job Assignment Plan
 
-## Problem Analysis
+## Overview
 
-The current `launch-campaign` edge function has a critical gap:
-
-1. **Campaign is created without sequences**: The campaign payload only includes name, email list, and schedule - but no email templates
-2. **Leads have personalization data but templates don't use it**: Each lead has `icebreaker`, `talking_points`, `email_body`, etc. in their `payload` object, but there are no sequence steps that reference these with `{{variable}}` syntax
-3. **Result**: Instantly doesn't know what emails to send because no sequence templates are defined
+This plan implements user-specific data separation for communications while maintaining shared access to jobs across the team. Each recruiter will see only their own SMS/call conversations, but jobs will be visible to everyone with clear indicators showing who is working on each job.
 
 ---
 
-## How Instantly Personalization Works
+## Database Changes
 
-Instantly uses variable substitution with double curly braces:
-- Built-in variables: `{{first_name}}`, `{{last_name}}`, `{{email}}`, `{{company_name}}`
-- Custom variables: Any field in the lead's `payload` object, e.g., `{{icebreaker}}`, `{{email_body}}`
+### 1. Create `job_assignments` Table
 
-**Current lead payload structure:**
+A new table to track which recruiters are working on which jobs:
+
 ```text
-leads: [
-  {
-    email: "dr.smith@hospital.com",
-    first_name: "John",
-    last_name: "Smith",
-    payload: {
-      icebreaker: "I noticed you trained at Mayo...",
-      talking_points: "Board certified, 10+ years...",
-      specialty: "Cardiology"
-    }
-  }
-]
+job_assignments
+├── id (uuid, primary key)
+├── job_id (uuid, foreign key to jobs.id)
+├── user_id (uuid, foreign key to auth.users)
+├── role (text: 'primary' | 'support')
+├── assigned_at (timestamp with time zone)
+├── assigned_by (uuid, nullable)
+└── created_at (timestamp with time zone)
+
+Unique constraint: (job_id, user_id)
 ```
 
-**What's missing - sequences with templates:**
-```text
-sequences: [{
-  steps: [
-    {
-      subject: "{{specialty}} Opportunity - Dr. {{last_name}}",
-      body: "Hi Dr. {{last_name}},\n\n{{email_body}}\n\nBest,\nRainey"
-    },
-    // Follow-up steps with different templates
-  ]
-}]
-```
+### 2. Update RLS Policies
+
+**SMS Conversations**: Update existing policy to filter by `recruiter_id = auth.uid()`
+
+**AI Call Logs**: Update existing policy to filter by `recruiter_id = auth.uid()`
+
+**Jobs**: Keep public read access (team-wide visibility)
+
+**Job Assignments**: All authenticated users can view, users can only manage their own assignments
 
 ---
 
-## Solution Architecture
+## Frontend Changes
 
-### Option A: Pre-Rendered Emails (Current Approach - Enhanced)
+### 1. Communications Hub - User-Specific Data
 
-Store the fully personalized email body for each candidate in `payload.email_body` and use a simple template that renders it:
+**File: `src/pages/Communications.tsx`**
 
-```text
-sequences: [{
-  steps: [
-    { subject: "{{email_subject}}", body: "{{email_body}}" },
-    { subject: "Following up - {{specialty}} in {{state}}", body: "{{followup_day3}}" },
-    // etc.
-  ]
-}]
+Update the queries to filter by current user ID:
+- SMS conversations: Add `.eq('recruiter_id', userId)` filter
+- AI call logs: Add `.eq('recruiter_id', userId)` filter
 
-leads: [{
-  email: "...",
-  payload: {
-    email_subject: "IR Opportunity - Dr. Smith - $625/hr",
-    email_body: "Hi Dr. Smith,\n\n[Full personalized email]...",
-    followup_day3: "[Full Day 3 email]...",
-    // Pre-render all follow-ups per candidate
-  }
-}]
-```
+The current user ID comes from `useAuth()` hook.
 
-**Pros:**
-- Each candidate gets their specific AI-generated content
-- Maximum personalization (icebreakers, talking points already baked in)
-- No need to change Personalization Studio flow
+### 2. Job Cards - Show Assigned Recruiters
 
-**Cons:**
-- Larger payload size
-- Must store all sequence steps per candidate
+**File: `src/components/jobs/ExpandableJobRow.tsx`**
 
-### Option B: Template Variables (Recommended)
+Add a section showing assigned team members:
+- Display avatar circles for each assigned recruiter
+- Show primary vs support distinction
+- Add "Assign" button to claim/join a job
 
-Use Instantly's variable substitution and pass structured data:
+**File: `src/pages/Jobs.tsx`**
 
-```text
-sequences: [{
-  steps: [
-    {
-      subject: "{{specialty}} Opportunity - Dr. {{last_name}} - ${{pay_rate}}/hr",
-      body: "Hi Dr. {{last_name}},\n\n{{icebreaker}}\n\nThis {{specialty}} role in {{city}}, {{state}} offers:\n- ${{pay_rate}}/hr take-home\n- {{call_status}}\n\nWould you be available for a quick call?\n\nBest,\n{{sender_name}}"
-    }
-  ]
-}]
+- Fetch job assignments alongside jobs
+- Pass assignment data to job cards
+- Add filter option: "My Jobs" vs "All Jobs"
 
-leads: [{
-  payload: {
-    icebreaker: "I noticed you trained at Mayo...",
-    pay_rate: "625",
-    call_status: "Zero call",
-    // etc.
-  }
-}]
-```
+### 3. Job Detail Page - Assignment Management
 
-**Pros:**
-- Cleaner payload structure
-- Instant can show the template in dashboard
-- Easier to modify templates without re-generating all content
+**File: `src/pages/JobDetail.tsx`**
 
-**Cons:**
-- Less flexibility for truly custom content per candidate
-- Follow-up emails would need templated variables too
+Add assignment management in the sidebar:
+- Show current assignees with their roles
+- Allow assigning/unassigning team members
+- Display "Join this job" button for unassigned users
+
+### 4. Dashboard - User Context
+
+**File: `src/pages/Dashboard.tsx`**
+
+Update to show:
+- "My Jobs" (jobs assigned to current user)
+- User's personal activity feed
+- User's communication stats
+
+### 5. New Component: `TeamMemberAvatars.tsx`
+
+A reusable component to display team member avatars:
+- Stacked avatar circles
+- Tooltip showing names and roles
+- Color coding by role (primary = green border, support = blue border)
+
+### 6. New Component: `JobAssignmentDialog.tsx`
+
+Modal for managing job assignments:
+- List of team members with checkboxes
+- Role selector (primary/support)
+- Save/cancel actions
 
 ---
 
-## Recommended Implementation
-
-**Hybrid Approach**: Use Option A for Day 1 (fully personalized) and Option B for follow-ups (template-based)
-
-### Changes Required
-
-#### 1. Update `launch-campaign` Edge Function
-
-Add sequences array to campaign creation:
+## Data Flow
 
 ```text
-// When creating Instantly campaign, include sequences
-const campaignPayload = {
-  name: campaign_name,
-  email_list: [sender_email],
-  campaign_schedule: { ... },
-  sequences: [{
-    steps: [
-      {
-        subject: "{{email_subject}}",
-        body: "{{email_body}}",
-        wait_time: 0  // Day 1
-      },
-      {
-        subject: "Clinical scope at {{facility_name}}",
-        body: "{{followup_day3}}",
-        wait_time: 2880 // 2 days in minutes
-      },
-      // Additional follow-up steps...
-    ]
-  }],
-  stop_on_reply: true
-};
+User logs in
+    │
+    ▼
+useAuth() provides user.id
+    │
+    ├──▶ Communications: Filter conversations by recruiter_id
+    │
+    ├──▶ Dashboard: Show user's jobs & personal stats
+    │
+    └──▶ Jobs List: Show all jobs with assignment indicators
+              │
+              ▼
+         User clicks "Assign" or "Join"
+              │
+              ▼
+         job_assignments table updated
+              │
+              ▼
+         UI refreshes to show new assignment
 ```
-
-#### 2. Update Lead Payload
-
-Pass all sequence content per candidate:
-
-```text
-const leadsPayload = candidates.map(candidate => ({
-  email: candidate.email,
-  first_name: candidate.first_name,
-  last_name: candidate.last_name,
-  payload: {
-    // Day 1 - from Personalization Studio
-    email_subject: candidate.email_subject,
-    email_body: candidate.email_body,
-    // Follow-ups - pre-generated in Sequence Studio
-    followup_day3: candidate.sequence_day3,
-    followup_day5: candidate.sequence_day5,
-    followup_day7: candidate.sequence_day7,
-    followup_day14: candidate.sequence_day14,
-    // Metadata for templates
-    specialty: candidate.specialty,
-    icebreaker: candidate.icebreaker,
-    facility_name: job.facility_name,
-    state: job.state,
-    pay_rate: job.pay_rate
-  }
-}));
-```
-
-#### 3. Update Frontend to Pass Sequence Data
-
-Modify `LaunchStatusBar.tsx` to include sequence steps:
-
-```text
-// Get sequence from sessionStorage
-const storedSequence = sessionStorage.getItem("campaign_sequence");
-const sequenceSteps = storedSequence ? JSON.parse(storedSequence) : [];
-
-// Add to launch payload
-const candidatePayload = candidates.map(c => ({
-  ...existingFields,
-  sequence_day3: getSequenceForCandidate(c, sequenceSteps, 3),
-  sequence_day5: getSequenceForCandidate(c, sequenceSteps, 5),
-  // etc.
-}));
-```
-
-#### 4. Persist Sequence in SequenceStudio
-
-Save sequence steps to sessionStorage when navigating to Review:
-
-```text
-sessionStorage.setItem("campaign_sequence", JSON.stringify(sequenceSteps));
-```
-
----
-
-## Files to Modify
-
-| File | Changes |
-|------|---------|
-| `supabase/functions/launch-campaign/index.ts` | Add `sequences` array to campaign creation, restructure lead payloads |
-| `src/pages/SequenceStudio.tsx` | Save sequence steps to sessionStorage on continue |
-| `src/components/campaign-review/LaunchStatusBar.tsx` | Pass sequence steps in launch payload |
-| `src/components/campaign-review/types.ts` | Add sequence types |
 
 ---
 
 ## Technical Details
 
-### Instantly v2 Sequence Schema
+### Query Updates
 
+**Communications - SMS Query:**
 ```text
-sequences: [{
-  steps: [
-    {
-      subject: string,    // Email subject with {{variables}}
-      body: string,       // Email body with {{variables}}
-      variants: [{...}],  // Optional A/B variants
-      wait_time: number   // Minutes to wait after previous step (0 for Day 1)
-    }
-  ]
-}]
+supabase
+  .from("sms_conversations")
+  .select(...)
+  .eq("recruiter_id", user.id)  // Add this filter
 ```
 
-### Wait Time Calculation
+**Jobs with Assignments:**
+```text
+supabase
+  .from("jobs")
+  .select(`
+    *,
+    job_assignments (
+      id,
+      role,
+      user_id,
+      users (
+        id,
+        name,
+        email
+      )
+    )
+  `)
+```
 
-| Day | wait_time (minutes) |
-|-----|---------------------|
-| 1   | 0                   |
-| 3   | 2880 (2 days)       |
-| 5   | 2880 (2 days)       |
-| 7   | 2880 (2 days)       |
-| 14  | 10080 (7 days)      |
+### Auto-Assignment Logic
+
+When a user sends the first SMS or makes a call to a candidate on a job:
+1. Check if job_assignment exists for this user + job
+2. If not, create assignment with role='support'
+3. This ensures the job appears in "My Jobs" after interaction
+
+### RLS Policy Examples
+
+```text
+-- SMS conversations: Users see only their own
+CREATE POLICY "Users view own sms_conversations"
+ON sms_conversations FOR SELECT
+USING (recruiter_id = auth.uid());
+
+-- Job assignments: All authenticated users can view
+CREATE POLICY "View all job assignments"
+ON job_assignments FOR SELECT
+TO authenticated
+USING (true);
+
+-- Job assignments: Users manage own assignments
+CREATE POLICY "Users manage own assignments"
+ON job_assignments FOR INSERT
+TO authenticated
+WITH CHECK (user_id = auth.uid());
+```
 
 ---
 
-## Summary
+## Files to Create/Modify
 
-The fix requires:
-1. **Add sequences to campaign creation** - Define email templates with variable placeholders
-2. **Restructure lead payloads** - Include pre-rendered content for each sequence step
-3. **Pass sequence data from frontend** - Store and forward sequence steps through the launch flow
+| File | Action | Purpose |
+|------|--------|---------|
+| `src/components/jobs/TeamMemberAvatars.tsx` | Create | Display assigned recruiters |
+| `src/components/jobs/JobAssignmentDialog.tsx` | Create | Manage job assignments |
+| `src/pages/Communications.tsx` | Modify | Add user_id filtering |
+| `src/pages/Jobs.tsx` | Modify | Fetch/display assignments |
+| `src/components/jobs/ExpandableJobRow.tsx` | Modify | Show assigned members |
+| `src/pages/JobDetail.tsx` | Modify | Add assignment management |
+| `src/pages/Dashboard.tsx` | Modify | Show user's jobs/stats |
+| Database migration | Create | Add job_assignments table + RLS |
 
-This ensures each candidate receives their specific personalized content throughout the entire 14-day sequence, not just a generic template.
+---
+
+## User Experience
+
+### Before
+- All users see all communications (mixed together)
+- No indication of who is working on each job
+- Jobs appear identical for all team members
+
+### After
+- Each user sees only their own SMS/call conversations
+- Job cards show avatars of assigned recruiters
+- "My Jobs" filter to focus on personal workload
+- Clear ownership with ability to join or leave jobs
+- Dashboard reflects individual recruiter performance
+
+---
+
+## Migration Considerations
+
+1. **Existing SMS conversations** - Will need to populate `recruiter_id` based on who sent messages (or leave null for shared access initially)
+
+2. **Existing AI calls** - Already have `recruiter_id`, should work immediately
+
+3. **Job assignments** - Initially empty; users will need to claim their jobs
+
+4. **Gradual rollout** - Add a "Show All Communications" toggle for admins to see team-wide view
+
