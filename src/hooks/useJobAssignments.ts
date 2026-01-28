@@ -37,40 +37,53 @@ export const useJobAssignments = (jobIds?: string[]): UseJobAssignmentsResult =>
     }
 
     try {
-      let query = supabase
+      // Fetch assignments
+      let assignmentQuery = supabase
         .from("job_assignments")
-        .select(`
-          id,
-          job_id,
-          user_id,
-          role,
-          assigned_at,
-          users (
-            id,
-            name,
-            email
-          )
-        `)
+        .select("id, job_id, user_id, role, assigned_at")
         .order("assigned_at", { ascending: true });
 
       if (jobIds && jobIds.length > 0) {
-        query = query.in("job_id", jobIds);
+        assignmentQuery = assignmentQuery.in("job_id", jobIds);
       }
 
-      const { data, error } = await query;
+      const { data: assignmentsData, error: assignmentError } = await assignmentQuery;
 
-      if (error) throw error;
+      if (assignmentError) throw assignmentError;
 
-      // Group by job_id
+      // Get unique user IDs from assignments
+      const userIds = [...new Set((assignmentsData || []).map(a => a.user_id))];
+      
+      // Fetch user details separately
+      let usersMap: Record<string, { id: string; name: string | null; email: string | null }> = {};
+      
+      if (userIds.length > 0) {
+        const { data: usersData, error: usersError } = await supabase
+          .from("users")
+          .select("id, name, email")
+          .in("id", userIds);
+
+        if (!usersError && usersData) {
+          usersData.forEach(u => {
+            usersMap[u.id] = u;
+          });
+        }
+      }
+
+      // Group by job_id and attach user info
       const grouped: Record<string, JobAssignment[]> = {};
-      (data || []).forEach((assignment: any) => {
+      (assignmentsData || []).forEach((assignment) => {
         const jobId = assignment.job_id;
         if (!grouped[jobId]) {
           grouped[jobId] = [];
         }
         grouped[jobId].push({
-          ...assignment,
+          id: assignment.id,
+          job_id: assignment.job_id,
+          user_id: assignment.user_id,
           role: assignment.role as "primary" | "support",
+          assigned_at: assignment.assigned_at,
+          users: usersMap[assignment.user_id] || null,
         });
       });
 
