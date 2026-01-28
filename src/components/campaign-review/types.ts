@@ -11,22 +11,36 @@ export interface Job {
   start_date?: string | null;
 }
 
+export interface SequenceStepData {
+  id: string;
+  day: number;
+  channel?: string;
+  type?: string;
+  subject?: string;
+  content: string;
+  enabled?: boolean;
+  angle?: string;
+}
+
 export interface ChannelConfig {
   email?: {
     provider?: 'instantly' | 'gmail' | 'smtp';
     sender: string;
     senderName?: string;
-    sequenceLength: number;
-    gapDays: number;
+    sequenceLength?: number;
+    gapDays?: number;
+    steps?: SequenceStepData[];
   } | null;
   sms?: {
     fromNumber: string;
-    sequenceLength: number;
+    sequenceLength?: number;
+    steps?: SequenceStepData[];
   } | null;
   aiCall?: {
     fromNumber: string;
-    callDay: number;
-    transferTo: string;
+    callDay?: number;
+    transferTo?: string;
+    steps?: SequenceStepData[];
   } | null;
   linkedin?: boolean;
   schedule?: {
@@ -36,6 +50,7 @@ export interface ChannelConfig {
     timezone: string;
     weekdaysOnly: boolean;
   };
+  sequenceSteps?: SequenceStepData[];
 }
 
 export interface SelectedCandidate {

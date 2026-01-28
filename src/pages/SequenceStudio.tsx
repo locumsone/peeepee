@@ -32,6 +32,7 @@ import {
 import { cn } from "@/lib/utils";
 import { SequenceTimeline } from "@/components/sequence/SequenceTimeline";
 import { QAPanel } from "@/components/sequence/QAPanel";
+import { useCampaignDraft } from "@/hooks/useCampaignDraft";
 
 const steps = [
   { number: 1, label: "Job" },
@@ -80,8 +81,8 @@ interface Job {
 
 interface SelectedCandidate {
   id: string;
-  first_name?: string;
-  last_name?: string;
+  first_name: string;
+  last_name: string;
   specialty?: string;
   city?: string;
   state?: string;
@@ -96,6 +97,8 @@ interface SelectedCandidate {
   email_body?: string;
   sms_message?: string;
   approved?: boolean;
+  tier?: number;
+  unified_score?: string;
 }
 
 interface SequenceStep {
@@ -933,6 +936,9 @@ ${emailSender.split('@')[0]}`;
     navigate("/campaigns/new/review");
   };
   
+  // *** Import useCampaignDraft for syncing ***
+  const { updateCandidates: syncCandidates, updateChannels: syncChannels, saveDraft } = useCampaignDraft();
+  
   // Save and proceed
   const handleNext = () => {
     const enabledSteps = sequenceSteps.filter(s => s.enabled && s.channel !== 'call');
@@ -947,19 +953,28 @@ ${emailSender.split('@')[0]}`;
       return;
     }
     
-    // Build channel config
+    // Build channel config with both formats for compatibility
+    const emailSteps = sequenceSteps.filter(s => s.channel === 'email' && s.enabled);
+    const smsSteps = sequenceSteps.filter(s => s.channel === 'sms' && s.enabled);
+    const callSteps = sequenceSteps.filter(s => s.channel === 'call' && s.enabled);
+    
     const config = {
       email: emailEnabled ? {
         sender: emailSender,
-        steps: sequenceSteps.filter(s => s.channel === 'email' && s.enabled),
+        sequenceLength: emailSteps.length,
+        gapDays: 3,
+        steps: emailSteps,
       } : null,
       sms: smsEnabled ? {
         fromNumber: "+12185628671",
-        steps: sequenceSteps.filter(s => s.channel === 'sms' && s.enabled),
+        sequenceLength: smsSteps.length,
+        steps: smsSteps,
       } : null,
       aiCall: aiCallEnabled ? {
         fromNumber: "+13055634142",
-        steps: sequenceSteps.filter(s => s.channel === 'call' && s.enabled),
+        callDay: callSteps[0]?.day || 21,
+        transferTo: "",
+        steps: callSteps,
       } : null,
       linkedin: false,
       schedule: {
@@ -972,9 +987,18 @@ ${emailSender.split('@')[0]}`;
       sequenceSteps: sequenceSteps,
     };
     
-    // Save updated candidates with any QA edits
+    console.log("[SequenceStudio] Saving config:", config);
+    console.log("[SequenceStudio] Saving candidates:", candidates.length);
+    
+    // Sync to unified draft system
+    syncCandidates(candidates);
+    syncChannels(config);
+    saveDraft();
+    
+    // Also save to legacy sessionStorage for backward compatibility
     sessionStorage.setItem("campaign_candidates", JSON.stringify(candidates));
     sessionStorage.setItem("campaign_channels", JSON.stringify(config));
+    
     navigate("/campaigns/new/review");
   };
   
