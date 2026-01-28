@@ -36,54 +36,12 @@ const steps = [
   { number: 4, label: "Review" },
 ];
 
-const senderAccounts = [
-  {
-    group: "Rainey Morris",
-    emails: [
-      "rainey@locums.one",
-      "rainey@trylocumsone.com",
-      "rainey@meetlocumsone.com",
-      "rainey@teamlocumsone.com",
-      "rainey@locumsonehq.com",
-    ],
-  },
-  {
-    group: "Parker Spring",
-    emails: [
-      "parker@locums.one",
-      "parker@trylocumsone.com",
-      "parker@meetlocumsone.com",
-      "parker@teamlocumsone.com",
-      "parker@locumsonehq.com",
-    ],
-  },
-  {
-    group: "Ali Mussabayev",
-    emails: [
-      "ali@trylocumsone.com",
-      "ali@meetlocumsone.com",
-      "ali@teamlocumsone.com",
-      "ali@locumsonehq.com",
-    ],
-  },
-  {
-    group: "Gio D'Alesio",
-    emails: [
-      "gio@locums.one",
-      "gio@trylocumsone.com",
-      "gio@meetlocumsone.com",
-      "gio@teamlocumsone.com",
-      "gio@locumsonehq.com",
-    ],
-  },
-  {
-    group: "Other",
-    emails: [
-      "info@locums.one",
-      "meow@locums.one",
-    ],
-  },
-];
+interface InstantlyAccount {
+  email: string;
+  status: string;
+  warmup_status: string;
+  daily_limit: number;
+}
 
 const recruiterOptions = [
   { value: "rainey", label: "Rainey" },
@@ -128,7 +86,9 @@ export default function CampaignChannels() {
   // Channel states
   const [emailEnabled, setEmailEnabled] = useState(true);
   const [emailProvider, setEmailProvider] = useState<'instantly' | 'gmail'>('gmail');
-  const [emailSender, setEmailSender] = useState(senderAccounts[0].emails[0]);
+  const [emailSender, setEmailSender] = useState('');
+  const [instantlyAccounts, setInstantlyAccounts] = useState<InstantlyAccount[]>([]);
+  const [instantlyLoading, setInstantlyLoading] = useState(false);
   const [gmailSender, setGmailSender] = useState('');
   const [gmailSenderName, setGmailSenderName] = useState('');
   const [emailSequence, setEmailSequence] = useState("4");
@@ -149,6 +109,32 @@ export default function CampaignChannels() {
   const [sendWindowEnd, setSendWindowEnd] = useState("5:00 PM");
   const [timezone, setTimezone] = useState("America/Chicago");
   const [weekdaysOnly, setWeekdaysOnly] = useState(true);
+
+  // Fetch Instantly accounts when provider is set to instantly
+  useEffect(() => {
+    if (emailProvider === 'instantly') {
+      const fetchInstantlyAccounts = async () => {
+        setInstantlyLoading(true);
+        try {
+          const { data, error } = await supabase.functions.invoke('fetch-instantly-accounts');
+          if (error) throw error;
+          
+          if (data?.accounts && data.accounts.length > 0) {
+            setInstantlyAccounts(data.accounts);
+            // Auto-select first account if none selected
+            if (!emailSender) {
+              setEmailSender(data.accounts[0].email);
+            }
+          }
+        } catch (err) {
+          console.error('Failed to fetch Instantly accounts:', err);
+        } finally {
+          setInstantlyLoading(false);
+        }
+      };
+      fetchInstantlyAccounts();
+    }
+  }, [emailProvider]);
 
   // Auto-populate Gmail sender from connected account
   useEffect(() => {
@@ -190,7 +176,7 @@ export default function CampaignChannels() {
             setGmailSender(draftChannels.email.sender || '');
             setGmailSenderName(draftChannels.email.senderName || '');
           } else {
-            setEmailSender(draftChannels.email.sender || senderAccounts[0].emails[0]);
+            setEmailSender(draftChannels.email.sender || '');
           }
           setEmailSequence(String(draftChannels.email.sequenceLength || 4));
           setEmailGap(String(draftChannels.email.gapDays || 3));
@@ -482,21 +468,35 @@ export default function CampaignChannels() {
                   {emailProvider === 'instantly' && (
                     <div className="space-y-2">
                       <Label>Sender Account</Label>
-                      <Select value={emailSender} onValueChange={setEmailSender}>
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {senderAccounts.map(group => (
-                            <SelectGroup key={group.group}>
-                              <SelectLabel>{group.group}</SelectLabel>
-                              {group.emails.map(email => (
-                                <SelectItem key={email} value={email}>{email}</SelectItem>
-                              ))}
-                            </SelectGroup>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      {instantlyLoading ? (
+                        <div className="h-10 flex items-center text-sm text-muted-foreground">
+                          Loading accounts...
+                        </div>
+                      ) : instantlyAccounts.length > 0 ? (
+                        <Select value={emailSender} onValueChange={setEmailSender}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select sender account" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {instantlyAccounts.map(account => (
+                              <SelectItem key={account.email} value={account.email}>
+                                <div className="flex items-center gap-2">
+                                  {account.email}
+                                  {account.warmup_status === 'active' && (
+                                    <Badge variant="secondary" className="text-xs">Warming</Badge>
+                                  )}
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : (
+                        <div className="p-3 bg-amber-500/10 rounded-lg border border-amber-500/20">
+                          <p className="text-sm text-amber-600 dark:text-amber-400">
+                            No Instantly accounts found. Add accounts in your Instantly dashboard.
+                          </p>
+                        </div>
+                      )}
                     </div>
                   )}
 
