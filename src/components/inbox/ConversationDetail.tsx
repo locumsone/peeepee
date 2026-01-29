@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { Link } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { MessageSquare, Phone, Send, Loader2, Download, Calendar, PhoneCall, MessageCircle, User, Shield, MapPin, Check, CheckCheck, X, Clock, Briefcase, History, Sparkles } from "lucide-react";
+import { MessageSquare, Phone, Send, Loader2, Download, Calendar, PhoneCall, MessageCircle, User, Shield, MapPin, Check, CheckCheck, X, Clock, Briefcase, History, Sparkles, MailOpen, Mail, CheckCircle2, MoreHorizontal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -10,6 +10,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { formatPhoneNumber } from "@/lib/formatPhone";
 import { format, isToday, isYesterday, isSameDay, isPast } from "date-fns";
@@ -597,6 +598,46 @@ export const ConversationDetail = ({ conversation }: ConversationDetailProps) =>
     },
   });
 
+  // Mark as unread
+  const markAsUnreadMutation = useMutation({
+    mutationFn: async () => {
+      if (!conversation) return;
+      await supabase
+        .from("sms_conversations")
+        .update({ unread_count: 1 })
+        .eq("id", conversation.id);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["sms-conversations"] });
+      toast.success("Marked as unread");
+    },
+    onError: () => {
+      toast.error("Failed to mark as unread");
+    },
+  });
+
+  // Clear priority (mark as handled - resets interest flags)
+  const clearPriorityMutation = useMutation({
+    mutationFn: async () => {
+      if (!conversation) return;
+      await supabase
+        .from("sms_conversations")
+        .update({ 
+          interest_detected: false, 
+          candidate_replied: false,
+          unread_count: 0 
+        })
+        .eq("id", conversation.id);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["sms-conversations"] });
+      toast.success("Marked as handled - priority cleared");
+    },
+    onError: () => {
+      toast.error("Failed to clear priority");
+    },
+  });
+
   // Auto mark as read when opening
   useEffect(() => {
     if (conversation && conversation.unreadCount > 0 && conversation.channel === "sms") {
@@ -758,6 +799,21 @@ export const ConversationDetail = ({ conversation }: ConversationDetailProps) =>
                 {format(new Date(conversation.reminderAt || conversation.snoozedUntil || ""), "MMM d")}
               </Badge>
             )}
+
+            {/* Priority indicator with clear action */}
+            {(conversation.priorityLevel === "urgent" || conversation.priorityLevel === "hot") && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs gap-1 border-orange-500/50 text-orange-400 hover:bg-orange-500/10"
+                onClick={() => clearPriorityMutation.mutate()}
+                disabled={clearPriorityMutation.isPending}
+              >
+                <CheckCircle2 className="h-3 w-3" />
+                Mark Handled
+              </Button>
+            )}
+
             <SnoozePopover 
               onSnooze={async (date) => {
                 try {
@@ -785,6 +841,39 @@ export const ConversationDetail = ({ conversation }: ConversationDetailProps) =>
               <PhoneCall className="h-3 w-3 mr-1" />
               Call
             </Button>
+
+            {/* More actions menu */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem 
+                  onClick={() => markAsUnreadMutation.mutate()}
+                  disabled={markAsUnreadMutation.isPending}
+                >
+                  <Mail className="h-4 w-4 mr-2" />
+                  Mark as Unread
+                </DropdownMenuItem>
+                <DropdownMenuItem 
+                  onClick={() => markAsReadMutation.mutate()}
+                  disabled={markAsReadMutation.isPending}
+                >
+                  <MailOpen className="h-4 w-4 mr-2" />
+                  Mark as Read
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem 
+                  onClick={() => clearPriorityMutation.mutate()}
+                  disabled={clearPriorityMutation.isPending}
+                >
+                  <CheckCircle2 className="h-4 w-4 mr-2" />
+                  Clear Priority
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </div>
