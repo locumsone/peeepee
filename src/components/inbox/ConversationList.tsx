@@ -1,10 +1,14 @@
-import { Search, MessageSquare, Phone, Loader2, Flame, Star, Snowflake, Clock, Bot, PhoneIncoming, PhoneOutgoing } from "lucide-react";
+import { Search, MessageSquare, Phone, Loader2, Flame, Star, Snowflake, Clock, Bot, PhoneIncoming, PhoneOutgoing, MailOpen, Mail, CheckCircle2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
+import { ContextMenu, ContextMenuContent, ContextMenuItem, ContextMenuSeparator, ContextMenuTrigger } from "@/components/ui/context-menu";
 import { cn } from "@/lib/utils";
 import { formatDistanceToNow, isPast, format } from "date-fns";
 import { formatPhoneNumber } from "@/lib/formatPhone";
+import { supabase } from "@/integrations/supabase/client";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import type { ConversationItem } from "@/pages/Communications";
 import type { PriorityLevel } from "./PriorityBadge";
 
@@ -39,12 +43,58 @@ export const ConversationList = ({
   onSearchChange,
   isLoading,
 }: ConversationListProps) => {
+  const queryClient = useQueryClient();
+
   const formatTimeAgo = (timestamp: string | null) => {
     if (!timestamp) return "";
     try {
       return formatDistanceToNow(new Date(timestamp), { addSuffix: false });
     } catch {
       return "";
+    }
+  };
+
+  // Action handlers for context menu
+  const handleMarkAsRead = async (conversationId: string) => {
+    try {
+      await supabase
+        .from("sms_conversations")
+        .update({ unread_count: 0 })
+        .eq("id", conversationId);
+      queryClient.invalidateQueries({ queryKey: ["sms-conversations"] });
+      toast.success("Marked as read");
+    } catch {
+      toast.error("Failed to mark as read");
+    }
+  };
+
+  const handleMarkAsUnread = async (conversationId: string) => {
+    try {
+      await supabase
+        .from("sms_conversations")
+        .update({ unread_count: 1 })
+        .eq("id", conversationId);
+      queryClient.invalidateQueries({ queryKey: ["sms-conversations"] });
+      toast.success("Marked as unread");
+    } catch {
+      toast.error("Failed to mark as unread");
+    }
+  };
+
+  const handleClearPriority = async (conversationId: string) => {
+    try {
+      await supabase
+        .from("sms_conversations")
+        .update({ 
+          interest_detected: false, 
+          candidate_replied: false,
+          unread_count: 0 
+        })
+        .eq("id", conversationId);
+      queryClient.invalidateQueries({ queryKey: ["sms-conversations"] });
+      toast.success("Priority cleared");
+    } catch {
+      toast.error("Failed to clear priority");
     }
   };
 
@@ -96,111 +146,134 @@ export const ConversationList = ({
               const priority = conversation.priorityLevel || "cold";
               const isSelected = selectedId === conversation.id;
               const reminder = getReminderDisplay(conversation.reminderAt || null, conversation.snoozedUntil || null);
+              const isSMS = conversation.channel === "sms";
 
               return (
-                <button
-                  key={conversation.id}
-                  onClick={() => onSelect(conversation)}
-                  className={cn(
-                    "w-full px-4 py-3 flex items-start gap-3 text-left transition-all",
-                    "border-b border-border/50",
-                    priorityBorderColors[priority],
-                    isSelected 
-                      ? "bg-primary/10" 
-                      : "hover:bg-muted/50"
-                  )}
-                >
-                  {/* Avatar / Channel icon with call type indicator */}
-                  <div className="relative">
-                    <div
+                <ContextMenu key={conversation.id}>
+                  <ContextMenuTrigger asChild>
+                    <button
+                      onClick={() => onSelect(conversation)}
                       className={cn(
-                        "flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center",
-                        conversation.channel === "sms"
-                          ? "bg-accent/20 text-accent"
-                          : conversation.callType === "ai" || conversation.callType === "cold_call"
-                            ? "bg-cyan-500/20 text-cyan-400"
-                            : conversation.callType === "inbound"
-                              ? "bg-success/20 text-success"
-                              : "bg-primary/20 text-primary"
+                        "w-full px-4 py-3 flex items-start gap-3 text-left transition-all",
+                        "border-b border-border/50",
+                        priorityBorderColors[priority],
+                        isSelected 
+                          ? "bg-primary/10" 
+                          : "hover:bg-muted/50"
                       )}
                     >
-                      {conversation.channel === "sms" ? (
-                        <MessageSquare className="h-4 w-4" />
-                      ) : conversation.callType === "ai" || conversation.callType === "cold_call" ? (
-                        <Bot className="h-4 w-4" />
-                      ) : conversation.callType === "inbound" ? (
-                        <PhoneIncoming className="h-4 w-4" />
-                      ) : (
-                        <PhoneOutgoing className="h-4 w-4" />
-                      )}
-                    </div>
-                    {/* Call type badge */}
-                    {conversation.channel === "call" && conversation.callType && (
-                      <div className={cn(
-                        "absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold border-2 border-card",
-                        conversation.callType === "ai" || conversation.callType === "cold_call"
-                          ? "bg-cyan-500 text-white"
-                          : conversation.callType === "inbound"
-                            ? "bg-success text-success-foreground"
-                            : "bg-primary text-primary-foreground"
-                      )}>
-                        {conversation.callType === "ai" || conversation.callType === "cold_call" ? "AI" : 
-                         conversation.callType === "inbound" ? "IN" : "OUT"}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Content */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-1.5 min-w-0">
-                        <span className="font-medium text-foreground truncate text-sm">
-                          {conversation.candidateName}
-                        </span>
-                        {priorityIcons[priority]}
-                      </div>
-                      <span className="text-[10px] text-muted-foreground flex-shrink-0">
-                        {formatTimeAgo(conversation.timestamp)}
-                      </span>
-                    </div>
-                    
-                    <p className="text-xs text-muted-foreground truncate mt-0.5">
-                      {truncatePreview(conversation.preview)}
-                    </p>
-
-                    {/* Phone number, duration, and reminder */}
-                    <div className="flex items-center justify-between gap-2 mt-1">
-                      <span className="text-[10px] text-muted-foreground/60 font-mono">
-                        {formatPhoneNumber(conversation.candidatePhone)}
-                      </span>
-                      <div className="flex items-center gap-2">
-                        {conversation.channel === "call" && conversation.duration && (
-                          <span className="text-[10px] text-muted-foreground font-mono">
-                            {Math.floor(conversation.duration / 60)}:{(conversation.duration % 60).toString().padStart(2, '0')}
-                          </span>
-                        )}
-                        {reminder && (
-                          <span className={cn(
-                            "text-[10px] flex items-center gap-0.5",
-                            reminder.isOverdue ? "text-destructive" : "text-muted-foreground"
+                      {/* Avatar / Channel icon with call type indicator */}
+                      <div className="relative">
+                        <div
+                          className={cn(
+                            "flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center",
+                            conversation.channel === "sms"
+                              ? "bg-accent/20 text-accent"
+                              : conversation.callType === "ai" || conversation.callType === "cold_call"
+                                ? "bg-cyan-500/20 text-cyan-400"
+                                : conversation.callType === "inbound"
+                                  ? "bg-success/20 text-success"
+                                  : "bg-primary/20 text-primary"
+                          )}
+                        >
+                          {conversation.channel === "sms" ? (
+                            <MessageSquare className="h-4 w-4" />
+                          ) : conversation.callType === "ai" || conversation.callType === "cold_call" ? (
+                            <Bot className="h-4 w-4" />
+                          ) : conversation.callType === "inbound" ? (
+                            <PhoneIncoming className="h-4 w-4" />
+                          ) : (
+                            <PhoneOutgoing className="h-4 w-4" />
+                          )}
+                        </div>
+                        {/* Call type badge */}
+                        {conversation.channel === "call" && conversation.callType && (
+                          <div className={cn(
+                            "absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold border-2 border-card",
+                            conversation.callType === "ai" || conversation.callType === "cold_call"
+                              ? "bg-cyan-500 text-white"
+                              : conversation.callType === "inbound"
+                                ? "bg-success text-success-foreground"
+                                : "bg-primary text-primary-foreground"
                           )}>
-                            <Clock className="h-3 w-3" />
-                            {format(new Date(conversation.reminderAt || conversation.snoozedUntil || ""), "MMM d")}
-                          </span>
+                            {conversation.callType === "ai" || conversation.callType === "cold_call" ? "AI" : 
+                             conversation.callType === "inbound" ? "IN" : "OUT"}
+                          </div>
                         )}
                       </div>
-                    </div>
-                  </div>
 
-                  {/* Unread indicator */}
-                  {conversation.unreadCount > 0 && (
-                    <div className="flex-shrink-0 w-5 h-5 rounded-full bg-primary flex items-center justify-center">
-                      <span className="text-[10px] font-bold text-primary-foreground">
-                        {conversation.unreadCount > 9 ? "9+" : conversation.unreadCount}
-                      </span>
-                    </div>
+                      {/* Content */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="font-medium text-foreground truncate text-sm">
+                              {conversation.candidateName}
+                            </span>
+                            {priorityIcons[priority]}
+                          </div>
+                          <span className="text-[10px] text-muted-foreground flex-shrink-0">
+                            {formatTimeAgo(conversation.timestamp)}
+                          </span>
+                        </div>
+                        
+                        <p className="text-xs text-muted-foreground truncate mt-0.5">
+                          {truncatePreview(conversation.preview)}
+                        </p>
+
+                        {/* Phone number, duration, and reminder */}
+                        <div className="flex items-center justify-between gap-2 mt-1">
+                          <span className="text-[10px] text-muted-foreground/60 font-mono">
+                            {formatPhoneNumber(conversation.candidatePhone)}
+                          </span>
+                          <div className="flex items-center gap-2">
+                            {conversation.channel === "call" && conversation.duration && (
+                              <span className="text-[10px] text-muted-foreground font-mono">
+                                {Math.floor(conversation.duration / 60)}:{(conversation.duration % 60).toString().padStart(2, '0')}
+                              </span>
+                            )}
+                            {reminder && (
+                              <span className={cn(
+                                "text-[10px] flex items-center gap-0.5",
+                                reminder.isOverdue ? "text-destructive" : "text-muted-foreground"
+                              )}>
+                                <Clock className="h-3 w-3" />
+                                {format(new Date(conversation.reminderAt || conversation.snoozedUntil || ""), "MMM d")}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Unread indicator */}
+                      {conversation.unreadCount > 0 && (
+                        <div className="flex-shrink-0 w-5 h-5 rounded-full bg-primary flex items-center justify-center">
+                          <span className="text-[10px] font-bold text-primary-foreground">
+                            {conversation.unreadCount > 9 ? "9+" : conversation.unreadCount}
+                          </span>
+                        </div>
+                      )}
+                    </button>
+                  </ContextMenuTrigger>
+                  
+                  {/* Right-click context menu - only for SMS conversations */}
+                  {isSMS && (
+                    <ContextMenuContent className="w-48">
+                      <ContextMenuItem onClick={() => handleMarkAsRead(conversation.id)}>
+                        <MailOpen className="h-4 w-4 mr-2" />
+                        Mark as Read
+                      </ContextMenuItem>
+                      <ContextMenuItem onClick={() => handleMarkAsUnread(conversation.id)}>
+                        <Mail className="h-4 w-4 mr-2" />
+                        Mark as Unread
+                      </ContextMenuItem>
+                      <ContextMenuSeparator />
+                      <ContextMenuItem onClick={() => handleClearPriority(conversation.id)}>
+                        <CheckCircle2 className="h-4 w-4 mr-2" />
+                        Clear Priority
+                      </ContextMenuItem>
+                    </ContextMenuContent>
                   )}
-                </button>
+                </ContextMenu>
               );
             })}
           </div>
